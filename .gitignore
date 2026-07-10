@@ -1,0 +1,13 @@
+# Book Production Hub — public GitHub Pages repo
+# Defense-in-depth: this repo should never contain secrets, but these
+# patterns are blocked anyway so an accidental drop-in can't get committed.
+.env
+.env.*
+*.key
+*.pem
+*credential*
+*secret*
+*token*
+node_modules/
+.DS_Store
+Thumbs.db

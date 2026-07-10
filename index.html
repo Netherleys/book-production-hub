@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Book Production Hub</title>
+<style>
+  body { font-family: Georgia, "Palatino Linotype", serif; background: #f7f4ef; color: #3a352e; max-width: 640px; margin: 4rem auto; padding: 0 1.5rem; line-height: 1.5; }
+  h1 { font-size: 1.6rem; }
+  .status { padding: 0.75rem 1rem; border-left: 4px solid #b8892a; background: #fff; margin: 1rem 0; }
+  .status.ok { border-left-color: #7a9e7a; }
+  .status.err { border-left-color: #b06050; }
+  button { font: inherit; padding: 0.5rem 1rem; cursor: pointer; }
+  code { background: #eee6d8; padding: 0.1em 0.35em; border-radius: 3px; }
+</style>
+</head>
+<body>
+  <h1>Book Production Hub</h1>
+  <p>Infrastructure scaffold — hosting and auth only. The full app UI (cards, accordion detail view, pipeline strip, ISBN manager) is Mia Chen's build; this page exists to confirm GitHub Pages hosting is live and that client-side Google Sign-In works before her UI is wired in.</p>
+
+  <div id="hosting-status" class="status ok">
+    <strong>Hosting:</strong> if you can read this page at its GitHub Pages URL, static hosting is confirmed live and reachable.
+  </div>
+
+  <div id="auth-status" class="status">
+    <strong>Google Sign-In:</strong> <span id="auth-status-text">not tested yet</span>
+  </div>
+
+  <button id="signin-btn">Sign in with Google (test)</button>
+
+  <p style="margin-top:2rem; font-size:0.9rem; color:#6b6459;">
+    No credentials of any kind are embedded in this page or repo. Sign-in uses
+    Google Identity Services with a public OAuth Client ID (see <code>config.js</code>) —
+    each user authenticates with their own Google account, and access to the
+    underlying Sheets is controlled entirely by Google's own sharing
+    permissions, not by anything in this repo.
+  </p>
+
+  <script src="config.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="google-auth.js"></script>
+  <script>
+    const statusBox = document.getElementById("auth-status");
+    const statusText = document.getElementById("auth-status-text");
+    document.getElementById("signin-btn").addEventListener("click", () => {
+      try {
+        BookHubAuth.signIn(
+          (token) => {
+            statusBox.className = "status ok";
+            statusText.textContent = "signed in, access token acquired (kept in memory only, never stored).";
+          },
+          (err) => {
+            statusBox.className = "status err";
+            statusText.textContent = "sign-in failed: " + (err && err.message ? err.message : JSON.stringify(err));
+            console.error(err);
+          }
+        );
+      } catch (e) {
+        statusBox.className = "status err";
+        statusText.textContent = e.message;
+      }
+    });
+  </script>
+</body>
+</html>
