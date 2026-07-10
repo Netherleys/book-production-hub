@@ -14,15 +14,13 @@
  * this Client ID in Cloud Console (locked to this GitHub Pages URL, not
  * "*"), not via a hidden credential in this repo.
  *
- * STATUS AS OF 2026-07-10: not yet created. See
- * MARCUS_BookProductionHubInfra_2026-07-10.md in Team Inbox for exact
- * steps to create it (Google Cloud Console access is required — Marcus's
- * tooling has no way to create a new OAuth client programmatically).
- * Placeholder below intentionally left empty so a missing/blank Client ID
- * fails loudly (google-auth.js checks for this) rather than silently.
+ * STATUS AS OF 2026-07-10: created by David in Google Cloud Console.
+ * Authorized JavaScript origin: https://netherleys.github.io (matches the
+ * live GitHub Pages URL). See MARCUS_BookProductionHubInfra_2026-07-10.md
+ * in Team Inbox for history.
  */
 window.BOOK_HUB_CONFIG = {
-  GOOGLE_CLIENT_ID: "", // <-- fill in once the Web application OAuth Client ID exists (see report)
+  GOOGLE_CLIENT_ID: "445657396154-qpoiogtae2vlc90cuv0pd4hgp17fv9lk.apps.googleusercontent.com",
   TITLES_SHEET_ID: "1hCCbT3TOKa7eb4EQ8WTaDoy7XQEu7J2zAeyNnSYqDMo", // "Book Production Titles" — created 2026-07-10
   PO_TRACKER_SHEET_ID: "171M_525EckIyREF1V-DcLxr_iTsO3DEV2loOGsY7uG4", // Printer_Quotes_Per_Title_Complete (existing, unmodified)
   BOOK_REVEAL_HELPER_URL: "http://127.0.0.1:8744", // local-only companion process, see book_reveal_helper.py

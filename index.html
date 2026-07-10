@@ -1,65 +1,355 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html lang="en-GB">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Book Production Hub</title>
 <style>
-  body { font-family: Georgia, "Palatino Linotype", serif; background: #f7f4ef; color: #3a352e; max-width: 640px; margin: 4rem auto; padding: 0 1.5rem; line-height: 1.5; }
-  h1 { font-size: 1.6rem; }
-  .status { padding: 0.75rem 1rem; border-left: 4px solid #b8892a; background: #fff; margin: 1rem 0; }
-  .status.ok { border-left-color: #7a9e7a; }
-  .status.err { border-left-color: #b06050; }
-  button { font: inherit; padding: 0.5rem 1rem; cursor: pointer; }
-  code { background: #eee6d8; padding: 0.1em 0.35em; border-radius: 3px; }
+:root {
+  --sage:#7a9e7a;--sage-bg:#eef5ee;--sage-border:#6a8e6a;
+  --amber:#b8892a;--amber-bg:#faf2de;--amber-border:#a87820;
+  --terra:#b06050;--terra-bg:#f7eeec;--terra-border:#a05040;
+  --bg:#f4f0e8;--bg2:#ede7da;--surface:#fff;--surface2:#faf7f2;
+  --text:#2c2420;--text2:#584f48;--text3:#8a8078;--text-muted:#aaa098;
+  --border:#dcd5c8;--border2:#c8bfb4;
+  --neutral-dot:#ccc5ba;
+  --shadow-sm:0 1px 3px rgba(0,0,0,.07);
+  --shadow-md:0 2px 8px rgba(0,0,0,.10);
+  --shadow-lg:0 4px 18px rgba(0,0,0,.13);
+  --r4:4px;--r8:8px;--r12:12px;
+  --serif:Georgia,'Palatino Linotype',Palatino,serif;
+  --sans:'Segoe UI',system-ui,Arial,sans-serif;
+  --hh:58px;--fh:36px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+/* Generic hide-by-class rule — several toggled elements (e.g. the ISBN
+   Manager's "add ISBN" inline form) only ever had classList.add('hidden')
+   applied to them with no matching CSS selector in the original
+   headpress.html this was ported from, which meant they rendered open by
+   default. Fixed here with one rule that covers every plain
+   class="hidden" element; the more specific #id.hidden rules further down
+   are redundant with this but kept for clarity at each call site. */
+.hidden{display:none}
+body{font-family:var(--sans);font-size:14px;color:var(--text);background:var(--bg);min-height:100vh;padding-top:var(--hh);padding-bottom:var(--fh)}
+a{color:var(--amber);text-decoration:none}a:hover{text-decoration:underline}
+/* ── HEADER ── */
+#app-header{position:fixed;top:0;left:0;right:0;height:var(--hh);background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 20px;z-index:100;box-shadow:var(--shadow-sm)}
+.h-logo{font-family:var(--serif);font-size:1.25rem;color:var(--text);white-space:nowrap;font-weight:normal;letter-spacing:.02em}
+.h-logo span{color:var(--amber)}
+.h-nav{display:flex;gap:2px;flex-shrink:0}
+.h-tab{padding:6px 14px;border-radius:var(--r4);font-size:.85rem;cursor:pointer;background:none;border:none;color:var(--text2);font-family:var(--sans)}
+.h-tab:hover{background:var(--bg2)}
+.h-tab.active{background:var(--amber);color:#fff;font-weight:600}
+.h-search-wrap{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
+#hdr-search{flex:1;min-width:80px;max-width:240px;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;background:var(--surface);color:var(--text)}
+.h-select{padding:5px 8px;border:1px solid var(--border);border-radius:var(--r4);font-size:.82rem;background:var(--surface);color:var(--text);cursor:pointer}
+.h-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+.btn{padding:6px 14px;border-radius:var(--r4);border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:.82rem;cursor:pointer;font-family:var(--sans);transition:background .15s}
+.btn:hover{background:var(--bg2)}
+.btn-primary{background:var(--amber);color:#fff;border-color:var(--amber-border);font-weight:600}
+.btn-primary:hover{background:var(--amber-border);color:#fff}
+.btn-sm{padding:3px 8px;font-size:.78rem}
+.btn-ghost{background:none;border:none;color:var(--text3);cursor:pointer;padding:4px 6px;font-size:.82rem}
+.btn-ghost:hover{color:var(--text)}
+.btn-danger{background:none;border:1px solid var(--terra-border);color:var(--terra);cursor:pointer;padding:3px 8px;font-size:.78rem;border-radius:var(--r4)}
+.btn-danger:hover{background:var(--terra-bg)}
+.btn[disabled]{opacity:.5;cursor:default}
+/* ── SYNC DOT ── */
+.sync-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
+.sync-dot.none{background:var(--border2)}
+.sync-dot.saving{background:var(--amber);animation:pulse .8s infinite}
+.sync-dot.saved{background:var(--sage)}
+.sync-dot.error{background:var(--terra)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+/* ── MAIN ── */
+#main{padding:20px;max-width:1400px;margin:0 auto}
+/* ── TITLES GRID ── */
+.titles-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
+.titles-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:18px}
+/* ── BOOK CARD ── */
+.book-card{background:var(--surface);border-radius:var(--r8);box-shadow:var(--shadow-md);overflow:hidden;cursor:pointer;transition:box-shadow .2s,transform .15s;position:relative;display:flex;flex-direction:column}
+.book-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px)}
+.card-attention{position:absolute;top:8px;right:8px;width:10px;height:10px;border-radius:50%;background:var(--terra);border:2px solid var(--surface);z-index:2}
+.book-cover{aspect-ratio:2/3;background:linear-gradient(135deg,#e8e0d0 0%,#d8cfc0 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
+.book-cover img{width:100%;height:100%;object-fit:cover}
+.cover-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%;padding:12px;text-align:center;gap:6px}
+.cover-ph-h{font-family:var(--serif);font-size:2rem;color:var(--border2);opacity:.6}
+.cover-ph-title{font-family:var(--serif);font-size:.75rem;color:var(--text2);line-height:1.3;word-break:break-word}
+.cover-ph-imprint{font-size:.65rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em}
+.cover-ph-folder{font-size:.68rem;color:var(--amber-border);margin-top:2px}
+.card-info{padding:10px 10px 8px;flex:1;display:flex;flex-direction:column;gap:4px}
+.card-title{font-family:var(--serif);font-size:.9rem;font-weight:normal;color:var(--text);line-height:1.3}
+.card-author{font-size:.78rem;color:var(--text2)}
+.card-meta{font-size:.75rem;color:var(--text3)}
+.card-deadline{font-size:.75rem;font-weight:600;margin-top:2px}
+.card-deadline.ok{color:var(--sage)}
+.card-deadline.warn{color:var(--amber)}
+.card-deadline.urgent{color:var(--terra)}
+.card-deadline.overdue{color:var(--terra)}
+.card-footer{padding:8px 10px;border-top:1px solid var(--border);background:var(--surface2)}
+/* ── PIPELINE STRIP ── */
+.pipeline-strip{display:flex;gap:3px;flex-wrap:wrap}
+.p-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;cursor:default}
+.p-dot.interactive{cursor:pointer;transition:transform .1s}
+.p-dot.interactive:hover{transform:scale(1.4)}
+/* ── DETAIL VIEW ── */
+.detail-back{display:inline-flex;align-items:center;gap:6px;color:var(--text2);cursor:pointer;font-size:.85rem;margin-bottom:14px;background:none;border:none;font-family:var(--sans)}
+.detail-back:hover{color:var(--amber)}
+.detail-top{display:grid;grid-template-columns:160px 1fr;gap:24px;margin-bottom:20px;background:var(--surface);border-radius:var(--r8);padding:20px;box-shadow:var(--shadow-sm)}
+.detail-cover{width:160px;height:240px;background:linear-gradient(135deg,#e8e0d0,#d8cfc0);border-radius:var(--r4);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
+.detail-info{display:flex;flex-direction:column;gap:8px;min-width:0}
+.detail-title-text{font-family:var(--serif);font-size:1.5rem;font-weight:normal;color:var(--text);line-height:1.2}
+.detail-subtitle-text{font-family:var(--serif);font-size:1rem;color:var(--text2);font-style:italic}
+.detail-author-text{font-size:.9rem;color:var(--text2)}
+.detail-meta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--text3)}
+.status-badge{padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.badge-inprogress{background:var(--amber-bg);color:var(--amber-border)}
+.badge-notscheduled{background:var(--bg2);color:var(--text3)}
+.badge-complete{background:var(--sage-bg);color:var(--sage-border)}
+.badge-released{background:#e8f0f8;color:#3a6a9a}
+.detail-strip-wrap{margin-top:8px}
+.detail-strip-label{font-size:.72rem;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
+.detail-strip{display:flex;gap:4px;flex-wrap:wrap}
+.detail-p-dot{width:12px;height:12px;border-radius:50%;cursor:pointer;transition:transform .1s,box-shadow .1s;position:relative}
+.detail-p-dot:hover{transform:scale(1.3);box-shadow:0 0 0 2px var(--border2)}
+.detail-p-dot[title]:hover::after{content:attr(title);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:var(--text);color:#fff;font-size:.7rem;padding:2px 6px;border-radius:3px;white-space:nowrap;z-index:10;pointer-events:none}
+/* ── FOLDER LINKS ROW (new fields) ── */
+.folder-links-row{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+.folder-link-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}
+.folder-link-group label.field-label{font-size:.72rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+.folder-link-row{display:flex;gap:6px;align-items:center}
+.folder-link-row input{flex:1;min-width:0}
+/* ── ACCORDION ── */
+.accordion{display:flex;flex-direction:column;gap:8px}
+.accord-section{background:var(--surface);border-radius:var(--r8);box-shadow:var(--shadow-sm);overflow:hidden}
+.accord-header{display:flex;align-items:center;gap:0;cursor:pointer;user-select:none;border-left:4px solid var(--border2)}
+.accord-header.stripe-complete{border-left-color:var(--sage)}
+.accord-header.stripe-partial{border-left-color:var(--amber)}
+.accord-header.stripe-overdue{border-left-color:var(--terra)}
+.accord-header-inner{display:flex;align-items:center;justify-content:space-between;flex:1;padding:12px 16px}
+.accord-label{font-family:var(--serif);font-size:.95rem;color:var(--text)}
+.accord-arrow{font-size:1.1rem;color:var(--text3);transition:transform .2s;display:inline-block}
+.accord-arrow.open{transform:rotate(90deg)}
+.accord-body{display:none;padding:16px;border-top:1px solid var(--border)}
+.accord-body.open{display:block}
+/* ── FORM FIELDS ── */
+.field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
+.field-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 14px}
+.field-group{display:flex;flex-direction:column;gap:4px}
+.field-group.full{grid-column:1/-1}
+label.field-label{font-size:.78rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+input[type=text],input[type=date],input[type=number],input[type=url],input[type=email],select,textarea{width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.87rem;font-family:var(--sans);color:var(--text);background:var(--surface);transition:border-color .15s}
+input[type=text]:focus,input[type=date]:focus,input[type=number]:focus,input[type=url]:focus,input[type=email]:focus,select:focus,textarea:focus{outline:none;border-color:var(--amber)}
+input[readonly]{background:var(--bg);color:var(--text3);cursor:default}
+textarea{resize:vertical;min-height:80px;line-height:1.5}
+textarea.tall{min-height:130px}
+.field-row{display:flex;align-items:center;gap:8px}
+.field-row input[type=text]{flex:1}
+.isbn-row{display:flex;align-items:center;gap:6px}
+.isbn-row input{flex:1;min-width:0}
+/* ── CHECKLIST ── */
+.checklist{display:flex;flex-direction:column;gap:6px}
+.check-item{display:flex;align-items:flex-start;gap:8px;padding:4px 0}
+.check-item input[type=checkbox]{margin-top:2px;flex-shrink:0;accent-color:var(--sage);width:15px;height:15px;cursor:pointer}
+.check-item label{font-size:.85rem;color:var(--text);cursor:pointer;line-height:1.4}
+.check-item.done label{text-decoration:line-through;color:var(--text3)}
+/* ── PIPELINE STAGES ── */
+.stages-table{width:100%;border-collapse:collapse}
+.stages-table th{font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;padding:0 8px 6px;text-align:left;border-bottom:1px solid var(--border);font-weight:600}
+.stages-table td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
+.stages-table tr:last-child td{border-bottom:none}
+.stage-name-cell{font-size:.85rem;color:var(--text);width:170px;white-space:nowrap}
+.stage-num{font-size:.72rem;color:var(--text3);margin-right:4px}
+.stage-btn{padding:3px 10px;border-radius:12px;border:none;cursor:pointer;font-size:.78rem;font-weight:600;font-family:var(--sans);white-space:nowrap;transition:background .15s}
+.stage-not-started{background:var(--bg2);color:var(--text3)}
+.stage-in-progress{background:var(--amber-bg);color:var(--amber-border)}
+.stage-complete{background:var(--sage-bg);color:var(--sage-border)}
+.stage-date-input,.stage-notes-input{padding:4px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.8rem;color:var(--text);background:var(--surface);font-family:var(--sans)}
+.stage-date-input:focus,.stage-notes-input:focus{outline:none;border-color:var(--amber)}
+.stage-date-input{width:130px}
+.stage-notes-input{width:100%;min-width:120px}
+/* ── ISBN TABLE ── */
+.isbn-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.isbn-table{width:100%;border-collapse:collapse;background:var(--surface);border-radius:var(--r8);overflow:hidden;box-shadow:var(--shadow-sm)}
+.isbn-table th{background:var(--bg2);font-size:.75rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:10px 14px;text-align:left;font-weight:600}
+.isbn-table td{padding:8px 14px;border-top:1px solid var(--border);font-size:.85rem;color:var(--text);vertical-align:middle}
+.isbn-table tr:hover td{background:var(--surface2)}
+.isbn-legacy{color:var(--text-muted);font-style:italic}
+.isbn-assign-cell{display:flex;align-items:center;gap:8px}
+.isbn-badge{padding:2px 8px;border-radius:10px;font-size:.72rem;font-weight:600;text-transform:uppercase}
+.isbn-badge-pbk{background:#e8e0f0;color:#6a4a9a}
+.isbn-badge-ebk{background:#e0eef8;color:#2a5a8a}
+.isbn-badge-hbk{background:#f0ece0;color:#6a5a2a}
+.isbn-badge-other{background:var(--bg2);color:var(--text3)}
+/* ── FILES & LINKS / PRINTER CONTACTS ── */
+.links-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+.link-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:var(--r4);border:1px solid var(--border)}
+.link-item a{flex:1;font-size:.85rem;color:var(--amber);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.link-label{font-size:.78rem;color:var(--text2);min-width:80px;flex-shrink:0}
+.add-link-form{display:grid;grid-template-columns:1fr 2fr auto;gap:8px;align-items:end;margin-top:8px}
+.add-link-form label{font-size:.75rem;color:var(--text3)}
+.printer-contacts{display:flex;flex-direction:column;gap:6px}
+.printer-row{display:flex;gap:8px;align-items:center}
+.printer-row input{flex:1}
+.printer-row input.pname{max-width:180px;flex:0 0 180px}
+/* ── PO TRACKER SECTION ── */
+.po-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:10px}
+.po-table th{font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:0 8px 6px;text-align:left;border-bottom:1px solid var(--border);font-weight:600}
+.po-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.po-empty{color:var(--text3);font-size:.85rem;padding:10px 0}
+.po-status-pill{padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600}
+.po-status-ordered{background:var(--amber-bg);color:var(--amber-border)}
+.po-status-paid{background:var(--sage-bg);color:var(--sage-border)}
+.po-status-other{background:var(--bg2);color:var(--text3)}
+/* ── MODALS ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.hidden{display:none}
+.modal{background:var(--surface);border-radius:var(--r12);padding:24px;max-width:560px;width:100%;max-height:80vh;overflow-y:auto;box-shadow:var(--shadow-lg)}
+.modal h3{font-family:var(--serif);font-size:1.15rem;font-weight:normal;margin-bottom:14px;color:var(--text)}
+.modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
+.modal-field{margin-bottom:12px}
+.modal-field label{display:block;font-size:.78rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+/* ── AUTH OVERLAY ── */
+#auth-overlay{position:fixed;inset:0;background:rgba(244,240,232,.97);z-index:300;display:flex;align-items:center;justify-content:center}
+#auth-overlay.hidden{display:none}
+.auth-card{background:var(--surface);border-radius:var(--r12);padding:36px 40px;max-width:480px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
+.auth-card h2{font-family:var(--serif);font-size:1.5rem;font-weight:normal;margin-bottom:12px;color:var(--text)}
+.auth-card p{font-size:.9rem;color:var(--text2);margin-bottom:20px;line-height:1.6}
+.auth-error{background:var(--terra-bg);color:var(--terra-border);border-radius:var(--r4);padding:10px 14px;font-size:.82rem;text-align:left;margin-bottom:16px;line-height:1.5}
+.auth-dev{margin-top:18px;padding-top:16px;border-top:1px dashed var(--border)}
+.auth-dev p{font-size:.78rem;color:var(--text3);margin-bottom:8px}
+/* ── RECONNECT BANNER ── */
+#reconnect-banner{background:var(--terra-bg);border-bottom:1px solid var(--terra-border);padding:8px 20px;font-size:.85rem;color:var(--terra-border);text-align:center;display:flex;align-items:center;justify-content:center;gap:12px;position:fixed;top:var(--hh);left:0;right:0;z-index:99}
+#reconnect-banner.hidden{display:none}
+/* ── FOOTER ── */
+#app-footer{position:fixed;bottom:0;left:0;right:0;height:var(--fh);background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:10px;font-size:.78rem;color:var(--text3);z-index:100}
+.footer-spacer{flex:1}
+/* ── EMPTY STATE ── */
+.empty-state{text-align:center;padding:60px 20px;color:var(--text3)}
+.empty-state h3{font-family:var(--serif);font-weight:normal;font-size:1.1rem;margin-bottom:8px;color:var(--text2)}
 </style>
 </head>
 <body>
-  <h1>Book Production Hub</h1>
-  <p>Infrastructure scaffold — hosting and auth only. The full app UI (cards, accordion detail view, pipeline strip, ISBN manager) is Mia Chen's build; this page exists to confirm GitHub Pages hosting is live and that client-side Google Sign-In works before her UI is wired in.</p>
 
-  <div id="hosting-status" class="status ok">
-    <strong>Hosting:</strong> if you can read this page at its GitHub Pages URL, static hosting is confirmed live and reachable.
+<div id="reconnect-banner" class="hidden">
+  <span id="reconnect-msg">Save failed — see console.</span>
+  <button class="btn-ghost" onclick="document.getElementById('reconnect-banner').classList.add('hidden')">&#10005;</button>
+</div>
+
+<header id="app-header">
+  <div class="h-logo">Book <span>Production Hub</span></div>
+  <nav class="h-nav">
+    <button class="h-tab active" id="tab-titles" onclick="gotoTitles()">All Titles</button>
+    <button class="h-tab" id="tab-isbns" onclick="gotoISBNs()">ISBN Manager</button>
+  </nav>
+  <div class="h-search-wrap" id="search-wrap">
+    <input type="text" id="hdr-search" placeholder="Search titles, authors…" oninput="onSearch(this.value)">
+    <select class="h-select" id="filter-status" onchange="onFilterStatus(this.value)">
+      <option value="">All Statuses</option>
+      <option value="In Progress">In Progress</option>
+      <option value="Not Scheduled">Not Scheduled</option>
+      <option value="Complete">Complete</option>
+      <option value="Released">Released</option>
+    </select>
+    <select class="h-select" id="filter-imprint" onchange="onFilterImprint(this.value)">
+      <option value="">All Imprints</option>
+      <option value="Headpress">Headpress</option>
+      <option value="Oil and Water Press">Oil and Water Press</option>
+    </select>
   </div>
-
-  <div id="auth-status" class="status">
-    <strong>Google Sign-In:</strong> <span id="auth-status-text">not tested yet</span>
+  <div class="h-actions">
+    <button class="btn btn-primary btn-sm" id="btn-add-title" onclick="openAddTitle()">+ Add Title</button>
+    <button class="btn btn-sm" onclick="openTodoistModal()">Push to Todoist</button>
+    <span id="whoami" style="font-size:.78rem;color:var(--text3)"></span>
+    <span class="sync-dot none" id="sync-dot" title="Sync status"></span>
   </div>
+</header>
 
-  <button id="signin-btn">Sign in with Google (test)</button>
+<main id="main"></main>
 
-  <p style="margin-top:2rem; font-size:0.9rem; color:#6b6459;">
-    No credentials of any kind are embedded in this page or repo. Sign-in uses
-    Google Identity Services with a public OAuth Client ID (see <code>config.js</code>) —
-    each user authenticates with their own Google account, and access to the
-    underlying Sheets is controlled entirely by Google's own sharing
-    permissions, not by anything in this repo.
-  </p>
+<!-- Auth overlay -->
+<div id="auth-overlay">
+  <div class="auth-card">
+    <h2>Book Production Hub</h2>
+    <p>Sign in with the Google account David has shared the <strong>Book Production Titles</strong> sheet with. Access to your data is controlled entirely by that sheet's own sharing permissions.</p>
+    <div id="auth-error" class="auth-error" style="display:none"></div>
+    <button class="btn btn-primary" id="auth-signin-btn" onclick="doSignIn()">Sign in with Google</button>
+    <div class="auth-dev">
+      <p>Building/testing locally before the Google Client ID exists? Preview the UI with sample data (no sign-in, nothing is saved):</p>
+      <button class="btn-ghost" onclick="loadDevSampleData()">Load sample data (dev preview)</button>
+    </div>
+  </div>
+</div>
 
-  <script src="config.js"></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
-  <script src="google-auth.js"></script>
-  <script>
-    const statusBox = document.getElementById("auth-status");
-    const statusText = document.getElementById("auth-status-text");
-    document.getElementById("signin-btn").addEventListener("click", () => {
-      try {
-        BookHubAuth.signIn(
-          (token) => {
-            statusBox.className = "status ok";
-            statusText.textContent = "signed in, access token acquired (kept in memory only, never stored).";
-          },
-          (err) => {
-            statusBox.className = "status err";
-            statusText.textContent = "sign-in failed: " + (err && err.message ? err.message : JSON.stringify(err));
-            console.error(err);
-          }
-        );
-      } catch (e) {
-        statusBox.className = "status err";
-        statusText.textContent = e.message;
-      }
-    });
-  </script>
+<!-- Todoist modal -->
+<div id="todoist-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Items to add to Todoist</h3>
+    <p style="font-size:.82rem;color:var(--text3);margin-bottom:10px">Copy and paste into Todoist — priority noted in brackets.</p>
+    <textarea id="todoist-text" readonly style="width:100%;min-height:220px;font-family:var(--sans);font-size:.85rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--r4);padding:12px;color:var(--text);resize:vertical"></textarea>
+    <div class="modal-footer">
+      <button class="btn" onclick="copyTodoist()">Copy to Clipboard</button>
+      <button class="btn btn-primary" onclick="document.getElementById('todoist-modal').classList.add('hidden')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ISBN pool modal -->
+<div id="isbn-pool-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Assign ISBN from Pool</h3>
+    <p id="isbn-assign-label" style="font-size:.82rem;color:var(--text3);margin-bottom:12px"></p>
+    <div style="margin-bottom:10px;display:flex;gap:8px;flex-wrap:wrap">
+      <label style="font-size:.82rem"><input type="radio" name="isbnfmt" value="" checked onchange="renderISBNPoolList()"> All</label>
+      <label style="font-size:.82rem"><input type="radio" name="isbnfmt" value="PBK" onchange="renderISBNPoolList()"> PBK</label>
+      <label style="font-size:.82rem"><input type="radio" name="isbnfmt" value="EBK" onchange="renderISBNPoolList()"> EBK</label>
+      <label style="font-size:.82rem"><input type="radio" name="isbnfmt" value="HBK" onchange="renderISBNPoolList()"> HBK</label>
+    </div>
+    <div id="isbn-pool-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r4)"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="document.getElementById('isbn-pool-modal').classList.add('hidden')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add title modal -->
+<div id="add-title-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Add New Title</h3>
+    <div class="modal-field"><label>Title *</label><input type="text" id="new-title" placeholder="Title"></div>
+    <div class="modal-field"><label>Subtitle</label><input type="text" id="new-subtitle" placeholder="Subtitle"></div>
+    <div class="modal-field"><label>Author(s)</label><input type="text" id="new-authors" placeholder="Author name(s)"></div>
+    <div class="modal-field"><label>Imprint</label>
+      <select id="new-imprint">
+        <option value="Headpress">Headpress</option>
+        <option value="Oil and Water Press">Oil and Water Press</option>
+      </select>
+    </div>
+    <div class="modal-field"><label>Status</label>
+      <select id="new-status">
+        <option value="Not Scheduled">Not Scheduled</option>
+        <option value="In Progress">In Progress</option>
+        <option value="Complete">Complete</option>
+        <option value="Released">Released</option>
+      </select>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="document.getElementById('add-title-modal').classList.add('hidden')">Cancel</button>
+      <button class="btn btn-primary" onclick="confirmAddTitle()">Add Title</button>
+    </div>
+  </div>
+</div>
+
+<footer id="app-footer">
+  <span class="sync-dot none" id="footer-sync-dot"></span>
+  <span id="footer-sync-label">Not signed in</span>
+  <span class="footer-spacer"></span>
+  <span id="footer-last-saved"></span>
+</footer>
+
+<script src="config.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="google-auth.js"></script>
+<script src="app.js"></script>
 </body>
 </html>
