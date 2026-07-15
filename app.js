@@ -577,16 +577,31 @@ function renderDetail(){
 // real title's folder link first and both require the same kind of auth
 // dependency as a full Graph integration, so this deliberately trades one
 // manual paste-in step per title for something that can never silently
-// break. Any direct, publicly-fetchable image URL works — OneDrive only if
-// the specific file (not folder) is shared "Anyone with the link", or
-// anywhere else David prefers to host it.
+// break.
+//
+// UPDATE 2026-07-15 (same day): a real David-pasted 1drv.ms link
+// (JACKsploitation) turned out NOT to work — 1drv.ms short links resolve to
+// OneDrive's HTML viewer page (onedrive.live.com/?qt=allmyphotos...), not
+// raw image bytes, so <img src> gets HTML (or a 403 when unauthenticated)
+// and silently falls back to the placeholder. Confirmed live by fetching
+// the exact URL and inspecting the redirect chain/content-type. So: for the
+// 26 launch titles this field is now bulk-populated with repo-relative
+// paths (covers/<title_id>.jpg, committed straight into this repo's
+// /covers/ folder from David's locally-synced OneDrive
+// "_IMAGES & COVERS & LOGOS" folders — no OneDrive link, no auth, nothing
+// that can break while David's away from his desk) rather than pasted
+// OneDrive share links. type="text" (not "url") so a relative path like
+// that doesn't trip native browser URL-validation styling. A plain
+// publicly-hosted absolute URL still works fine in this field for any
+// future title — a 1drv.ms/onedrive.live.com share link will NOT, per the
+// above; use a direct file host or add the image to /covers/ instead.
 function renderFolderLinksRow(t){
   const id=t.id;
   return `<div class="folder-links-row">
     <div class="folder-link-group">
       <label class="field-label">Cover Image URL</label>
       <div class="folder-link-row">
-        <input type="url" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="https://… (direct link to one image file)" oninput="onCoverUrlChange('${id}',this.value)">
+        <input type="text" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="covers/title-id.jpg, or a direct image URL (NOT a 1drv.ms/OneDrive share link — see code comment)" oninput="onCoverUrlChange('${id}',this.value)">
       </div>
     </div>
     <div class="folder-link-group">
