@@ -72,6 +72,21 @@ let poTabGidCache = null; // tabName(lowercase) -> {gid, title}
 
 // ─── HELPERS (unchanged from headpress.html) ───
 function esc(s){ if(s==null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+// JSON-encode a string for safe use as the RHS of a JS assignment inside an
+// HTML attribute (e.g. onerror="this.x=THIS"). JSON.stringify handles JS
+// string-literal escaping (quotes, backslashes); we additionally
+// HTML-entity-escape the resulting double quotes so they can't prematurely
+// close the surrounding double-quoted HTML attribute — the browser decodes
+// &quot; back to " before the JS ever runs, so the string comes through
+// intact. Safe here because coverPhHtml() only emits esc()-escaped text.
+function escAttrJson(s){ return JSON.stringify(s).replace(/"/g,'&quot;'); }
+// Placeholder cover — same as the original app, plus a small folder
+// indicator if an images folder link exists. Used both as the default (no
+// coverThumbnailFile URL set) and as the onerror fallback if a set URL
+// fails to load (expired/renamed file, host down, etc.) — see renderCard().
+function coverPhHtml(t){
+  return `<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div><div class="cover-ph-imprint">${esc(t.imprint)}</div>${t.imagesFolderLink?'<div class="cover-ph-folder">&#128193; images linked</div>':''}</div>`;
+}
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2); }
 function getTitle(id){ return data.titles.find(t=>t.id===id)||null; }
 function daysUntil(ds){ if(!ds) return null; const d=new Date(ds); d.setHours(0,0,0,0); const t=new Date(); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
@@ -453,12 +468,25 @@ function renderTitles(){
 }
 function renderCard(t){
   const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention"></div>':'';
-  // No reliable way to render an actual thumbnail image from an arbitrary
-  // OneDrive FOLDER share link + filename without a Graph API integration
-  // (out of scope here — flagged in the build report, not silently faked).
-  // Placeholder cover, same as the original app, plus a small folder
-  // indicator if an images folder link exists.
-  const cover = `<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div><div class="cover-ph-imprint">${esc(t.imprint)}</div>${t.imagesFolderLink?'<div class="cover-ph-folder">&#128193; images linked</div>':''}</div>`;
+  // Real thumbnails, 2026-07-15 — investigated three options (see build
+  // report): (A) Microsoft Graph API OAuth integration, (B) OneDrive's
+  // anonymous-share thumbnail endpoint. Both dead-ended on the same
+  // problem: tested live against JACKsploitation's actual imagesFolderLink
+  // (the one real title with a folder link populated) — the folder 403s to
+  // an unauthenticated fetch, and Graph's /shares/{id}/driveItem endpoint
+  // now requires a bearer token even for "anyone" links regardless of the
+  // link's own sharing setting. Both options collapse into "stand up a
+  // second Microsoft OAuth app" — the same cost as Option A, for either
+  // choice, on top of today's Google OAuth saga. So: (C) coverThumbnailFile
+  // is repurposed from "filename within the folder" (Graph-dependent, never
+  // implemented) to a plain direct image URL David pastes in per title —
+  // zero new auth, zero API dependency, renders with a plain <img>, and
+  // fails safe (onerror below) straight back to the placeholder if the URL
+  // ever breaks while David's away from his desk. One extra manual step per
+  // title, traded for something that can't silently stop working.
+  const cover = t.coverThumbnailFile
+    ? `<img src="${esc(t.coverThumbnailFile)}" alt="${esc(t.title)} cover" loading="lazy" onerror="this.outerHTML=${escAttrJson(coverPhHtml(t))}">`
+    : coverPhHtml(t);
   const strip=t.pipeline.stages.map(s=>`<div class="p-dot" style="background:${dotColor(s.status)}" title="${esc(s.name)}: ${esc(s.status)}"></div>`).join('');
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   let deadlineHtml='';
@@ -497,13 +525,19 @@ function renderDetail(){
     daysHtml=`<span class="card-deadline ${cls}" style="font-size:.85rem">${days<0?'OVERDUE':days+' days to print'}</span>`;
   }
   const badgeClass={'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled','Complete':'badge-complete','Released':'badge-released'}[t.status]||'badge-notscheduled';
-  const coverHtml=`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`;
+  // 2026-07-15: real thumbnail if a Cover Image URL is set (see renderCard()
+  // for why this is a pasted direct URL rather than a Graph API fetch),
+  // same onerror fallback pattern as the card grid.
+  const coverPlaceholder=`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`;
+  const coverHtml=t.coverThumbnailFile
+    ? `<img src="${esc(t.coverThumbnailFile)}" alt="${esc(t.title)} cover" onerror="this.outerHTML=${escAttrJson(coverPlaceholder)}">`
+    : coverPlaceholder;
   const detailStrip=t.pipeline.stages.map((s,i)=>`<div class="detail-p-dot" style="background:${dotColor(s.status)}" title="${esc(s.name)}: ${esc(s.status)}" onclick="cycleStage('${t.id}',${i})"></div>`).join('');
   const accordionHtml=SECTION_KEYS.map(k=>renderAccordionSection(t,k)).join('');
   main.innerHTML=`
     <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
     <div class="detail-top">
-      <div class="detail-cover" title="Cover images are managed in the linked images folder, not uploaded here — see brief §3">${coverHtml}</div>
+      <div class="detail-cover" title="Set the Cover Image URL below to show a real thumbnail here">${coverHtml}</div>
       <div class="detail-info">
         <div class="detail-title-text">${esc(t.title)}</div>
         ${t.subtitle?`<div class="detail-subtitle-text">${esc(t.subtitle)}</div>`:''}
@@ -534,9 +568,27 @@ function renderDetail(){
 // New fields from brief §3: images folder link + working folder link
 // (reveal helper). Placed on the always-visible top panel per the brief's
 // instruction to add them to "the title detail view".
+//
+// Cover Image URL (added 2026-07-15): a direct link to a single image file,
+// separate from the Images Folder link above (which stays a plain folder
+// link David opens by hand — no thumbnail rendering happens from it). See
+// the long comment in renderCard() for why: a Microsoft Graph API OAuth app
+// and OneDrive's "anonymous" thumbnail endpoint were both tried against a
+// real title's folder link first and both require the same kind of auth
+// dependency as a full Graph integration, so this deliberately trades one
+// manual paste-in step per title for something that can never silently
+// break. Any direct, publicly-fetchable image URL works — OneDrive only if
+// the specific file (not folder) is shared "Anyone with the link", or
+// anywhere else David prefers to host it.
 function renderFolderLinksRow(t){
   const id=t.id;
   return `<div class="folder-links-row">
+    <div class="folder-link-group">
+      <label class="field-label">Cover Image URL</label>
+      <div class="folder-link-row">
+        <input type="url" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="https://… (direct link to one image file)" oninput="onCoverUrlChange('${id}',this.value)">
+      </div>
+    </div>
     <div class="folder-link-group">
       <label class="field-label">Images Folder (OneDrive)</label>
       <div class="folder-link-row">
@@ -552,6 +604,19 @@ function renderFolderLinksRow(t){
       </div>
     </div>
   </div>`;
+}
+// Updates the field, saves, and refreshes the visible detail-cover thumbnail
+// immediately (rather than waiting on the next full renderDetail()) so
+// David gets instant feedback that the URL he pasted actually renders.
+function onCoverUrlChange(titleId,value){
+  fc(titleId,'coverThumbnailFile',value);
+  const t=getTitle(titleId);if(!t)return;
+  const coverEl=document.querySelector('.detail-cover');
+  if(!coverEl)return;
+  const placeholder=`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`;
+  coverEl.innerHTML = value
+    ? `<img src="${esc(value)}" alt="${esc(t.title)} cover" onerror="this.outerHTML=${escAttrJson(placeholder)}">`
+    : placeholder;
 }
 function openImagesFolder(titleId){
   const t=getTitle(titleId);if(!t||!t.imagesFolderLink){alert('No images folder link set for this title yet.');return;}
