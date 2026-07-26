@@ -28,6 +28,16 @@ const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets/';
 // Sheet on 2026-07-10 (40 columns, A:AN). Keep this in lockstep with the
 // Sheet — if Marcus/Fred ever add or reorder columns, this array (and the
 // row<->object mapping functions below) need updating to match.
+// 2026-07-26 (Mia Chen, UI revision pass): added 'blockId' (col 41/AO —
+// existed live in the Sheet already for the Blocks-tab feature, but was
+// never actually mapped here, so the app has silently never read/written it
+// until now — needed for the new release-Block filter, item 4) and
+// 'quickNotes_json' (col 42/AP — brand new column, added to the live Sheet
+// this session for the new Quick Note capture feature, item 32). Read/write
+// ranges below (sheetsGet/sheetsPut calls) were widened from AN to AP to
+// match — the old AN-capped range silently truncated blockId even when it
+// existed, which is part of why the Blocks filter was never buildable
+// before now.
 const TITLE_COLS = [
   'title_id','title','subtitle','author','authorLiaison','imprint','status',
   'planningSheet','releaseBlock','streetDate','softDate','printDate','printDateAutoCalc',
@@ -36,14 +46,30 @@ const TITLE_COLS = [
   'imagesFolderLink','workingFolderLink','coverThumbnailFile',
   'poTrackerIsbnKey','poTrackerTitleOverride','bookBiblePresent','lastUpdated',
   'price_json','production_json','publicity_json','editorial_json','authorInfo_json',
-  'productionNotes_json','printerContacts_json','filesLinks_json'
+  'productionNotes_json','printerContacts_json','filesLinks_json',
+  'blockId','quickNotes_json'
 ];
+const TITLE_RANGE_LAST_COL = 'AP'; // keep in lockstep with TITLE_COLS.length (42)
 const ISBN_COLS = ['isbn','format','assignedToTitleId','assignedToTitleName','nielsenNotified','legacyArchived'];
 
-const PIPELINE_STAGES = ['Contract','Manuscript','Cover','Cover Templates','Images',
-  'Proofing','Layout','Author Payment','Author Copies','Publicity Statement',
-  'Info SCB','Info Turnaround','Product Page','Promo Film','Print Estimate',
-  'eBook','Audiobook','Amazon A+','PLS.ORG','Newsletter'];
+// Pipeline stages, grouped for the reworked chained/boxed layout (items
+// 25/26). Grouping + labels read directly from the row-blocking pattern in
+// David's original "Book Planning 2025" Google Sheet (Team Inbox/_Bin,
+// per-year tabs) — light/dark grey banding groups: Setup, Production,
+// Payment, Marketing Detail, Contacts, Formats, Extras. That sheet has no
+// exact "Overview" stage-group (dates/status live in their own Dates box
+// here, not Pipeline), so the stage groups below start from its "Contract"
+// row onward. No gap within a group (reads as one connected chain); a
+// visible gap between groups, matching the blank spacer rows in that sheet.
+const PIPELINE_GROUPS = [
+  { label:'Setup', stages:['Contract','Publicity Statement'] },
+  { label:'Production', stages:['Cover','Cover Templates','Manuscript','Images','Proofing','Layout'] },
+  { label:'Payment', stages:['Author Payment','Author Copies'] },
+  { label:'Marketing Detail', stages:['Info Turnaround','Info SCB','Product Page','Promo Film'] },
+  { label:'Formats', stages:['Print Estimate','eBook','Audiobook'] },
+  { label:'Extras', stages:['Amazon A+','PLS.ORG','Newsletter'] }
+];
+const PIPELINE_STAGES = PIPELINE_GROUPS.reduce((a,g)=>a.concat(g.stages),[]);
 const PROD_CHECKLIST = [
   'Make copy of file before starting to edit','Change font to TNR or Arial',
   'Check headings (Navigation) with contents list','Remove empty spaces',
@@ -64,7 +90,9 @@ const PRINTER_DEF = [
 // ─── STATE ───
 let data = { titles: [], isbns: [] };
 let view = 'titles', selectedId = null, saveTimer = null, syncStatus = 'none';
-let accordionOpen = {}, filters = { status:'', imprint:'', search:'' }, isbnFilter = 'all';
+let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', printTiming:'' }, isbnFilter = 'all';
+let isbnLocked = {}; // titleId -> {isbnPbk:bool, isbnHbk:bool, isbnEbk:bool} — true = locked (default). Item 18 lock mechanism, session-only by design (see build report).
+let qnOpen = false;
 let assignCtx = null;
 let devMode = false; // true when previewing with sample data, no network writes
 let poLogRowsCache = null; // lazy-loaded PO Log rows from the PO tracker sheet
@@ -84,18 +112,42 @@ function escAttrJson(s){ return JSON.stringify(s).replace(/"/g,'&quot;'); }
 // indicator if an images folder link exists. Used both as the default (no
 // coverThumbnailFile URL set) and as the onerror fallback if a set URL
 // fails to load (expired/renamed file, host down, etc.) — see renderCard().
+// 2026-07-26: imprint is no longer shown as text anywhere on the card (item
+// 6 — colour-code instead, see .book-card[data-imprint] in index.html) —
+// dropped the old .cover-ph-imprint text line from the placeholder.
 function coverPhHtml(t){
-  return `<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div><div class="cover-ph-imprint">${esc(t.imprint)}</div>${t.imagesFolderLink?'<div class="cover-ph-folder">&#128193; images linked</div>':''}</div>`;
+  return `<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div>${t.imagesFolderLink?'<div class="cover-ph-folder">&#128193; images linked</div>':''}</div>`;
 }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2); }
 function getTitle(id){ return data.titles.find(t=>t.id===id)||null; }
-function daysUntil(ds){ if(!ds) return null; const d=new Date(ds); d.setHours(0,0,0,0); const t=new Date(); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
+function daysUntil(ds){ if(!ds) return null; const d=new Date(ds); if(isNaN(d)) return null; d.setHours(0,0,0,0); const t=new Date(); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
 function formatDate(ds){ if(!ds) return ''; const d=new Date(ds); if(isNaN(d)) return ds; return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); }
 function calcAutoPrint(sd){ if(!sd) return ''; const d=new Date(sd); if(isNaN(d)) return ''; d.setDate(d.getDate()-60); return d.toISOString().slice(0,10); }
 function dotColor(status){ if(status==='Complete') return 'var(--sage)'; if(status==='In Progress') return 'var(--amber)'; return 'var(--neutral-dot)'; }
+// 2026-07-26 bug fix (item 15): live Sheet data uses the literal string
+// "Completed" for status (confirmed live — 5 titles), not "Complete" as the
+// Add-Title dropdown writes — a pre-existing mismatch that meant already-
+// finished titles fell through every status===Complete check (badge, dot
+// colour, day-count) straight to the "not scheduled" default. Also
+// confirmed live: 3 of those titles have the *literal string* "Completed"
+// sitting in the printDate field itself (real data, not a hypothetical) —
+// `new Date("Completed")` is an Invalid Date, so daysUntil() returned NaN,
+// which is the exact "NaN days to print" bug reported. isPublished() below
+// is the single source of truth used everywhere a status check happens now,
+// so both the string-mismatch and the NaN-fallthrough are fixed at the root
+// rather than patched at each call site.
+function isPublished(t){ return t.status==='Complete' || t.status==='Completed' || t.status==='Released'; }
 function toBool(v){ return v===true || v==='TRUE' || v==='true' || v===1 || v==='1'; }
 function fromBool(v){ return v ? 'TRUE' : 'FALSE'; }
 function safeJson(str, fallback){ if(!str) return fallback; try{ const p=JSON.parse(str); return p==null?fallback:p; }catch(e){ return fallback; } }
+// Auto-expanding textarea helper (items 20/22 — Content & Marketing/Author
+// boxes read as a real word-processing surface, not a fixed scrollable
+// frame). Works alongside the CSS field-sizing:content progressive
+// enhancement in index.html — this JS version is what actually drives the
+// behaviour in browsers that don't yet support field-sizing (Firefox/Safari
+// at time of writing), so the effect is real everywhere, not just Chrome.
+function autoGrow(el){ if(!el) return; el.style.height='auto'; el.style.height=(el.scrollHeight+2)+'px'; }
+function autoGrowAll(root){ (root||document).querySelectorAll('textarea.autoexpand').forEach(autoGrow); }
 
 // ─── SHEETS API ───
 function authHeaders(){
@@ -165,11 +217,19 @@ function rowToTitle(row){
   const editorial = Object.assign({fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',toc:'',excerpt:'',authorInsight:'',competingTitles:''}, safeJson(c.editorial_json, {}));
   const publicity = Object.assign({publicityStatement:'',prContact:'',marketing:'',targetAudience:'',quotes:[],sellingPoints:[]}, safeJson(c.publicity_json, {}));
   const authorInfo = Object.assign({bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:''}, safeJson(c.authorInfo_json, {}));
-  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0}, safeJson(c.productionNotes_json, {}));
+  // 2026-07-26 (item 19): illustrations is now one free-text field instead
+  // of a bool+count pair — e.g. "black and white images: 10, colour images:
+  // 20, posters and photographs". Migrated automatically from the old
+  // illustrationCount on first load if illustrationsText was never set, so
+  // existing data isn't silently blanked.
+  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:''}, safeJson(c.productionNotes_json, {}));
+  let illustrationsText = pn.illustrationsText;
+  if(!illustrationsText && pn.illustrations && pn.illustrationCount) illustrationsText = String(pn.illustrationCount)+' illustrations';
   let checklist = pn.checklist && pn.checklist.length ? pn.checklist.map(x=>({text:x.item||x.text||'',checked:!!x.checked})) : PROD_CHECKLIST.map(t=>({text:t,checked:false}));
   const pc = safeJson(c.printerContacts_json, {});
   let contacts = (pc.contacts && pc.contacts.length) ? pc.contacts.slice() : PRINTER_DEF.map(p=>Object.assign({},p));
   const filesLinks = Object.assign({links:[]}, safeJson(c.filesLinks_json, {}));
+  const quickNotes = safeJson(c.quickNotes_json, []) || [];
   let stagesRaw = safeJson(c.production_json, []);
   let stages = PIPELINE_STAGES.map(name=>{
     const found = (stagesRaw||[]).find(s=>s.stage===name || s.name===name);
@@ -180,13 +240,19 @@ function rowToTitle(row){
     title: c.title||'', subtitle: c.subtitle||'', authors: c.author||'',
     authorLiaison: c.authorLiaison||'David', imprint: c.imprint||'Headpress', status: c.status||'Not Scheduled',
     planningSheet: c.planningSheet||'', bookBiblePresent: toBool(c.bookBiblePresent), lastUpdated: c.lastUpdated||'',
+    blockId: c.blockId||'',
     dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc) },
     commercial: {
       isbnPbk: c.isbn_pbk||'', isbnHbk: c.isbn_hbk||'', isbnEbk: c.isbn_ebk||'',
-      backupIsbnPbk: c.isbn_pbk_backup||'', backupIsbnEbk: c.isbn_ebk_backup||'',
+      // Backup ISBN fields removed from the UI entirely (item 18 — see build
+      // report for the lock-mechanism reasoning) but the *raw sheet values*
+      // are preserved verbatim here and written straight back unmodified in
+      // titleToRow — this is a UI removal, not a data-deletion, so nothing
+      // already sitting in those two columns is lost.
+      _backupIsbnPbkRaw: c.isbn_pbk_backup||'', _backupIsbnEbkRaw: c.isbn_ebk_backup||'',
       trimSize: c.trim||'', pages: c.pages||'', categoryUK: c.categoryUK||'', categoryUSA: c.categoryUSA||'',
       nielsenNotified: toBool(c.nielsenNotified),
-      illustrations: !!pn.illustrations, illustrationCount: pn.illustrationCount||0
+      illustrationsText: illustrationsText||''
     },
     price,
     content: { keywords: c.keywords||'', fullDescription: editorial.fullDescription, jacketBlurb: editorial.jacketBlurb, briefDescription: editorial.briefDescription, salesHandle: editorial.salesHandle, sellingPoints: (publicity.sellingPoints||[]).join('\n'), quotes: (publicity.quotes||[]).join('\n'), targetAudience: publicity.targetAudience },
@@ -198,6 +264,8 @@ function rowToTitle(row){
     productionNotes: { checklist, proofingNotes: pn.proofingNotes, typesettingNotes: pn.typesettingNotes },
     futureEdition: { infoAndChanges: pn.futureEditionNotes, printReadyFilesStatus: pn.printReadyFiles },
     filesLinks: { links: filesLinks.links||[] },
+    quickNotes,
+    poManualNotes: pn.poManualNotes||'',
     imagesFolderLink: c.imagesFolderLink||'', workingFolderLink: c.workingFolderLink||'', coverThumbnailFile: c.coverThumbnailFile||'',
     poTrackerIsbnKey: c.poTrackerIsbnKey||'', poTrackerTitleOverride: c.poTrackerTitleOverride||''
   };
@@ -222,10 +290,11 @@ function titleToRow(t){
     proofingNotes: t.productionNotes.proofingNotes||'', typesettingNotes: t.productionNotes.typesettingNotes||'',
     lsiNotes: t.print.forLsiNotes||'', scbEbookCover: t.print.scbEbookCoverSpec||'', printerEstimates: t.print.printEstimate||'',
     futureEditionNotes: t.futureEdition.infoAndChanges||'', printReadyFiles: t.futureEdition.printReadyFilesStatus||'Not Ready',
-    illustrations: !!t.commercial.illustrations, illustrationCount: t.commercial.illustrationCount||0
+    illustrationsText: t.commercial.illustrationsText||'', poManualNotes: t.poManualNotes||''
   });
   const printerContacts_json = JSON.stringify({ contacts: t.print.printerContacts||[] });
   const filesLinks_json = JSON.stringify({ links: t.filesLinks.links||[] });
+  const quickNotes_json = JSON.stringify(t.quickNotes||[]);
   const contractStage = t.pipeline.stages.find(s=>s.name==='Contract');
   const c = {
     title_id: t.id, title: t.title, subtitle: t.subtitle, author: t.authors, authorLiaison: t.authorLiaison,
@@ -234,15 +303,16 @@ function titleToRow(t){
     printDateAutoCalc: fromBool(t.dates.autoPrintDate),
     contract: contractStage ? contractStage.status : '',
     isbn_pbk: t.commercial.isbnPbk, isbn_hbk: t.commercial.isbnHbk, isbn_ebk: t.commercial.isbnEbk,
-    isbn_pbk_backup: t.commercial.backupIsbnPbk, isbn_ebk_backup: t.commercial.backupIsbnEbk,
+    isbn_pbk_backup: t.commercial._backupIsbnPbkRaw||'', isbn_ebk_backup: t.commercial._backupIsbnEbkRaw||'',
     trim: t.commercial.trimSize, pages: t.commercial.pages, categoryUK: t.commercial.categoryUK, categoryUSA: t.commercial.categoryUSA,
     nielsenNotified: fromBool(t.commercial.nielsenNotified), keywords: t.content.keywords,
     imagesFolderLink: t.imagesFolderLink, workingFolderLink: t.workingFolderLink, coverThumbnailFile: t.coverThumbnailFile,
     poTrackerIsbnKey: t.commercial.isbnPbk || t.commercial.isbnHbk || t.poTrackerIsbnKey || '',
     poTrackerTitleOverride: t.poTrackerTitleOverride||'',
     bookBiblePresent: fromBool(t.bookBiblePresent), lastUpdated: new Date().toISOString(),
+    blockId: t.blockId||'',
     price_json, production_json, publicity_json, editorial_json, authorInfo_json,
-    productionNotes_json, printerContacts_json, filesLinks_json
+    productionNotes_json, printerContacts_json, filesLinks_json, quickNotes_json
   };
   return TITLE_COLS.map(k=>c[k]!==undefined?c[k]:'');
 }
@@ -258,9 +328,9 @@ function isbnObjToRow(r){
 function defTitle(o={}){
   const base = {
     id: uid(), title:'', subtitle:'', authors:'', authorLiaison:'David', imprint:'Headpress', status:'Not Scheduled',
-    planningSheet:'', bookBiblePresent:false, lastUpdated:'',
+    planningSheet:'', bookBiblePresent:false, lastUpdated:'', blockId:'',
     dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false},
-    commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',backupIsbnPbk:'',backupIsbnEbk:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrations:false,illustrationCount:0},
+    commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:''},
     price:{pbkGBP:'',pbkUSD:'',ebkUSD:'',hbkGBP:''},
     content:{keywords:'',fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',sellingPoints:'',quotes:'',targetAudience:''},
     authorInfo:{bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:''},
@@ -271,6 +341,7 @@ function defTitle(o={}){
     productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),proofingNotes:'',typesettingNotes:''},
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
+    quickNotes:[], poManualNotes:'',
     imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:'', poTrackerIsbnKey:'', poTrackerTitleOverride:'',
     _row: null
   };
@@ -327,7 +398,7 @@ function doSignIn(){
 async function loadAllData(){
   setSyncStatus('saving'); // reused as "loading" visual — amber pulsing dot
   try{
-    const titleRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Titles!A2:AN2000');
+    const titleRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Titles!A2:'+TITLE_RANGE_LAST_COL+'2000');
     const isbnRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'ISBNs!A2:F2000');
     data.titles = titleRows
       .filter(r => r[0] && r[0] !== 'EXAMPLE-DELETE-ME')
@@ -368,7 +439,7 @@ async function saveTitle(titleId){
   try{
     const row = titleToRow(t);
     if(t._row){
-      await sheetsPut(CFG.TITLES_SHEET_ID, 'Titles!A'+t._row+':AN'+t._row, row);
+      await sheetsPut(CFG.TITLES_SHEET_ID, 'Titles!A'+t._row+':'+TITLE_RANGE_LAST_COL+t._row, row);
     } else {
       const assignedRow = await sheetsAppend(CFG.TITLES_SHEET_ID, 'Titles', row);
       if(assignedRow) t._row = assignedRow;
@@ -397,13 +468,40 @@ async function saveIsbn(rec){
   }
 }
 
-// ─── SECTION STATUS / ATTENTION (unchanged logic from headpress.html) ───
+// ─── SECTION STATUS / ATTENTION ───
 function hasAttention(t){
   const now=new Date();now.setHours(0,0,0,0);
   if(t.pipeline.stages.some(s=>s.status==='In Progress'&&s.expectedDate&&new Date(s.expectedDate)<now))return true;
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
-  if(pd){const d=daysUntil(pd);if(d!==null&&d<=60&&!t.pipeline.stages.every(s=>s.status==='Complete'))return true;}
+  if(pd){const d=daysUntil(pd);if(d!==null&&d<=60&&!isPublished(t))return true;}
   return false;
+}
+// 2026-07-26 (items 13/14/15) — single source of truth for the
+// print-timing status shown on cards, detail view, and the new print-
+// timing filter, so all three can never drift out of sync with each other.
+//   kind: 'published' | 'nodate' | 'overdue' | 'counting'
+//   colorClass: which of the 4 status colours to paint (published/overdue
+//   share their kind's colour; 'counting' has 3 shade tiers — ok/notice/
+//   due-soon — all deliberately short of the alarm red reserved for overdue)
+function computeDayInfo(t){
+  if(isPublished(t)) return {kind:'published', label:'Published', colorClass:'published'};
+  const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
+  if(pd){
+    const d=daysUntil(pd);
+    if(d===null){
+      // pd string didn't parse as a real date (dirty legacy data, e.g. the
+      // literal text "Completed" found live in 3 rows) — treat as no usable
+      // print date rather than showing NaN (the item-15 bug, fixed at the
+      // root rather than patched per-callsite).
+    } else if(d<0){
+      return {kind:'overdue', days:d, label:'Print date passed', colorClass:'overdue'};
+    } else {
+      const cls = d<=30?'due-soon':d<=90?'notice':'ok';
+      return {kind:'counting', days:d, label:d+' days to print', colorClass:cls};
+    }
+  }
+  if(t.dates.streetDate) return {kind:'nodate', label:'Street: '+formatDate(t.dates.streetDate), colorClass:'neutral', hasStreet:true};
+  return {kind:'nodate', label:'Not scheduled', colorClass:'neutral'};
 }
 function getSectionStatus(t,key){
   switch(key){
@@ -416,9 +514,10 @@ function getSectionStatus(t,key){
       return t.pipeline.stages.every(s=>s.status==='Complete')?'complete':'partial';
     }
     case 'dates':{
+      if(isPublished(t))return 'complete';
       if(!t.dates.streetDate)return 'partial';
       const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
-      if(pd&&new Date(pd)<new Date())return 'overdue';
+      if(pd&&!isNaN(new Date(pd))&&new Date(pd)<new Date())return 'overdue';
       return 'complete';
     }
     case 'print':return t.print.printEstimate?'complete':'partial';
@@ -427,14 +526,18 @@ function getSectionStatus(t,key){
     case 'toc':return t.toc.tableOfContents?'complete':'partial';
     case 'productionNotes':return t.productionNotes.checklist.every(c=>c.checked)?'complete':'partial';
     case 'futureEdition':return t.futureEdition.printReadyFilesStatus==='Submitted'?'complete':'partial';
-    case 'filesLinks':return(t.filesLinks&&t.filesLinks.links&&t.filesLinks.links.length>0)?'complete':'partial';
     default:return 'partial';
   }
 }
-const SECTION_KEYS = ['commercial','content','author','pipeline','dates','print','poTracker','publicity','toc','productionNotes','futureEdition','filesLinks'];
-const SECTION_LABELS = {commercial:'1. Commercial',content:'2. Content & Marketing',author:'3. Author',pipeline:'4. Production Pipeline',dates:'5. Dates & Scheduling',print:'6. Print & Distribution',poTracker:'7. PO Tracker / Print Estimates',publicity:'8. Publicity & Marketing',toc:'9. TOC / Excerpt / Insight',productionNotes:'10. Production Notes',futureEdition:'11. Info & Future Edition',filesLinks:'12. Files & Links'};
+// Section order (item 30 — PO Tracker moved up from position 7 to position
+// 2, right after Commercial, and defaults open like Pipeline, so it's no
+// longer "buried" several scrolls down). Files & Links removed entirely
+// (item 31 — redundant with the top-of-page folder links row already
+// added 2026-07-15, see renderFolderLinksRow()).
+const SECTION_KEYS = ['commercial','poTracker','content','author','pipeline','dates','print','publicity','toc','productionNotes','futureEdition'];
+const SECTION_LABELS = {commercial:'1. Commercial',poTracker:'2. PO Tracker / Print Estimates',content:'3. Content & Marketing',author:'4. Author',pipeline:'5. Production Pipeline',dates:'6. Dates & Scheduling',print:'7. Print & Distribution',publicity:'8. Publicity & Marketing',toc:'9. TOC / Excerpt / Insight',productionNotes:'10. Production Notes',futureEdition:'11. Info & Future Edition'};
 function isOpen(titleId,key){
-  if(key==='pipeline')return true;
+  if(key==='pipeline'||key==='poTracker')return true;
   const k=`${titleId}-${key}`;
   if(accordionOpen.hasOwnProperty(k))return accordionOpen[k];
   const t=getTitle(titleId);return t?getSectionStatus(t,key)!=='complete':true;
@@ -446,19 +549,53 @@ function render(){
   document.getElementById('tab-isbns').classList.toggle('active',view==='isbns');
   document.getElementById('search-wrap').style.display=view==='titles'?'flex':'none';
   document.getElementById('btn-add-title').style.display=view==='titles'?'inline-block':'none';
-  if(view==='titles')renderTitles();
+  const main=document.getElementById('main');
+  main.className='main-'+view; // item 11/2 — width split by view (titles=full width, detail=slimmer, isbns=medium)
+  if(view==='titles'){ populateBlockFilter(); renderTitles(); }
   else if(view==='detail')renderDetail();
   else if(view==='isbns')renderISBNs();
+  populateQuickNoteTitles();
 }
 function gotoTitles(){view='titles';selectedId=null;render();}
 function gotoISBNs(){view='isbns';render();}
 function gotoDetail(id){view='detail';selectedId=id;render();}
+
+// Item 4 — release-Block filter. Populated from the distinct blockId values
+// actually present on titles (not a separate Blocks-tab fetch — the Blocks
+// tab only holds display names/sort order for a small fixed set, and we
+// don't have those names loaded client-side; using the human-readable
+// releaseBlock text already on each title row is simpler and can't drift
+// out of sync with what's actually assigned). Titles with no block at all
+// group under "Unassigned" — deliberately surfaced rather than hidden,
+// since that's a real known gap (5 titles, see build report).
+function populateBlockFilter(){
+  const sel=document.getElementById('filter-block');if(!sel)return;
+  const cur=filters.block;
+  const blocks=new Map(); // blockId -> display label
+  data.titles.forEach(t=>{
+    if(t.blockId) blocks.set(t.blockId, t.dates.releaseBlock||t.blockId);
+  });
+  const hasUnassigned = data.titles.some(t=>!t.blockId);
+  let html='<option value="">All Blocks</option>';
+  Array.from(blocks.keys()).sort().forEach(bid=>{ html+=`<option value="${esc(bid)}" ${cur===bid?'selected':''}>${esc(blocks.get(bid))}</option>`; });
+  if(hasUnassigned) html+=`<option value="__unassigned__" ${cur==='__unassigned__'?'selected':''}>Unassigned</option>`;
+  sel.innerHTML=html;
+}
 
 // ─── TITLES VIEW ───
 function renderTitles(){
   let titles=data.titles.filter(t=>{
     if(filters.status&&t.status!==filters.status)return false;
     if(filters.imprint&&t.imprint!==filters.imprint)return false;
+    if(filters.block){
+      if(filters.block==='__unassigned__'){ if(t.blockId)return false; }
+      else if(t.blockId!==filters.block)return false;
+    }
+    if(filters.printTiming){
+      const info=computeDayInfo(t);
+      const map={notscheduled:'nodate',duesoon:'counting',overdue:'overdue',published:'published'};
+      if(info.kind!==map[filters.printTiming])return false;
+    }
     if(filters.search){const q=filters.search.toLowerCase();if(!t.title.toLowerCase().includes(q)&&!t.authors.toLowerCase().includes(q))return false;}
     return true;
   });
@@ -466,6 +603,10 @@ function renderTitles(){
   if(!titles.length){main.innerHTML='<div class="empty-state"><h3>No titles found</h3><p>Try changing your filters, or add a new title. If this is a fresh sheet, Fred\'s Book Bible migration may not have landed yet.</p></div>';return;}
   main.innerHTML='<div class="titles-grid">'+titles.map(renderCard).join('')+'</div>';
 }
+// Imprint colour-code (item 6) — data attribute + tooltip-only dot, no
+// visible text label anywhere on the card.
+function imprintKey(imprint){ return (imprint||'').toLowerCase().indexOf('oil')===0||(imprint||'').toLowerCase().indexOf('oowp')===0 ? 'oowp' : 'headpress'; }
+function imprintName(imprint){ return imprintKey(imprint)==='oowp' ? 'Oil On Water Press' : 'Headpress'; }
 function renderCard(t){
   const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention"></div>':'';
   // Real thumbnails, 2026-07-15 — investigated three options (see build
@@ -487,28 +628,25 @@ function renderCard(t){
   const cover = t.coverThumbnailFile
     ? `<img src="${esc(t.coverThumbnailFile)}" alt="${esc(t.title)} cover" loading="lazy" onerror="this.outerHTML=${escAttrJson(coverPhHtml(t))}">`
     : coverPhHtml(t);
-  const strip=t.pipeline.stages.map(s=>`<div class="p-dot" style="background:${dotColor(s.status)}" title="${esc(s.name)}: ${esc(s.status)}"></div>`).join('');
-  const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
-  let deadlineHtml='';
-  if(pd){
-    const d=daysUntil(pd);
-    if(d===null)deadlineHtml='';
-    else if(d<0)deadlineHtml=`<div class="card-deadline overdue">Print date passed</div>`;
-    else if(d<=60)deadlineHtml=`<div class="card-deadline urgent">${d} days to print</div>`;
-    else if(d<=90)deadlineHtml=`<div class="card-deadline warn">${d} days to print</div>`;
-    else deadlineHtml=`<div class="card-deadline ok">${d} days to print</div>`;
-  }else if(t.dates.streetDate){
-    deadlineHtml=`<div class="card-meta">Street: ${esc(formatDate(t.dates.streetDate))}</div>`;
-  }else{deadlineHtml=`<div class="card-meta">Not scheduled</div>`;}
-  return `<div class="book-card" onclick="gotoDetail('${t.id}')">${attn}
+  // Item 1/3 — progress bar replaces the old 20-dot pipeline strip. Green
+  // fill only once actually published; otherwise a muted gold shows partial
+  // completion, keeping green reserved for "done" per David's instruction.
+  const totalStages=t.pipeline.stages.length;
+  const doneStages=t.pipeline.stages.filter(s=>s.status==='Complete').length;
+  const pct=totalStages?Math.round(doneStages/totalStages*100):0;
+  const barDone=isPublished(t);
+  const progressHtml=`<div class="progress-wrap"><div class="progress-track"><div class="progress-fill ${barDone?'done':''}" style="width:${barDone?100:pct}%"></div></div><div class="progress-label">${barDone?'Published':doneStages+'/'+totalStages}</div></div>`;
+  const info=computeDayInfo(t);
+  const deadlineHtml=`<div class="card-deadline ${info.colorClass}">${esc(info.label)}</div>`;
+  const ik=imprintKey(t.imprint);
+  return `<div class="book-card" data-imprint="${ik}" onclick="gotoDetail('${t.id}')">${attn}
     <div class="book-cover">${cover}</div>
     <div class="card-info">
-      <div class="card-title">${esc(t.title)}</div>
+      <div class="card-title-row"><span class="imprint-dot" title="${esc(imprintName(t.imprint))}"></span><span class="card-title">${esc(t.title)}</span></div>
       ${t.authors?`<div class="card-author">${esc(t.authors)}</div>`:''}
-      <div class="card-meta">${esc(t.imprint)}</div>
       ${deadlineHtml}
     </div>
-    <div class="card-footer"><div class="pipeline-strip">${strip}</div></div>
+    <div class="card-footer">${progressHtml}</div>
   </div>`;
 }
 
@@ -518,13 +656,12 @@ function renderDetail(){
   if(!t){gotoTitles();return;}
   const main=document.getElementById('main');
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
-  const days=pd?daysUntil(pd):null;
-  let daysHtml='';
-  if(days!==null){
-    const cls=days<0?'urgent':days<=60?'urgent':days<=90?'warn':'ok';
-    daysHtml=`<span class="card-deadline ${cls}" style="font-size:.85rem">${days<0?'OVERDUE':days+' days to print'}</span>`;
-  }
-  const badgeClass={'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled','Complete':'badge-complete','Released':'badge-released'}[t.status]||'badge-notscheduled';
+  const info=computeDayInfo(t);
+  const daysHtml=`<span class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
+  // Badge: 'Completed' (the literal live-data string, see isPublished()) now
+  // maps onto the same badge-complete style as 'Complete' — item 15's
+  // underlying status-string mismatch fix.
+  const badgeClass=isPublished(t)?(t.status==='Released'?'badge-released':'badge-complete'):({'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled'}[t.status]||'badge-notscheduled');
   // 2026-07-15: real thumbnail if a Cover Image URL is set (see renderCard()
   // for why this is a pasted direct URL rather than a Graph API fetch),
   // same onerror fallback pattern as the card grid.
@@ -534,19 +671,22 @@ function renderDetail(){
     : coverPlaceholder;
   const detailStrip=t.pipeline.stages.map((s,i)=>`<div class="detail-p-dot" style="background:${dotColor(s.status)}" title="${esc(s.name)}: ${esc(s.status)}" onclick="cycleStage('${t.id}',${i})"></div>`).join('');
   const accordionHtml=SECTION_KEYS.map(k=>renderAccordionSection(t,k)).join('');
+  // Item 12 — TOC/jump-nav for the production sheet, same sticky-bar pattern
+  // as the Dashboard's Anchor-Nav (dash-nav), scoped to this one title.
+  const tocNavHtml=`<nav class="toc-nav" id="toc-nav">${SECTION_KEYS.map(k=>`<a class="toc-nav-item" href="#asec-${t.id}-${k}">${esc((SECTION_LABELS[k]||k).replace(/^\d+\.\s*/,''))}</a>`).join('')}</nav>`;
   main.innerHTML=`
     <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
     <div class="detail-top">
       <div class="detail-cover" title="Set the Cover Image URL below to show a real thumbnail here">${coverHtml}</div>
       <div class="detail-info">
-        <div class="detail-title-text">${esc(t.title)}</div>
+        <div class="detail-title-row"><span class="imprint-dot" data-imprint="${imprintKey(t.imprint)}" style="background:var(--imprint-${imprintKey(t.imprint)==='oowp'?'oowp':'headpress'})" title="${esc(imprintName(t.imprint))}"></span><span class="detail-title-text">${esc(t.title)}</span></div>
         ${t.subtitle?`<div class="detail-subtitle-text">${esc(t.subtitle)}</div>`:''}
         ${t.authors?`<div class="detail-author-text">${esc(t.authors)}</div>`:''}
         <div class="detail-meta-row">
           <span class="status-badge ${badgeClass}">${esc(t.status)}</span>
           <span>${esc(t.imprint)}</span>
           ${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}
-          ${pd?`<span>Print: ${esc(formatDate(pd))}</span>`:''}
+          ${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}
           ${daysHtml}
         </div>
         <div class="detail-strip-wrap">
@@ -556,7 +696,9 @@ function renderDetail(){
         ${renderFolderLinksRow(t)}
       </div>
     </div>
+    ${tocNavHtml}
     <div class="accordion" id="accordion-${t.id}">${accordionHtml}</div>`;
+  autoGrowAll(main);
   // PO Tracker data isn't in the row payload (it lives in a different
   // spreadsheet, fetched on demand) — if that section is already open on
   // this render (e.g. its default-open-when-incomplete rule fired, not
@@ -670,7 +812,11 @@ function renderAccordionSection(t,key){
   const st=getSectionStatus(t,key);
   const open=isOpen(t.id,key);
   const akey=`${t.id}-${key}`;
-  return `<div class="accord-section" id="asec-${akey}">
+  // Item 30 — PO Tracker box made visually prominent (moved to position 2
+  // in SECTION_KEYS above, defaults open, and gets its own highlight border
+  // here) rather than reading as identical to every other accordion box.
+  const prominentCls = key==='poTracker' ? ' po-prominent' : '';
+  return `<div class="accord-section${prominentCls}" id="asec-${akey}">
     <div class="accord-header stripe-${st}" data-accord-header="${akey}" onclick="toggleAccord('${t.id}','${key}')">
       <div class="accord-header-inner">
         <span class="accord-label">${SECTION_LABELS[key]||key}</span>
@@ -695,86 +841,160 @@ function renderSectionBody(t,key){
     case 'toc':return renderTOC(t);
     case 'productionNotes':return renderProductionNotes(t);
     case 'futureEdition':return renderFutureEdition(t);
-    case 'filesLinks':return renderFilesLinks(t);
     default:return '';
   }
 }
 function toggleAccord(tid,key){
-  if(key==='pipeline')return;
+  if(key==='pipeline'||key==='poTracker')return; // always-open, prominent sections (items 25/30) — not collapsible
   const k=`${tid}-${key}`;
   const cur=isOpen(tid,key);accordionOpen[k]=!cur;
   const body=document.querySelector(`[data-accord="${k}"]`);if(body)body.classList.toggle('open',accordionOpen[k]);
   const hdr=document.querySelector(`[data-accord-header="${k}"]`);if(hdr){const arr=hdr.querySelector('.accord-arrow');if(arr)arr.classList.toggle('open',accordionOpen[k]);}
-  if(key==='poTracker' && accordionOpen[k]) loadPoTrackerFor(tid);
 }
 
 // ─── SECTION RENDERS ───
 function frow(label,inputHtml,cls=''){return `<div class="field-group ${cls}"><label class="field-label">${label}</label>${inputHtml}</div>`;}
 function inp(id,val,ph,handler){return `<input type="text" id="${id}" value="${esc(val)}" placeholder="${esc(ph)}" oninput="${handler}">`;}
 function ta(id,val,ph,handler,tall=''){return `<textarea id="${id}" class="${tall}" placeholder="${esc(ph)}" oninput="${handler}">${esc(val)}</textarea>`;}
+// Auto-expanding variant (items 20/22) — grows with content instead of
+// scrolling in a fixed frame. autoGrow() is called on input (live growth)
+// and once after every renderDetail() via autoGrowAll() so a field that
+// already has a lot of saved text opens at its full height, not a stub.
+function taAuto(id,val,ph,handler){return `<textarea id="${id}" class="autoexpand" placeholder="${esc(ph)}" oninput="${handler};autoGrow(this)">${esc(val)}</textarea>`;}
+// Item 21 — real formatting restore (not just auto-expand) for the three
+// main Content & Marketing fields: a contenteditable surface with a tiny
+// Bold/Italic/Paragraph toolbar (document.execCommand — deliberately the
+// simple, well-understood mechanism here rather than a full third-party
+// rich-text library dependency for three fields) so bold/italic/paragraph
+// breaks actually persist, instead of a plain <textarea> flattening
+// everything to unstyled text — which is exactly what broke copy-pasting
+// formatted blurbs out to distributors (flagged 2026-07-22, now fixed).
+// Stored value is the div's innerHTML; existing plain-text data (no tags)
+// renders identically to before, so nothing already saved is disturbed.
+function richTa(titleId,fieldKey,path,val,ph){
+  const editId=`f-${titleId}-${fieldKey}`;
+  const isEmpty = !val || !val.replace(/<[^>]+>/g,'').trim();
+  return `<div class="richtext-wrap">
+    <div class="richtext-toolbar">
+      <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('bold')"><b>B</b></button>
+      <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('italic')"><i>I</i></button>
+      <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('formatBlock',false,'p')">¶</button>
+    </div>
+    <div id="${editId}" class="richtext" contenteditable="true" data-placeholder="${esc(ph)}" data-empty="${isEmpty?'1':'0'}"
+      oninput="fc('${titleId}','${path}',this.innerHTML);this.dataset.empty=this.innerText.trim()?'0':'1'"
+      onfocus="this.dataset.wasEmpty=this.dataset.empty" onblur="this.dataset.empty=this.innerText.trim()?'0':'1'"
+      >${val||''}</div>
+  </div>`;
+}
 
 function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
-  return `<div class="field-grid">
-    ${frow('ISBN (PBK)',`<div class="isbn-row"><input type="text" id="f-${id}-isbnPbk" value="${esc(c.isbnPbk)}" oninput="fc('${id}','commercial.isbnPbk',this.value)"><button class="btn btn-sm" onclick="openPool('${id}','commercial.isbnPbk','ISBN (PBK)')">Assign</button></div>`)}
-    ${frow('ISBN (HBK)',`<div class="isbn-row"><input type="text" id="f-${id}-isbnHbk" value="${esc(c.isbnHbk)}" oninput="fc('${id}','commercial.isbnHbk',this.value)"><button class="btn btn-sm" onclick="openPool('${id}','commercial.isbnHbk','ISBN (HBK)')">Assign</button></div>`)}
-    ${frow('ISBN (EBK)',`<div class="isbn-row"><input type="text" id="f-${id}-isbnEbk" value="${esc(c.isbnEbk)}" oninput="fc('${id}','commercial.isbnEbk',this.value)"><button class="btn btn-sm" onclick="openPool('${id}','commercial.isbnEbk','ISBN (EBK)')">Assign</button></div>`)}
-    ${frow('Backup ISBN (PBK)',inp(`f-${id}-backupIsbnPbk`,c.backupIsbnPbk,'','fc(\''+id+'\',\'commercial.backupIsbnPbk\',this.value)'))}
-    ${frow('Backup ISBN (EBK)',inp(`f-${id}-backupIsbnEbk`,c.backupIsbnEbk,'','fc(\''+id+'\',\'commercial.backupIsbnEbk\',this.value)'))}
+  // Item 18 design decision (see build report for full reasoning): Backup
+  // ISBN fields removed entirely from the UI (data preserved untouched on
+  // the Sheet, see _backupIsbnPbkRaw/_backupIsbnEbkRaw in rowToTitle/
+  // titleToRow). In their place, the three LIVE ISBN fields are locked
+  // read-only by default — each has its own explicit "Unlock to edit"
+  // toggle that requires a confirm() before it opens the field up, so an
+  // accidental overwrite needs a deliberate two-step action instead of one
+  // stray keystroke. Locks reset to locked every time the detail view is
+  // re-rendered (session-only state, by design — see isbnLockRow()).
+  const isbnField=(field,label)=>{
+    const locked = isbnLockRow(id,field);
+    const val = c[field];
+    return frow(label, `<div class="isbn-row">
+      <input type="text" id="f-${id}-${field}" value="${esc(val)}" ${locked?'readonly':''} oninput="fc('${id}','commercial.${field}',this.value)">
+      <button class="lock-btn ${locked?'locked':'unlocked'}" title="${locked?'Locked — click to unlock and edit':'Unlocked — click to lock again'}" onclick="toggleIsbnLock('${id}','${field}')">${locked?'&#128274;':'&#128275;'}</button>
+      <button class="btn btn-sm" onclick="openPool('${id}','commercial.${field}','${esc(label)}')">Assign</button>
+    </div>`);
+  };
+  return `<div class="field-tint"><div class="field-grid-3">
+    ${isbnField('isbnPbk','ISBN (PBK)')}
+    ${isbnField('isbnHbk','ISBN (HBK)')}
+    ${isbnField('isbnEbk','ISBN (EBK)')}
     ${frow('Cover Price PBK (£)',inp(`f-${id}-pbkGBP`,p.pbkGBP,'e.g. 14.99','fc(\''+id+'\',\'price.pbkGBP\',this.value)'))}
     ${frow('Cover Price HBK (£)',inp(`f-${id}-hbkGBP`,p.hbkGBP,'','fc(\''+id+'\',\'price.hbkGBP\',this.value)'))}
     ${frow('Cover Price PBK ($)',inp(`f-${id}-pbkUSD`,p.pbkUSD,'','fc(\''+id+'\',\'price.pbkUSD\',this.value)'))}
     ${frow('Cover Price EBK ($)',inp(`f-${id}-ebkUSD`,p.ebkUSD,'','fc(\''+id+'\',\'price.ebkUSD\',this.value)'))}
     ${frow('Trim Size',inp(`f-${id}-trimSize`,c.trimSize,'e.g. 198x129mm','fc(\''+id+'\',\'commercial.trimSize\',this.value)'))}
     ${frow('Pages',`<input type="number" id="f-${id}-pages" value="${esc(c.pages)}" min="0" oninput="fc('${id}','commercial.pages',this.value)">`)}
-    ${frow('Illustrations',`<label class="field-row"><input type="checkbox" ${c.illustrations?'checked':''} onchange="fc('${id}','commercial.illustrations',this.checked)"> Yes &nbsp;<input type="number" id="f-${id}-illustrationCount" value="${c.illustrationCount}" min="0" style="width:70px" placeholder="count" oninput="fc('${id}','commercial.illustrationCount',this.value)"></label>`)}
     ${frow('Category UK',inp(`f-${id}-categoryUK`,c.categoryUK,'','fc(\''+id+'\',\'commercial.categoryUK\',this.value)'))}
     ${frow('Category USA',inp(`f-${id}-categoryUSA`,c.categoryUSA,'','fc(\''+id+'\',\'commercial.categoryUSA\',this.value)'))}
     ${frow('Nielsen Notified',`<label class="field-row"><input type="checkbox" ${c.nielsenNotified?'checked':''} onchange="fc('${id}','commercial.nielsenNotified',this.checked)"> Notified</label>`)}
-  </div>`;}
+    ${frow('Illustrations',inp(`f-${id}-illustrationsText`,c.illustrationsText,'e.g. black and white images: 10, colour images: 20, posters and photographs','fc(\''+id+'\',\'commercial.illustrationsText\',this.value)'),'full')}
+  </div></div>`;}
 
 function renderContent(t){const id=t.id;const c=t.content;
   return `<div class="field-grid">
-    ${frow('Full Description',ta(`f-${id}-fullDesc`,c.fullDescription,'Full marketing description…',`fc('${id}','content.fullDescription',this.value)`,'tall'),'full')}
-    ${frow('Jacket Blurb',ta(`f-${id}-jacketBlurb`,c.jacketBlurb,'Back cover blurb…',`fc('${id}','content.jacketBlurb',this.value)`),'full')}
-    ${frow('Brief Description',ta(`f-${id}-briefDesc`,c.briefDescription,'Short description…',`fc('${id}','content.briefDescription',this.value)`),'full')}
+    ${frow('Full Description',richTa(id,'fullDesc','content.fullDescription',c.fullDescription,'Full marketing description…'),'full')}
+    ${frow('Jacket Blurb',richTa(id,'jacketBlurb','content.jacketBlurb',c.jacketBlurb,'Back cover blurb…'),'full')}
+    ${frow('Brief Description',richTa(id,'briefDesc','content.briefDescription',c.briefDescription,'Short description…'),'full')}
     ${frow('Sales Handle',inp(`f-${id}-salesHandle`,c.salesHandle,'One-line sales handle…',`fc('${id}','content.salesHandle',this.value)`),'full')}
-    ${frow('Selling Points (one per line)',ta(`f-${id}-sellingPoints`,c.sellingPoints,'One selling point per line…',`fc('${id}','content.sellingPoints',this.value)`),'full')}
-    ${frow('Quotes (one per line)',ta(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`),'full')}
+    ${frow('Selling Points (one per line)',taAuto(`f-${id}-sellingPoints`,c.sellingPoints,'One selling point per line…',`fc('${id}','content.sellingPoints',this.value)`),'full')}
+    ${frow('Quotes (one per line)',taAuto(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`),'full')}
     ${frow('Target Audience',inp(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`))}
     ${frow('Keywords / Metadata',inp(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`))}
+    <div class="field-group full">
+      <button class="btn btn-sm" onclick="openHtmlOutput('${id}')">View HTML Output &#8599;</button>
+      <p style="font-size:.72rem;color:var(--text3);margin-top:4px">Generates a copy-pasteable HTML version of the fields above (item 21 — formatting restore/HTML output).</p>
+    </div>
   </div>`;}
 
 function renderAuthor(t){const id=t.id;const a=t.authorInfo;
+  // Item 24 — "Other contributors" now sits BELOW "Previous publications"
+  // (was reversed before). Item 21/23 — Socials field widened to a proper
+  // auto-expanding textarea (was a single-line input) so it comfortably
+  // holds multiple lines/entries.
   return `<div class="field-grid">
-    ${frow('Author Bio',ta(`f-${id}-bio`,a.bio,'',`fc('${id}','authorInfo.bio',this.value)`),'full')}
+    ${frow('Author Bio',taAuto(`f-${id}-bio`,a.bio,'',`fc('${id}','authorInfo.bio',this.value)`),'full')}
     ${frow('Author Hometown',inp(`f-${id}-hometown`,a.hometown,'',`fc('${id}','authorInfo.hometown',this.value)`))}
-    ${frow('Socials & Societies',inp(`f-${id}-socials`,a.socials,'',`fc('${id}','authorInfo.socials',this.value)`))}
-    ${frow('Other Contributors',ta(`f-${id}-otherContribs`,a.otherContributors,'',`fc('${id}','authorInfo.otherContributors',this.value)`),'full')}
-    ${frow('Previous Publications',ta(`f-${id}-prevPubs`,a.previousPublications,'',`fc('${id}','authorInfo.previousPublications',this.value)`),'full')}
+    ${frow('Socials & Societies',taAuto(`f-${id}-socials`,a.socials,'One per line is fine…',`fc('${id}','authorInfo.socials',this.value)`),'full')}
+    ${frow('Previous Publications',taAuto(`f-${id}-prevPubs`,a.previousPublications,'',`fc('${id}','authorInfo.previousPublications',this.value)`),'full')}
+    ${frow('Other Contributors',taAuto(`f-${id}-otherContribs`,a.otherContributors,'',`fc('${id}','authorInfo.otherContributors',this.value)`),'full')}
     ${frow('Author Liaison',`<select id="f-${id}-liaison" onchange="fc('${id}','authorLiaison',this.value)"><option ${t.authorLiaison==='David'?'selected':''}>David</option><option ${t.authorLiaison==='Jen'?'selected':''}>Jen</option><option ${t.authorLiaison==='Other'?'selected':''}>Other</option></select>`)}
   </div>`;}
 
+// Items 25/26 — reworked pipeline: each stage is its own bounded box with
+// its status shown inside it (not a floating pill elsewhere), grouped into
+// PIPELINE_GROUPS with zero gap between adjacent stages in the same group
+// (reads as one connected chain) and a visible gap between groups (matches
+// the row-blocking pattern in David's "Book Planning 2025" source sheet —
+// see PIPELINE_GROUPS comment above for exactly which rows that was read
+// from). Items 27/28 — Expected Date shrunk, Notes widened, via the
+// .stage-box grid-template-columns in index.html rather than equal columns.
 function renderPipeline(t){const id=t.id;
-  const rows=t.pipeline.stages.map((s,i)=>{
-    const cls='stage-'+s.status.toLowerCase().replace(/ /g,'-');
-    return `<tr><td class="stage-name-cell"><span class="stage-num">${i+1}.</span>${esc(s.name)}</td>
-      <td><button class="stage-btn ${cls}" data-stage-btn="${id}-${i}" onclick="cycleStage('${id}',${i})">${esc(s.status)}</button></td>
-      <td><input type="date" class="stage-date-input" value="${esc(s.expectedDate)}" onchange="stageChange('${id}',${i},'expectedDate',this.value)"></td>
-      <td><input type="text" class="stage-notes-input" value="${esc(s.notes)}" placeholder="Notes…" oninput="stageChange('${id}',${i},'notes',this.value)"></td></tr>`;
+  const byName={}; t.pipeline.stages.forEach((s,i)=>byName[s.name]={s,i});
+  const groupsHtml=PIPELINE_GROUPS.map(g=>{
+    const boxes=g.stages.map(name=>{
+      const {s,i}=byName[name]||{};
+      if(!s)return '';
+      const cls='stage-'+s.status.toLowerCase().replace(/ /g,'-');
+      return `<div class="stage-box">
+        <span class="stage-box-num">${i+1}.</span>
+        <span class="stage-box-name">${esc(s.name)}</span>
+        <button class="stage-btn ${cls}" data-stage-btn="${id}-${i}" onclick="cycleStage('${id}',${i})">${esc(s.status)}</button>
+        <input type="date" class="stage-date-input" value="${esc(s.expectedDate)}" onchange="stageChange('${id}',${i},'expectedDate',this.value)">
+        <input type="text" class="stage-notes-input" value="${esc(s.notes)}" placeholder="Notes…" oninput="stageChange('${id}',${i},'notes',this.value)">
+      </div>`;
+    }).join('');
+    return `<div><div class="pipeline-group-label">${esc(g.label)}</div><div class="pipeline-group-boxes">${boxes}</div></div>`;
   }).join('');
-  return `<table class="stages-table"><thead><tr><th>Stage</th><th>Status</th><th>Expected Date</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`;}
+  return `<div class="pipeline-chain">${groupsHtml}</div>`;}
 
+// Item 13 — day-count colour now driven by computeDayInfo()'s shared
+// tiering (item 13 bug fix — "X days" no longer shares the full-red alarm
+// colour with an actually-passed date), and item 15 — a published title
+// shows "Published" here too rather than attempting a day count at all.
 function renderDates(t){const id=t.id;const d=t.dates;
   const compPrint=calcAutoPrint(d.streetDate);
   const pdVal=d.autoPrintDate?compPrint:d.printDate;
-  const printDays=pdVal?daysUntil(pdVal):null;
-  const ddHtml=printDays!==null?`<span style="color:${printDays<0?'var(--terra)':printDays<=60?'var(--terra)':printDays<=90?'var(--amber)':'var(--sage)'};font-weight:600">${printDays<0?'OVERDUE — '+Math.abs(printDays)+' days ago':printDays+' days'}</span>`:'—';
+  const info=computeDayInfo(t);
+  const colorVar={published:'var(--sage)',ok:'var(--sage)',notice:'var(--amber-border)','due-soon':'#B8722E',overdue:'var(--terra)',neutral:'var(--text3)'}[info.colorClass]||'var(--text3)';
+  const ddHtml=`<span style="color:${colorVar};font-weight:600">${esc(info.kind==='overdue'?'OVERDUE — '+info.label:info.label)}</span>`;
   return `<div class="field-grid">
     ${frow('Release Block',inp(`f-${id}-releaseBlock`,d.releaseBlock,'e.g. 2027 Q1',`fc('${id}','dates.releaseBlock',this.value)`))}
     ${frow('Soft Date',`<input type="date" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)">`)}
     ${frow('Street Date',`<input type="date" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)">`)}
     ${frow('Print Date',`<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:.8rem;color:var(--text3)"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label><input type="date" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)"></div>`)}
-    ${frow('Days to Print Deadline',`<div id="f-${id}-daysToprint" style="padding:8px 0;font-size:.9rem">${ddHtml}</div>`)}
+    ${frow('Print Status',`<div id="f-${id}-daysToprint" style="padding:8px 0;font-size:.9rem">${ddHtml}</div>`)}
   </div>`;}
 
 function renderPrint(t){const id=t.id;const p=t.print;
@@ -793,36 +1013,63 @@ function renderPrint(t){const id=t.id;const p=t.print;
     </div>
   </div>`;}
 
-// New §5 requirement: surface linked PO/print-estimate data per title,
-// read-only, joined by ISBN per Marcus's poTrackerIsbnKey design (documented
-// in the Sheet's ReadMe). Loaded lazily (only when this section is opened)
-// to avoid an extra API round-trip on every title-detail view.
+// Item 29 design decision (full reasoning in the build report): this box
+// now surfaces THREE things side by side rather than picking just one:
+//   1. The existing per-title print-ESTIMATE pull (unchanged) — ISBN/title-
+//      matched against the older Printer_Quotes_Per_Title_Complete sheet.
+//   2. A NEW, read-only, best-effort pull from the separate "PO & Invoice
+//      Tracker - Headpress" Sheet (Marcus, 2026-07-24) — that Sheet is
+//      supplier/invoice-centric with NO title or ISBN column (confirmed
+//      live: Tracker!A1:M1 headers are Date Received/Supplier/Invoice #/PO
+//      Reference/Currency/Amount/Balance/Due Date/Status/Date Paid/Notes/
+//      File), so a strict ISBN join isn't possible there — instead this
+//      matches the title's own name as a case-insensitive substring inside
+//      that Sheet's free-text Notes column (same "Book Title" substring-
+//      match style already used for the older print-estimate sheet above),
+//      clearly labelled as best-effort so it's never mistaken for a
+//      guaranteed link.
+//   3. A plain manual-entry free-text box (item 29: "David wants to add
+//      info here manually either way") — stored per-title in this app's own
+//      data (productionNotes_json.poManualNotes), independent of either
+//      linked pull, so it works even when nothing matches automatically.
+// Made prominent per item 30 — see po-prominent CSS class + SECTION_KEYS
+// reorder (this box is now position 2, right after Commercial, and always
+// open like Pipeline).
 function renderPoTracker(t){const id=t.id;
   const key = t.commercial.isbnPbk || t.commercial.isbnHbk || '';
   return `<div class="field-grid">
     ${frow('PO Tracker ISBN Key (auto)',`<input type="text" value="${esc(key)}" readonly>`)}
     ${frow('Manual Override (title/tab name)',inp(`f-${id}-poOverride`,t.poTrackerTitleOverride,'Exact PO Log "Book Title" text or tab name — use if no ISBN yet','fc(\''+id+'\',\'poTrackerTitleOverride\',this.value)'))}
     <div class="field-group full" id="po-tracker-results-${id}">
-      <label class="field-label">Matching Purchase Orders</label>
-      <div class="po-empty">Loading… (if this doesn't update, the PO tracker sheet may not be shared with your signed-in account)</div>
+      <label class="field-label">Matching Print Estimates (Printer_Quotes_Per_Title_Complete)</label>
+      <div class="po-empty">Loading…</div>
     </div>
+    <div class="field-group full" id="po-invoice-results-${id}">
+      <div class="po-source-label">Matching POs / Invoices — best-effort match by title name (PO &amp; Invoice Tracker - Headpress)</div>
+      <div class="po-empty">Loading…</div>
+    </div>
+    ${frow('Manual PO/Invoice Notes',taAuto(`f-${id}-poManual`,t.poManualNotes,'Jot anything here manually — a PO number, a note about an invoice, whatever’s useful, independent of the linked pulls above…',`fc('${id}','poManualNotes',this.value)`),'full')}
   </div>`;}
 
 async function loadPoTrackerFor(titleId){
+  loadPrintEstimatesFor(titleId);
+  loadPoInvoiceTrackerFor(titleId);
+}
+
+async function loadPrintEstimatesFor(titleId){
   const t=getTitle(titleId);if(!t)return;
   const container=document.getElementById('po-tracker-results-'+titleId);
   if(!container)return;
   if(devMode){ container.innerHTML='<div class="po-empty">Dev preview mode — PO tracker data isn\'t fetched (no live sign-in).</div>'; return; }
   const key=(t.commercial.isbnPbk||t.commercial.isbnHbk||'').trim();
   const override=(t.poTrackerTitleOverride||'').trim();
-  if(!key && !override){ container.innerHTML='<div class="po-empty">No ISBN or manual override set — nothing to match against the PO tracker yet.</div>'; return; }
+  if(!key && !override){ container.innerHTML='<div class="po-empty">No ISBN or manual override set — nothing to match against the print-estimate tracker yet.</div>'; return; }
   try{
     if(!poLogRowsCache){
       // Header row confirmed at row 3 of the live PO Log tab (rows 1-2 are
       // a title banner + blank spacer row, not part of the table).
       poLogRowsCache = await sheetsGet(CFG.PO_TRACKER_SHEET_ID, "'PO Log'!A3:L2000");
     }
-    const headers = poLogRowsCache[0] || ['Date','Book Title','Printer Name','Quantity','PO Number','Unit Cost','Total Order Value','Payment Status','Amount Paid','Payment Date','Balance Outstanding','Notes'];
     const dataRows = poLogRowsCache.slice(1);
     const matches = dataRows.filter(r=>{
       const bookTitle = (r[1]||'').toString();
@@ -831,7 +1078,7 @@ async function loadPoTrackerFor(titleId){
       return false;
     });
     if(!matches.length){
-      container.innerHTML='<div class="po-empty">No matching rows found in the PO tracker\'s \'PO Log\' tab for this ISBN/override.</div>'+poTrackerOpenLink();
+      container.innerHTML='<div class="po-empty">No matching rows found in the print-estimate tracker\'s \'PO Log\' tab for this ISBN/override.</div>'+printEstimateOpenLink();
       return;
     }
     const rows = matches.map(r=>{
@@ -842,14 +1089,56 @@ async function loadPoTrackerFor(titleId){
         <td>${esc(r[6]||'')}</td><td><span class="po-status-pill ${pillCls}">${esc(status||'—')}</span></td><td>${esc(r[10]||'')}</td>
       </tr>`;
     }).join('');
-    container.innerHTML = `<table class="po-table"><thead><tr><th>Date</th><th>Printer</th><th>Qty</th><th>PO Number</th><th>Total Value</th><th>Status</th><th>Balance</th></tr></thead><tbody>${rows}</tbody></table>`+poTrackerOpenLink();
+    container.innerHTML = `<label class="field-label">Matching Print Estimates (Printer_Quotes_Per_Title_Complete)</label><table class="po-table"><thead><tr><th>Date</th><th>Printer</th><th>Qty</th><th>PO Number</th><th>Total Value</th><th>Status</th><th>Balance</th></tr></thead><tbody>${rows}</tbody></table>`+printEstimateOpenLink();
   }catch(e){
-    container.innerHTML='<div class="po-empty">Could not load PO tracker data: '+esc(e.message)+'</div>'+poTrackerOpenLink();
+    container.innerHTML='<div class="po-empty">Could not load print-estimate tracker data: '+esc(e.message)+'</div>'+printEstimateOpenLink();
     console.error(e);
   }
 }
-function poTrackerOpenLink(){
-  return `<p style="margin-top:8px"><a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">Open full PO tracker / print-estimate sheet &#8599;</a></p>`;
+function printEstimateOpenLink(){
+  return `<p style="margin-top:8px"><a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">Open full print-estimate tracker &#8599;</a></p>`;
+}
+
+// New (item 29) — best-effort read-only pull from the separate "PO &
+// Invoice Tracker - Headpress" Sheet. That Sheet has no title/ISBN column,
+// so this matches the title's own name (case-insensitive substring) against
+// the Tracker tab's free-text Notes column — deliberately labelled
+// "best-effort" in the UI rather than presented as a guaranteed join.
+let poInvoiceRowsCache = null;
+async function loadPoInvoiceTrackerFor(titleId){
+  const t=getTitle(titleId);if(!t)return;
+  const container=document.getElementById('po-invoice-results-'+titleId);
+  if(!container)return;
+  if(devMode){ container.innerHTML='<div class="po-source-label">Matching POs / Invoices — best-effort match by title name (PO &amp; Invoice Tracker - Headpress)</div><div class="po-empty">Dev preview mode — not fetched (no live sign-in).</div>'; return; }
+  if(!CFG.PO_INVOICE_TRACKER_SHEET_ID){ container.innerHTML=''; return; }
+  const titleNeedle=(t.title||'').trim().toLowerCase();
+  if(!titleNeedle){ container.innerHTML=''; return; }
+  try{
+    if(!poInvoiceRowsCache){
+      poInvoiceRowsCache = await sheetsGet(CFG.PO_INVOICE_TRACKER_SHEET_ID, "Tracker!A2:M1000");
+    }
+    const matches = poInvoiceRowsCache.filter(r=>{
+      const notes=(r[11]||'').toString().toLowerCase();
+      return notes.indexOf(titleNeedle)!==-1;
+    });
+    const label = `<div class="po-source-label">Matching POs / Invoices — best-effort match by title name (PO &amp; Invoice Tracker - Headpress)</div>`;
+    if(!matches.length){
+      container.innerHTML=label+'<div class="po-empty">No rows in the Tracker tab mention this title by name in their Notes — this is a best-effort text match, not a guaranteed link, so absence here doesn\'t mean nothing exists.</div>'+poInvoiceOpenLink();
+      return;
+    }
+    const rows = matches.map(r=>{
+      const status=(r[9]||'').toString();
+      const pillCls = /paid/i.test(status)&&!/partial/i.test(status) ? 'po-status-paid' : /partial|unpaid/i.test(status) ? 'po-status-ordered' : 'po-status-other';
+      return `<tr><td>${esc(r[0]||'')}</td><td>${esc(r[1]||'')}</td><td>${esc(r[2]||'')}</td><td>${esc(r[4]||'')}${esc(r[5]||'')}</td><td><span class="po-status-pill ${pillCls}">${esc(status||'—')}</span></td><td>${esc(r[11]||'')}</td></tr>`;
+    }).join('');
+    container.innerHTML = label+`<table class="po-table"><thead><tr><th>Date Recv'd</th><th>Supplier</th><th>Invoice #</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`+poInvoiceOpenLink();
+  }catch(e){
+    container.innerHTML='<div class="po-empty">Could not load PO &amp; Invoice Tracker data: '+esc(e.message)+'</div>'+poInvoiceOpenLink();
+    console.error(e);
+  }
+}
+function poInvoiceOpenLink(){
+  return `<p style="margin-top:8px"><a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">Open full PO &amp; Invoice Tracker &#8599;</a></p>`;
 }
 
 function renderPublicity(t){const id=t.id;const p=t.publicity;
@@ -885,19 +1174,15 @@ function renderFutureEdition(t){const id=t.id;const f=t.futureEdition;
     ${frow('Print-Ready Files',`<select id="f-${id}-prf" onchange="fc('${id}','futureEdition.printReadyFilesStatus',this.value)"><option ${f.printReadyFilesStatus==='Not Ready'?'selected':''}>Not Ready</option><option ${f.printReadyFilesStatus==='Ready'?'selected':''}>Ready</option><option ${f.printReadyFilesStatus==='Submitted'?'selected':''}>Submitted</option></select>`)}
   </div>`;}
 
-function renderFilesLinks(t){const id=t.id;
-  const links=t.filesLinks&&t.filesLinks.links?t.filesLinks.links:[];
-  const listHtml=links.length?links.map((lnk,i)=>`<div class="link-item">
-    <span class="link-label">${esc(lnk.label)}</span>
-    <a href="${esc(lnk.url)}" target="_blank" rel="noopener">${esc(lnk.url)}</a>
-    <button class="btn-danger btn-sm" onclick="removeLink('${id}',${i})">Remove</button>
-  </div>`).join(''):'<p style="color:var(--text3);font-size:.85rem;margin-bottom:8px">No links added yet.</p>';
-  return `<div id="links-list-${id}" class="links-list">${listHtml}</div>
-  <div class="add-link-form">
-    <div><label class="field-label">Label</label><input type="text" id="new-link-label-${id}" placeholder="e.g. Cover File"></div>
-    <div><label class="field-label">URL</label><input type="url" id="new-link-url-${id}" placeholder="https://…"></div>
-    <div style="padding-top:18px"><button class="btn btn-sm" onclick="addLink('${id}')">+ Add Link</button></div>
-  </div>`;}
+// Item 31 — Files & Links box removed entirely (renderFilesLinks/addLink/
+// removeLink deleted along with it, 2026-07-26). That information is
+// already effectively available at the top of the page via
+// renderFolderLinksRow() (Cover Image URL / Images Folder / Working
+// Folder), added 2026-07-15 — this box had become redundant with it.
+// t.filesLinks itself is left in the data model/Sheet column untouched
+// (same non-destructive approach as the Backup ISBN removal) in case any
+// existing rows have data worth recovering later; it's just no longer
+// rendered or editable from this UI.
 
 // ─── ISBN VIEW ───
 function renderISBNs(){
@@ -1064,26 +1349,6 @@ function removePrinterContact(titleId,idx){
 }
 
 // ─── FILES & LINKS ACTIONS ───
-function addLink(titleId){
-  const labelEl=document.getElementById(`new-link-label-${titleId}`);
-  const urlEl=document.getElementById(`new-link-url-${titleId}`);
-  if(!labelEl||!urlEl)return;
-  const label=labelEl.value.trim();const url=urlEl.value.trim();
-  if(!label||!url)return;
-  const t=getTitle(titleId);if(!t)return;
-  if(!t.filesLinks)t.filesLinks={links:[]};
-  t.filesLinks.links.push({label,url});
-  labelEl.value='';urlEl.value='';
-  renderDetail();
-  debouncedSave(titleId);
-}
-function removeLink(titleId,idx){
-  const t=getTitle(titleId);if(!t||!t.filesLinks)return;
-  t.filesLinks.links.splice(idx,1);
-  renderDetail();
-  debouncedSave(titleId);
-}
-
 // ─── ADD TITLE ───
 function openAddTitle(){document.getElementById('add-title-modal').classList.remove('hidden');}
 async function confirmAddTitle(){
@@ -1106,6 +1371,119 @@ async function confirmAddTitle(){
 function onSearch(v){filters.search=v;renderTitles();}
 function onFilterStatus(v){filters.status=v;renderTitles();}
 function onFilterImprint(v){filters.imprint=v;renderTitles();}
+function onFilterBlock(v){filters.block=v;renderTitles();}
+function onFilterPrintTiming(v){filters.printTiming=v;renderTitles();}
+
+// ─── ISBN LOCK MECHANISM (item 18 design decision) ───
+// Default state: LOCKED (readonly) for every live ISBN field, every time
+// the detail view loads — deliberately session-only, not persisted to the
+// Sheet. Unlocking requires an explicit click + a confirm() dialog spelling
+// out the risk, so overwriting a live, already-in-use ISBN needs a
+// deliberate two-step action rather than one stray keystroke landing in an
+// always-editable box. This is what replaces the old Backup ISBN fields as
+// the actual accidental-overwrite protection — see build report for the
+// full reasoning on why a lock-toggle was chosen over e.g. a confirm-on-
+// every-keystroke prompt (far too disruptive for a field David might
+// legitimately correct a typo in) or a permanent-audit-log approach
+// (over-engineered for what's fundamentally a "did you mean to do that"
+// guard).
+function isbnLockRow(titleId,field){
+  const row=isbnLocked[titleId];
+  if(!row)return true; // default locked
+  return row[field]!==false;
+}
+function toggleIsbnLock(titleId,field){
+  const t=getTitle(titleId);if(!t)return;
+  const currentlyLocked=isbnLockRow(titleId,field);
+  if(currentlyLocked){
+    const ok=confirm('This ISBN is likely already live/in use with distributors and retailers. Unlock to edit it?\n\nOnly do this if you specifically mean to change a real, assigned ISBN.');
+    if(!ok)return;
+  }
+  if(!isbnLocked[titleId])isbnLocked[titleId]={};
+  isbnLocked[titleId][field]=currentlyLocked?false:true;
+  renderDetail();
+}
+
+// ─── QUICK NOTE CAPTURE (item 32) ───
+// Fast, low-friction jot against any title — no formal edit flow. Lives
+// outside the accordion entirely (floating button, always available in any
+// view) and writes straight to that title's own quickNotes_json array, each
+// entry timestamped. Recent notes for the selected title also show inline
+// in the panel so David can see what he's already jotted without having to
+// open the full detail view.
+function populateQuickNoteTitles(){
+  const sel=document.getElementById('qn-title-select');if(!sel)return;
+  const cur=sel.value;
+  sel.innerHTML=data.titles.slice().sort((a,b)=>a.title.localeCompare(b.title)).map(t=>`<option value="${t.id}">${esc(t.title)}</option>`).join('');
+  if(view==='detail'&&selectedId) sel.value=selectedId;
+  else if(cur) sel.value=cur;
+  renderQuickNoteRecent();
+}
+function toggleQuickNote(){
+  qnOpen=!qnOpen;
+  const panel=document.getElementById('quick-note-panel');
+  if(!panel)return;
+  panel.classList.toggle('hidden',!qnOpen);
+  if(qnOpen){ populateQuickNoteTitles(); document.getElementById('qn-text').focus(); }
+}
+function renderQuickNoteRecent(){
+  const sel=document.getElementById('qn-title-select');
+  const box=document.getElementById('qn-recent');
+  if(!sel||!box)return;
+  const t=getTitle(sel.value);
+  if(!t||!t.quickNotes||!t.quickNotes.length){ box.innerHTML='<em>No quick notes yet for this title.</em>'; return; }
+  box.innerHTML=t.quickNotes.slice().reverse().slice(0,5).map(n=>`<div class="qn-recent-item"><b>${esc(new Date(n.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}</b> — ${esc(n.text)}</div>`).join('');
+}
+function saveQuickNote(){
+  const sel=document.getElementById('qn-title-select');
+  const textEl=document.getElementById('qn-text');
+  if(!sel||!textEl)return;
+  const text=textEl.value.trim();
+  if(!text)return;
+  const t=getTitle(sel.value);if(!t)return;
+  if(!t.quickNotes)t.quickNotes=[];
+  t.quickNotes.push({ts:new Date().toISOString(),text});
+  textEl.value='';
+  saveTitle(t.id); // immediate, not debounced — a quick note should feel saved instantly
+  renderQuickNoteRecent();
+  // If the note's title is the one currently open in detail view, refresh
+  // it live too (quick notes aren't shown as their own accordion field
+  // today, but this keeps behaviour honest if a future pass surfaces them
+  // there — no stale state left behind).
+  if(view==='detail'&&selectedId===t.id) renderDetail();
+}
+
+// Item 21 — HTML output view for Content & Marketing. Generates a simple,
+// copy-pasteable HTML rendering of the marketing fields (paragraphs from
+// each textarea, one <p> per non-blank line) so David can paste into
+// distributor portals or email without losing structure. Opened in a new
+// tab as a self-contained HTML document rather than a modal, since the
+// whole point is to copy it out to somewhere else.
+function openHtmlOutput(titleId){
+  const t=getTitle(titleId);if(!t)return;
+  const esc2=s=>esc(s||'');
+  const para=s=>(s||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>`<p>${esc2(l)}</p>`).join('\n');
+  // Full/Jacket/Brief now come from the rich-text fields (richTa()) and are
+  // stored as real HTML (bold/italic/paragraphs) — passed through as-is
+  // here rather than re-escaped, so formatting actually survives into the
+  // output. Falls back gracefully for older plain-text values too, since
+  // plain text has no tags to preserve or break.
+  const rich=s=>s||'';
+  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc2(t.title)} — Content &amp; Marketing (HTML Output)</title>
+<style>body{font-family:Georgia,serif;max-width:700px;margin:40px auto;padding:0 20px;line-height:1.6;color:#222}h1{font-size:1.4rem}h2{font-size:1rem;text-transform:uppercase;letter-spacing:.04em;color:#888;margin-top:2em}</style>
+</head><body>
+<h1>${esc2(t.title)}${t.subtitle?' — '+esc2(t.subtitle):''}</h1>
+<h2>Full Description</h2>${rich(t.content.fullDescription)}
+<h2>Jacket Blurb</h2>${rich(t.content.jacketBlurb)}
+<h2>Brief Description</h2>${rich(t.content.briefDescription)}
+<h2>Sales Handle</h2><p>${esc2(t.content.salesHandle)}</p>
+<h2>Selling Points</h2><ul>${(t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<li>${esc2(s)}</li>`).join('')}</ul>
+<h2>Quotes</h2>${(t.content.quotes||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<blockquote>${esc2(s)}</blockquote>`).join('\n')}
+</body></html>`;
+  const blob=new Blob([html],{type:'text/html'});
+  const url=URL.createObjectURL(blob);
+  window.open(url,'_blank','noopener');
+}
 
 // ─── TODOIST MODAL (unchanged from headpress.html — deliberately still a
 // copy-paste summary, not a live API push, per the original brief's

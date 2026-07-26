@@ -22,7 +22,13 @@
 window.BOOK_HUB_CONFIG = {
   GOOGLE_CLIENT_ID: "445657396154-qpoiogtae2vlc90cuv0pd4hgp17fv9lk.apps.googleusercontent.com",
   TITLES_SHEET_ID: "1hCCbT3TOKa7eb4EQ8WTaDoy7XQEu7J2zAeyNnSYqDMo", // "Book Production Titles" — created 2026-07-10
-  PO_TRACKER_SHEET_ID: "171M_525EckIyREF1V-DcLxr_iTsO3DEV2loOGsY7uG4", // Printer_Quotes_Per_Title_Complete (existing, unmodified)
+  PO_TRACKER_SHEET_ID: "171M_525EckIyREF1V-DcLxr_iTsO3DEV2loOGsY7uG4", // Printer_Quotes_Per_Title_Complete (existing, unmodified) — per-title print ESTIMATES, ISBN/title-matched
+  // "PO & Invoice Tracker - Headpress" (Marcus Webb, built 2026-07-24) — a
+  // separate, supplier/invoice-centric Sheet (Tracker/PO Tracker/Addresses
+  // tabs), NOT per-title. See item-29 design decision in Mia's 2026-07-26
+  // build report for why this is a best-effort Notes-text match, read-only,
+  // rather than a strict ISBN join (the Sheet has no title/ISBN column).
+  PO_INVOICE_TRACKER_SHEET_ID: "1KAqmUisEtQXdDJTMHFjWQkNOciG4jEDWO9mmidt7Rbs",
   BOOK_REVEAL_HELPER_URL: "http://127.0.0.1:8744", // local-only companion process, see book_reveal_helper.py
   // Minimal scope: read/write access only to Sheets the signed-in user
   // already has permission to. Deliberately NOT the broad 'drive' scope —

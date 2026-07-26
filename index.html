@@ -4,32 +4,74 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Book Production Hub</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
-  /* Re-themed 2026-07-11 (Mia Chen) to match the PKA Dashboard's live palette —
-     see index.html comments below for the reasoning on each token. Quick
-     summary: --sage is repointed from a generic muted green to the
-     Dashboard's actual brand green (#4B6E53) and now does double duty as
-     both brand/interactive accent AND the "complete/ok" status colour,
-     mirroring how --accent works on the Dashboard. --amber/--terra are left
-     untouched deliberately — they're the functional deadline-urgency /
-     warning colours (warn / overdue) and are already close cousins of the
-     Dashboard's own --payable and --danger accents, so no clash to resolve. */
-  --sage:#4B6E53;--sage-bg:#E9EEE4;--sage-border:#3F5D42;
-  --amber:#b8892a;--amber-bg:#faf2de;--amber-border:#a87820;
-  --terra:#b06050;--terra-bg:#f7eeec;--terra-border:#a05040;
-  --bg:#F3F5F0;--bg2:#DFE7D8;--surface:#fff;--surface2:#F4F7F1;
-  --text:#2c2420;--text2:#584f48;--text3:#8a8078;--text-muted:#aaa098;
-  --border:#D8DED2;--border2:#C3CDBC;
-  --card-border:rgba(75,110,83,.18);--card-border-hover:rgba(75,110,83,.4);
-  --neutral-dot:#ccc5ba;
-  --shadow-sm:0 1px 3px rgba(32,41,32,.08);
-  --shadow-md:0 2px 8px rgba(32,41,32,.12);
-  --shadow-lg:0 4px 18px rgba(32,41,32,.16);
+  /* Re-themed 2026-07-26 (Mia Chen) — David's full UI/UX revision pass.
+     Brings this app onto the PKA Dashboard's current live "vivid wireframe"
+     structural language (white cards / solid black borders / ink text /
+     unchanged functional accent-green+danger+payable colours — see
+     Project Build/PKA Dashboard/index.html :root, re-skinned 2026-07-14/15)
+     — BUT with one deliberate divergence David asked for live, on top of
+     the written brief: the PAGE background goes dark here (this app is
+     David's day-to-day book-production desk, not the cream Dashboard), while
+     book cards/boxes themselves stay light, exactly as the Dashboard's own
+     cards do. So: dark chrome + light content surfaces, black-border card
+     language shared with the Dashboard, functional colours identical to the
+     Dashboard's so "red/amber/green" means the same thing across both apps. */
+  --ink-rgb: 17,17,17;
+  --accent-rgb: 75,110,83;
+
+  --bg-page:#1B1914;          /* dark page/chrome background (new, David's live ask) */
+  --bg-page2:#242219;         /* slightly lighter dark panel, e.g. header/footer */
+  --surface:#fff;             /* card/box surfaces stay light, unchanged */
+  --surface2:#F4F1E8;         /* subtle warm-grey tint for offsetting field areas (Commercial box etc) */
+  --surface-hover:#F6F1E2;
+  --text-oncream:#F1EAD9;     /* text sitting directly on the dark page chrome */
+  --text-oncream-dim:#B9AF9B;
+
+  --text:#14130F;             /* ink text on light card surfaces — matches Dashboard */
+  --text2:#4B453C;
+  --text3:#6B6459;
+  --text-muted:#8a8078;
+
+  --border:#E4DFD1;           /* soft internal field borders on light surfaces */
+  --border2:#D2CBB8;
+  --card-border:#111111;      /* solid black card border, matching Dashboard exactly */
+  --card-border-hover:#111111;
+
+  /* Functional colours — deliberately identical to the Dashboard's, so the
+     same colour means the same thing whichever app David is looking at. */
+  --sage:#4B6E53;--sage-bg:#E9EEE4;--sage-border:#3F5D42;      /* accent / complete / published */
+  --amber:#E0A868;--amber-bg:#FBF0DE;--amber-border:#C98A3E;   /* "X days to print" — present, NOT alarming */
+  --terra:#A34430;--terra-bg:#F7E6E1;--terra-border:#8a3626;   /* passed/overdue — the one true alarm colour */
+  --neutral-dot:#9AA5B1;--neutral-bg:#EEF0F2;--neutral-border:#7c8792; /* Not Scheduled */
+
+  /* Imprint colour-code (item 6) — deliberately subtle, NOT text-on-card.
+     Headpress = warm orange (echoes the real Headpress wordmark's orange);
+     Oil On Water Press = teal ("water"). Used only as a thin accent + small
+     dot, never a label. */
+  --imprint-headpress:#C9834A;
+  --imprint-oowp:#4F9B9B;
+
+  --shadow-sm:0 1px 3px rgba(17,17,17,.08);
+  --shadow-md:0 2px 10px rgba(17,17,17,.10);
+  --shadow-lg:0 6px 24px rgba(17,17,17,.16);
   --r4:4px;--r8:8px;--r12:12px;
-  --serif:Georgia,'Palatino Linotype',Palatino,serif;
-  --sans:'Segoe UI',system-ui,Arial,sans-serif;
+
+  /* Font pick (item 8, flagged for approval per the brief — not silently
+     final): Playfair Display for headings/titles — a high-contrast
+     editorial serif used widely by magazines/publishing houses, a good fit
+     for Headpress's identity and a step up in "character" from the previous
+     plain Georgia. Public Sans for body/UI chrome — still clean and
+     highly legible at small sizes (forms, tables) but has more personality
+     than the generic Segoe UI/system-ui stack it replaces. */
+  --serif:'Playfair Display',Georgia,'Palatino Linotype',Palatino,serif;
+  --sans:'Public Sans','Segoe UI',system-ui,Arial,sans-serif;
   --hh:58px;--fh:36px;
+  --detail-width:1000px;      /* item 11 — detail/production-sheet working area, slimmer than before */
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 /* Generic hide-by-class rule — several toggled elements (e.g. the ISBN
@@ -40,18 +82,22 @@
    class="hidden" element; the more specific #id.hidden rules further down
    are redundant with this but kept for clarity at each call site. */
 .hidden{display:none}
-body{font-family:var(--sans);font-size:14px;color:var(--text);background:var(--bg);min-height:100vh;padding-top:var(--hh);padding-bottom:var(--fh)}
+/* Light neutral tones — used INSIDE light card surfaces for subtle internal
+   contrast (table header stripes, hover states, etc). Distinct from the new
+   dark --bg-page used for the app's outer chrome (body/header/footer). */
+:root{--bg:#F5F1E6;--bg2:#EDE6D3}
+body{font-family:var(--sans);font-size:14px;color:var(--text-oncream);background:var(--bg-page);min-height:100vh;padding-top:var(--hh);padding-bottom:var(--fh)}
 a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
-/* ── HEADER ── */
-#app-header{position:fixed;top:0;left:0;right:0;height:var(--hh);background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:12px;padding:0 20px;z-index:100;box-shadow:var(--shadow-sm)}
-.h-logo{font-family:var(--serif);font-size:1.25rem;color:var(--text);white-space:nowrap;font-weight:normal;letter-spacing:.02em}
-.h-logo span{color:var(--sage)}
+/* ── HEADER (dark chrome, item 5 — page/chrome goes dark, cards stay light) ── */
+#app-header{position:fixed;top:0;left:0;right:0;height:var(--hh);background:var(--bg-page2);border-bottom:1px solid rgba(241,234,217,.12);display:flex;align-items:center;gap:12px;padding:0 20px;z-index:100;box-shadow:var(--shadow-sm)}
+.h-logo{font-family:var(--serif);font-size:1.25rem;color:var(--text-oncream);white-space:nowrap;font-weight:600;letter-spacing:.02em}
+.h-logo span{color:var(--imprint-headpress)}
 .h-nav{display:flex;gap:2px;flex-shrink:0}
-.h-tab{padding:6px 14px;border-radius:var(--r4);font-size:.85rem;cursor:pointer;background:none;border:none;color:var(--text2);font-family:var(--sans)}
-.h-tab:hover{background:var(--bg2)}
+.h-tab{padding:6px 14px;border-radius:var(--r4);font-size:.85rem;cursor:pointer;background:none;border:none;color:var(--text-oncream-dim);font-family:var(--sans)}
+.h-tab:hover{background:rgba(241,234,217,.08);color:var(--text-oncream)}
 .h-tab.active{background:var(--sage);color:#fff;font-weight:600}
-.h-search-wrap{display:flex;align-items:center;gap:8px;flex:1;min-width:0}
-#hdr-search{flex:1;min-width:80px;max-width:240px;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;background:var(--surface);color:var(--text)}
+.h-search-wrap{display:flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap}
+#hdr-search{flex:1;min-width:80px;max-width:220px;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;background:var(--surface);color:var(--text)}
 .h-select{padding:5px 8px;border:1px solid var(--border);border-radius:var(--r4);font-size:.82rem;background:var(--surface);color:var(--text);cursor:pointer}
 .h-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .btn{padding:6px 14px;border-radius:var(--r4);border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:.82rem;cursor:pointer;font-family:var(--sans);transition:background .15s}
@@ -64,6 +110,11 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .btn-danger{background:none;border:1px solid var(--terra-border);color:var(--terra);cursor:pointer;padding:3px 8px;font-size:.78rem;border-radius:var(--r4)}
 .btn-danger:hover{background:var(--terra-bg)}
 .btn[disabled]{opacity:.5;cursor:default}
+/* On-dark-chrome variant of .btn, for header actions */
+#app-header .btn{background:rgba(241,234,217,.06);color:var(--text-oncream);border-color:rgba(241,234,217,.2)}
+#app-header .btn:hover{background:rgba(241,234,217,.14)}
+#app-header .btn-primary{background:var(--sage);border-color:var(--sage-border);color:#fff}
+#whoami{color:var(--text-oncream-dim)!important}
 /* ── SYNC DOT ── */
 .sync-dot{width:9px;height:9px;border-radius:50%;display:inline-block;flex-shrink:0}
 .sync-dot.none{background:var(--border2)}
@@ -71,57 +122,80 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .sync-dot.saved{background:var(--sage)}
 .sync-dot.error{background:var(--terra)}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
-/* ── MAIN ── */
-#main{padding:20px;max-width:1400px;margin:0 auto}
+/* ── MAIN — width split by view (item 11: detail/box working area slimmer;
+   item 2: overview grid spreads to full width) ── */
+#main{padding:20px 24px 40px}
+#main.main-titles{max-width:none}
+#main.main-detail{max-width:var(--detail-width);margin:0 auto}
+#main.main-isbns{max-width:1100px;margin:0 auto}
 /* ── TITLES GRID ── */
-.titles-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap}
-.titles-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:18px}
+.titles-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;background:var(--bg-page2);border:1px solid rgba(241,234,217,.1);border-radius:var(--r8);padding:12px 14px}
+.titles-toolbar .h-select, .titles-toolbar input{background:var(--surface)}
+.titles-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}
 /* ── BOOK CARD ── */
 .book-card{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-md);overflow:hidden;cursor:pointer;transition:box-shadow .2s,transform .15s,border-color .2s;position:relative;display:flex;flex-direction:column}
 .book-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px);border-color:var(--card-border-hover)}
 .card-attention{position:absolute;top:8px;right:8px;width:10px;height:10px;border-radius:50%;background:var(--terra);border:2px solid var(--surface);z-index:2}
-.book-cover{aspect-ratio:2/3;background:linear-gradient(135deg,#e8e0d0 0%,#d8cfc0 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
-.book-cover img{width:100%;height:100%;object-fit:cover}
-.cover-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%;padding:12px;text-align:center;gap:6px}
-.cover-ph-h{font-family:var(--serif);font-size:2rem;color:var(--border2);opacity:.6}
-.cover-ph-title{font-family:var(--serif);font-size:.75rem;color:var(--text2);line-height:1.3;word-break:break-word}
+/* Imprint colour-code (item 6) — thin top accent bar + small dot, NEVER
+   text. Two imprints only: Headpress (warm orange) / Oil On Water Press
+   (teal). Deliberately subtle — 3px bar, 7px dot, no label. */
+.book-card{border-top:3px solid var(--imprint-accent, var(--card-border))}
+.book-card[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
+.book-card[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
+.imprint-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;background:var(--imprint-accent,var(--border2))}
+/* Cover thumbnail — reduced height, fit-to-size (item 9): object-fit:contain
+   on a neutral fill so non-2:3 cover images letterbox cleanly instead of
+   being stretched or cropped. */
+.book-cover{height:150px;background:linear-gradient(135deg,#e8e0d0 0%,#d8cfc0 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
+.book-cover img{width:100%;height:100%;object-fit:contain;background:#EDE6D3}
+.cover-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%;padding:10px;text-align:center;gap:4px}
+.cover-ph-h{font-family:var(--serif);font-size:1.5rem;color:var(--border2);opacity:.6}
+.cover-ph-title{font-family:var(--serif);font-size:.72rem;color:var(--text2);line-height:1.25;word-break:break-word}
 .cover-ph-imprint{font-size:.65rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em}
 .cover-ph-folder{font-size:.68rem;color:var(--amber-border);margin-top:2px}
-.card-info{padding:10px 10px 8px;flex:1;display:flex;flex-direction:column;gap:4px}
-.card-title{font-family:var(--serif);font-size:.9rem;font-weight:normal;color:var(--text);line-height:1.3}
-.card-author{font-size:.78rem;color:var(--text2)}
-.card-meta{font-size:.75rem;color:var(--text3)}
-.card-deadline{font-size:.75rem;font-weight:600;margin-top:2px}
+.card-info{padding:9px 10px 6px;flex:1;display:flex;flex-direction:column;gap:3px}
+.card-title-row{display:flex;align-items:center;gap:6px}
+.card-title{font-family:var(--serif);font-size:.88rem;font-weight:600;color:var(--text);line-height:1.3}
+.card-author{font-size:.76rem;color:var(--text2)}
+.card-meta{font-size:.73rem;color:var(--text3)}
+.card-deadline{font-size:.73rem;font-weight:600;margin-top:1px}
+.card-deadline.published{color:var(--sage)}
 .card-deadline.ok{color:var(--sage)}
-.card-deadline.warn{color:var(--amber)}
-.card-deadline.urgent{color:var(--terra)}
+.card-deadline.notice{color:var(--amber-border)}
+.card-deadline.due-soon{color:#B8722E}
 .card-deadline.overdue{color:var(--terra)}
+.card-deadline.neutral{color:var(--text3);font-weight:normal}
+/* ── PROGRESS BAR (item 1 — replaces the dots-based indicator; item 3 —
+   this + the simplified stage boxes below is the "less visual noise"
+   pass David asked for). Green fill = completed & published; any other
+   in-progress state uses a muted gold so green stays reserved for "done". */
 .card-footer{padding:8px 10px;border-top:1px solid var(--border);background:var(--surface2)}
-/* ── PIPELINE STRIP ── */
-.pipeline-strip{display:flex;gap:3px;flex-wrap:wrap}
-.p-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;cursor:default}
-.p-dot.interactive{cursor:pointer;transition:transform .1s}
-.p-dot.interactive:hover{transform:scale(1.4)}
+.progress-wrap{display:flex;align-items:center;gap:8px}
+.progress-track{flex:1;height:6px;border-radius:4px;background:var(--border);overflow:hidden}
+.progress-fill{height:100%;border-radius:4px;background:#C9973F;transition:width .2s}
+.progress-fill.done{background:var(--sage)}
+.progress-label{font-size:.68rem;color:var(--text3);white-space:nowrap;flex-shrink:0}
 /* ── DETAIL VIEW ── */
-.detail-back{display:inline-flex;align-items:center;gap:6px;color:var(--text2);cursor:pointer;font-size:.85rem;margin-bottom:14px;background:none;border:none;font-family:var(--sans)}
-.detail-back:hover{color:var(--sage)}
-.detail-top{display:grid;grid-template-columns:160px 1fr;gap:24px;margin-bottom:20px;background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);padding:20px;box-shadow:var(--shadow-sm)}
-.detail-cover{width:160px;height:240px;background:linear-gradient(135deg,#e8e0d0,#d8cfc0);border-radius:var(--r4);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
-.detail-cover img{width:100%;height:100%;object-fit:cover}
+.detail-back{display:inline-flex;align-items:center;gap:6px;color:var(--text-oncream-dim);cursor:pointer;font-size:.85rem;margin-bottom:14px;background:none;border:none;font-family:var(--sans)}
+.detail-back:hover{color:var(--text-oncream)}
+.detail-top{display:grid;grid-template-columns:140px 1fr;gap:22px;margin-bottom:16px;background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);padding:18px;box-shadow:var(--shadow-sm)}
+.detail-cover{width:140px;height:200px;background:linear-gradient(135deg,#e8e0d0,#d8cfc0);border-radius:var(--r4);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
+.detail-cover img{width:100%;height:100%;object-fit:contain;background:#EDE6D3}
 .detail-info{display:flex;flex-direction:column;gap:8px;min-width:0}
-.detail-title-text{font-family:var(--serif);font-size:1.5rem;font-weight:normal;color:var(--text);line-height:1.2}
+.detail-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.detail-title-text{font-family:var(--serif);font-size:1.4rem;font-weight:600;color:var(--text);line-height:1.2}
 .detail-subtitle-text{font-family:var(--serif);font-size:1rem;color:var(--text2);font-style:italic}
 .detail-author-text{font-size:.9rem;color:var(--text2)}
 .detail-meta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--text3)}
 .status-badge{padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .badge-inprogress{background:var(--amber-bg);color:var(--amber-border)}
-.badge-notscheduled{background:var(--bg2);color:var(--text3)}
+.badge-notscheduled{background:var(--neutral-bg);color:var(--neutral-border)}
 .badge-complete{background:var(--sage-bg);color:var(--sage-border)}
-.badge-released{background:#e8f0f8;color:#3a6a9a}
-.detail-strip-wrap{margin-top:8px}
+.badge-released{background:var(--sage-bg);color:var(--sage-border)}
+.detail-strip-wrap{margin-top:6px}
 .detail-strip-label{font-size:.72rem;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
 .detail-strip{display:flex;gap:4px;flex-wrap:wrap}
-.detail-p-dot{width:12px;height:12px;border-radius:50%;cursor:pointer;transition:transform .1s,box-shadow .1s;position:relative}
+.detail-p-dot{width:11px;height:11px;border-radius:50%;cursor:pointer;transition:transform .1s,box-shadow .1s;position:relative}
 .detail-p-dot:hover{transform:scale(1.3);box-shadow:0 0 0 2px var(--border2)}
 .detail-p-dot[title]:hover::after{content:attr(title);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:var(--text);color:#fff;font-size:.7rem;padding:2px 6px;border-radius:3px;white-space:nowrap;z-index:10;pointer-events:none}
 /* ── FOLDER LINKS ROW (new fields) ── */
@@ -130,19 +204,34 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .folder-link-group label.field-label{font-size:.72rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .folder-link-row{display:flex;gap:6px;align-items:center}
 .folder-link-row input{flex:1;min-width:0}
+
+/* ── TOC / JUMP-NAV (item 12) — sticky bar for the detail/production-sheet
+   view, same pattern as the Dashboard's Anchor-Nav (dash-nav). Sits inside
+   the light detail area (not the dark chrome) since it's scoped to one
+   title's page, not global navigation. ── */
+.toc-nav{position:sticky;top:var(--hh);z-index:40;display:flex;gap:6px;overflow-x:auto;background:#111;border-radius:var(--r8);padding:8px 10px;margin-bottom:14px;box-shadow:var(--shadow-sm)}
+.toc-nav-item{flex-shrink:0;font-size:.76rem;color:rgba(255,255,255,.75);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:4px 11px;white-space:nowrap;cursor:pointer;transition:background .15s}
+.toc-nav-item:hover{background:rgba(255,255,255,.18);color:#fff}
+.toc-nav-item.active{background:#fff;color:#111;border-color:#fff;font-weight:600}
+
 /* ── ACCORDION ── */
 .accordion{display:flex;flex-direction:column;gap:8px}
-.accord-section{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);overflow:hidden}
-.accord-header{display:flex;align-items:center;gap:0;cursor:pointer;user-select:none;border-left:4px solid var(--border2)}
+.accord-section{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);overflow:hidden;scroll-margin-top:calc(var(--hh) + 46px)}
+.accord-header{display:flex;align-items:center;gap:0;cursor:pointer;user-select:none;border-left:4px solid var(--neutral-dot)}
 .accord-header.stripe-complete{border-left-color:var(--sage)}
 .accord-header.stripe-partial{border-left-color:var(--amber)}
 .accord-header.stripe-overdue{border-left-color:var(--terra)}
 .accord-header-inner{display:flex;align-items:center;justify-content:space-between;flex:1;padding:12px 16px}
-.accord-label{font-family:var(--serif);font-size:.95rem;color:var(--text)}
+.accord-label{font-family:var(--serif);font-size:.95rem;font-weight:600;color:var(--text)}
 .accord-arrow{font-size:1.1rem;color:var(--text3);transition:transform .2s;display:inline-block}
 .accord-arrow.open{transform:rotate(90deg)}
 .accord-body{display:none;padding:16px;border-top:1px solid var(--border)}
 .accord-body.open{display:block}
+/* PO Tracker prominence (item 30 — "feels buried", make it stand out) */
+.accord-section.po-prominent{border-color:var(--sage-border);box-shadow:0 0 0 1px var(--sage-border),var(--shadow-sm)}
+.accord-section.po-prominent .accord-header{border-left-color:var(--sage)}
+.accord-badge-count{font-size:.72rem;font-weight:700;color:var(--sage-border);background:var(--sage-bg);border-radius:10px;padding:1px 8px;margin-left:8px}
+
 /* ── FORM FIELDS ── */
 .field-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 18px}
 .field-grid-3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 14px}
@@ -154,31 +243,71 @@ input[type=text]:focus,input[type=date]:focus,input[type=number]:focus,input[typ
 input[readonly]{background:var(--bg);color:var(--text3);cursor:default}
 textarea{resize:vertical;min-height:80px;line-height:1.5}
 textarea.tall{min-height:130px}
+/* Auto-expanding "word-processor surface" fields (items 20/22 — Content &
+   Marketing, Author boxes): grow to fit content instead of scrolling in a
+   small fixed frame. field-sizing:content is the native CSS mechanism where
+   supported (Chrome/Edge); app.js's autoGrow() provides the same behaviour
+   everywhere else via a scrollHeight-driven inline height, so this degrades
+   gracefully rather than depending on one browser feature. */
+textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:60px}
+/* Rich-text surface (item 21 — real formatting restore for Content &
+   Marketing's 3 main fields, see richTa() in app.js) */
+.richtext-wrap{display:flex;flex-direction:column;gap:4px}
+.richtext-toolbar{display:flex;gap:4px}
+.rt-btn{padding:2px 9px;border:1px solid var(--border2);border-radius:4px;background:var(--surface);cursor:pointer;font-size:.78rem;color:var(--text2)}
+.rt-btn:hover{background:var(--bg2)}
+.richtext{border:1px solid var(--border);border-radius:var(--r4);padding:8px 10px;font-size:.87rem;font-family:var(--sans);color:var(--text);background:var(--surface);min-height:70px;line-height:1.55}
+.richtext:focus{outline:none;border-color:var(--sage)}
+.richtext p{margin-bottom:.6em}
+.richtext[data-empty="1"]:not(:focus)::before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none}
 .field-row{display:flex;align-items:center;gap:8px}
 .field-row input[type=text]{flex:1}
 .isbn-row{display:flex;align-items:center;gap:6px}
 .isbn-row input{flex:1;min-width:0}
+/* Live-ISBN lock mechanism (item 18 design decision — see build report) */
+.isbn-row input[readonly]{background:var(--bg);color:var(--text3)}
+.lock-btn{background:none;border:1px solid var(--border2);border-radius:var(--r4);cursor:pointer;padding:4px 8px;font-size:.85rem;flex-shrink:0;line-height:1}
+.lock-btn.locked{color:var(--text3)}
+.lock-btn.unlocked{color:var(--terra-border);border-color:var(--terra-border);background:var(--terra-bg)}
 /* ── CHECKLIST ── */
 .checklist{display:flex;flex-direction:column;gap:6px}
 .check-item{display:flex;align-items:flex-start;gap:8px;padding:4px 0}
 .check-item input[type=checkbox]{margin-top:2px;flex-shrink:0;accent-color:var(--sage);width:15px;height:15px;cursor:pointer}
 .check-item label{font-size:.85rem;color:var(--text);cursor:pointer;line-height:1.4}
 .check-item.done label{text-decoration:line-through;color:var(--text3)}
-/* ── PIPELINE STAGES ── */
-.stages-table{width:100%;border-collapse:collapse}
-.stages-table th{font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em;padding:0 8px 6px;text-align:left;border-bottom:1px solid var(--border);font-weight:600}
-.stages-table td{padding:5px 8px;border-bottom:1px solid var(--border);vertical-align:middle}
-.stages-table tr:last-child td{border-bottom:none}
-.stage-name-cell{font-size:.85rem;color:var(--text);width:170px;white-space:nowrap}
-.stage-num{font-size:.72rem;color:var(--text3);margin-right:4px}
-.stage-btn{padding:3px 10px;border-radius:12px;border:none;cursor:pointer;font-size:.78rem;font-weight:600;font-family:var(--sans);white-space:nowrap;transition:background .15s}
-.stage-not-started{background:var(--bg2);color:var(--text3)}
-.stage-in-progress{background:var(--amber-bg);color:var(--amber-border)}
-.stage-complete{background:var(--sage-bg);color:var(--sage-border)}
-.stage-date-input,.stage-notes-input{padding:4px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.8rem;color:var(--text);background:var(--surface);font-family:var(--sans)}
+
+/* ── COMMERCIAL BOX TINT (item 17) ── */
+.field-tint{background:var(--surface2);border-radius:var(--r8);padding:14px}
+
+/* ── PRODUCTION PIPELINE — reworked (items 25/26): each stage is its own
+   clearly bounded box with status shown INSIDE it, chained together with
+   zero gap between adjacent stages in the same group, and a visible gap
+   between distinct status-type groupings — mirrors the colour-blocked
+   grouping found in David's original "Book Planning 2025" Google Sheet
+   (Overview/Setup/Production/Payment/Marketing/Contacts/Formats/Extras —
+   see build report for the exact row-grouping this was read from). ── */
+.pipeline-chain{display:flex;flex-direction:column;gap:14px}
+.pipeline-group-label{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:2px}
+.pipeline-group-boxes{display:flex;flex-direction:column;border-radius:var(--r8);overflow:hidden;border:1px solid var(--border)}
+.stage-box{display:grid;grid-template-columns:26px 1fr auto 90px 1fr;gap:10px;align-items:center;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border)}
+.stage-box:last-child{border-bottom:none}
+.stage-box-num{font-size:.72rem;color:var(--text3)}
+.stage-box-name{font-size:.85rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* Simplified status control (item 3): three flat, low-saturation states,
+   status shown as the button's own fill+label rather than a floating pill
+   elsewhere on the page. */
+.stage-btn{padding:4px 11px;border-radius:6px;border:1px solid transparent;cursor:pointer;font-size:.74rem;font-weight:600;font-family:var(--sans);white-space:nowrap;transition:background .15s}
+.stage-not-started{background:var(--neutral-bg);color:var(--neutral-border);border-color:var(--neutral-dot)}
+.stage-in-progress{background:var(--amber-bg);color:var(--amber-border);border-color:var(--amber-border)}
+.stage-complete{background:var(--sage-bg);color:var(--sage-border);border-color:var(--sage-border)}
+/* Expected date shrunk (item 27); Notes widened (item 28) via the grid
+   template above (90px vs 1fr) rather than equal-width columns. */
+.stage-date-input,.stage-notes-input{padding:4px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.78rem;color:var(--text);background:var(--surface);font-family:var(--sans)}
 .stage-date-input:focus,.stage-notes-input:focus{outline:none;border-color:var(--sage)}
-.stage-date-input{width:130px}
-.stage-notes-input{width:100%;min-width:120px}
+.stage-date-input{width:100%}
+.stage-notes-input{width:100%}
+@media (max-width:720px){.stage-box{grid-template-columns:1fr;gap:6px}}
+
 /* ── ISBN TABLE ── */
 .isbn-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
 .isbn-table{width:100%;border-collapse:collapse;background:var(--surface);border-radius:var(--r8);overflow:hidden;box-shadow:var(--shadow-sm)}
@@ -192,13 +321,7 @@ textarea.tall{min-height:130px}
 .isbn-badge-ebk{background:#e0eef8;color:#2a5a8a}
 .isbn-badge-hbk{background:#f0ece0;color:#6a5a2a}
 .isbn-badge-other{background:var(--bg2);color:var(--text3)}
-/* ── FILES & LINKS / PRINTER CONTACTS ── */
-.links-list{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
-.link-item{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg);border-radius:var(--r4);border:1px solid var(--border)}
-.link-item a{flex:1;font-size:.85rem;color:var(--amber);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.link-label{font-size:.78rem;color:var(--text2);min-width:80px;flex-shrink:0}
-.add-link-form{display:grid;grid-template-columns:1fr 2fr auto;gap:8px;align-items:end;margin-top:8px}
-.add-link-form label{font-size:.75rem;color:var(--text3)}
+/* ── PRINTER CONTACTS ── */
 .printer-contacts{display:flex;flex-direction:column;gap:6px}
 .printer-row{display:flex;gap:8px;align-items:center}
 .printer-row input{flex:1}
@@ -212,6 +335,18 @@ textarea.tall{min-height:130px}
 .po-status-ordered{background:var(--amber-bg);color:var(--amber-border)}
 .po-status-paid{background:var(--sage-bg);color:var(--sage-border)}
 .po-status-other{background:var(--bg2);color:var(--text3)}
+.po-source-label{font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
+
+/* ── QUICK NOTE CAPTURE (item 32) — fast, low-friction, floating ── */
+#quick-note-fab{position:fixed;right:22px;bottom:calc(var(--fh) + 18px);z-index:150;width:50px;height:50px;border-radius:50%;background:var(--sage);color:#fff;border:none;box-shadow:var(--shadow-lg);cursor:pointer;font-size:1.4rem;display:flex;align-items:center;justify-content:center;transition:transform .15s}
+#quick-note-fab:hover{transform:scale(1.08);background:var(--sage-border)}
+.qn-panel{position:fixed;right:22px;bottom:calc(var(--fh) + 78px);z-index:150;width:340px;max-width:calc(100vw - 44px);background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r12);box-shadow:var(--shadow-lg);padding:16px}
+.qn-panel h4{font-family:var(--serif);font-weight:600;font-size:1rem;margin-bottom:10px;color:var(--text)}
+.qn-panel select,.qn-panel textarea{margin-bottom:8px}
+.qn-panel textarea{min-height:80px}
+.qn-recent{max-height:110px;overflow-y:auto;font-size:.76rem;color:var(--text3);border-top:1px dashed var(--border);margin-top:8px;padding-top:8px}
+.qn-recent-item{padding:3px 0;border-bottom:1px dotted var(--border)}
+.qn-recent-item b{color:var(--text2)}
 /* ── MODALS ── */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px}
 .modal-overlay.hidden{display:none}
@@ -221,10 +356,10 @@ textarea.tall{min-height:130px}
 .modal-field{margin-bottom:12px}
 .modal-field label{display:block;font-size:.78rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
 /* ── AUTH OVERLAY ── */
-#auth-overlay{position:fixed;inset:0;background:rgba(244,240,232,.97);z-index:300;display:flex;align-items:center;justify-content:center}
+#auth-overlay{position:fixed;inset:0;background:rgba(20,19,15,.94);z-index:300;display:flex;align-items:center;justify-content:center}
 #auth-overlay.hidden{display:none}
-.auth-card{background:var(--surface);border-radius:var(--r12);padding:36px 40px;max-width:480px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
-.auth-card h2{font-family:var(--serif);font-size:1.5rem;font-weight:normal;margin-bottom:12px;color:var(--text)}
+.auth-card{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r12);padding:36px 40px;max-width:480px;width:100%;box-shadow:var(--shadow-lg);text-align:center}
+.auth-card h2{font-family:var(--serif);font-size:1.5rem;font-weight:600;margin-bottom:12px;color:var(--text)}
 .auth-card p{font-size:.9rem;color:var(--text2);margin-bottom:20px;line-height:1.6}
 .auth-error{background:var(--terra-bg);color:var(--terra-border);border-radius:var(--r4);padding:10px 14px;font-size:.82rem;text-align:left;margin-bottom:16px;line-height:1.5}
 .auth-dev{margin-top:18px;padding-top:16px;border-top:1px dashed var(--border)}
@@ -232,12 +367,12 @@ textarea.tall{min-height:130px}
 /* ── RECONNECT BANNER ── */
 #reconnect-banner{background:var(--terra-bg);border-bottom:1px solid var(--terra-border);padding:8px 20px;font-size:.85rem;color:var(--terra-border);text-align:center;display:flex;align-items:center;justify-content:center;gap:12px;position:fixed;top:var(--hh);left:0;right:0;z-index:99}
 #reconnect-banner.hidden{display:none}
-/* ── FOOTER ── */
-#app-footer{position:fixed;bottom:0;left:0;right:0;height:var(--fh);background:var(--surface);border-top:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:10px;font-size:.78rem;color:var(--text3);z-index:100}
+/* ── FOOTER (dark chrome, matches header) ── */
+#app-footer{position:fixed;bottom:0;left:0;right:0;height:var(--fh);background:var(--bg-page2);border-top:1px solid rgba(241,234,217,.12);display:flex;align-items:center;padding:0 20px;gap:10px;font-size:.78rem;color:var(--text-oncream-dim);z-index:100}
 .footer-spacer{flex:1}
 /* ── EMPTY STATE ── */
-.empty-state{text-align:center;padding:60px 20px;color:var(--text3)}
-.empty-state h3{font-family:var(--serif);font-weight:normal;font-size:1.1rem;margin-bottom:8px;color:var(--text2)}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text-oncream-dim)}
+.empty-state h3{font-family:var(--serif);font-weight:600;font-size:1.1rem;margin-bottom:8px;color:var(--text-oncream)}
 </style>
 </head>
 <body>
@@ -267,6 +402,18 @@ textarea.tall{min-height:130px}
       <option value="Headpress">Headpress</option>
       <option value="Oil and Water Press">Oil and Water Press</option>
     </select>
+    <!-- Item 4: filter by release-date Block (Blocks tab data) -->
+    <select class="h-select" id="filter-block" onchange="onFilterBlock(this.value)">
+      <option value="">All Blocks</option>
+    </select>
+    <!-- Item 14: filter by print-timing status (not scheduled / passed / X days) -->
+    <select class="h-select" id="filter-printtiming" onchange="onFilterPrintTiming(this.value)">
+      <option value="">All Print Timing</option>
+      <option value="notscheduled">Not Scheduled</option>
+      <option value="duesoon">X Days To Print</option>
+      <option value="overdue">Print Date Passed</option>
+      <option value="published">Published</option>
+    </select>
   </div>
   <div class="h-actions">
     <button class="btn btn-primary btn-sm" id="btn-add-title" onclick="openAddTitle()">+ Add Title</button>
@@ -277,6 +424,21 @@ textarea.tall{min-height:130px}
 </header>
 
 <main id="main"></main>
+
+<!-- Quick Note capture (item 32) — fast, low-friction jot against any title,
+     no formal edit flow. Floating button + small panel, always available
+     regardless of view. -->
+<button id="quick-note-fab" title="Quick note on a title" onclick="toggleQuickNote()">&#128221;</button>
+<div id="quick-note-panel" class="qn-panel hidden">
+  <h4>Quick Note</h4>
+  <select id="qn-title-select"></select>
+  <textarea id="qn-text" placeholder="Jot it down — saved straight to that title's record…"></textarea>
+  <div style="display:flex;gap:8px;justify-content:flex-end">
+    <button class="btn btn-sm" onclick="toggleQuickNote()">Close</button>
+    <button class="btn btn-primary btn-sm" onclick="saveQuickNote()">Save Note</button>
+  </div>
+  <div id="qn-recent" class="qn-recent"></div>
+</div>
 
 <!-- Auth overlay -->
 <div id="auth-overlay">
