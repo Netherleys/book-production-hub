@@ -105,11 +105,16 @@
    dark --bg-page used for the app's outer chrome (body/header/footer). */
 :root{--bg:#F5F1E6;--bg2:#EDE6D3}
 body{font-family:var(--sans);font-size:14px;color:var(--text-oncream);background:var(--bg-page);min-height:100vh;padding-top:var(--hh);padding-bottom:var(--fh);transition:background .2s}
-/* Item 6 (Round 2) — muted-green page background, detail/title view only.
-   render() sets document.body.dataset.view on every route change; header/
-   footer keep their own explicit dark background regardless (they're
-   shared global chrome, unaffected by this). */
-body[data-view="detail"]{background:var(--bg-detail-green)}
+/* Item 6 (Round 2) — muted-green page background, detail view.
+   Item 2 (Round 3) — David asked the dashboard/overview (All Titles) to
+   match the same green rather than staying on the dark chrome — so
+   "titles" is added to this selector alongside "detail". render() sets
+   document.body.dataset.view on every route change; header/footer keep
+   their own explicit dark background regardless (they're shared global
+   chrome, deliberately unaffected — David didn't ask for those to change,
+   see build report). ISBN Manager and Quick Notes views are untouched,
+   still dark chrome. */
+body[data-view="detail"],body[data-view="titles"]{background:var(--bg-detail-green)}
 a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* ── HEADER (dark chrome, item 5 — page/chrome goes dark, cards stay light) ── */
 /* Items 1/2 (Round 2) — the header used to be a HARD-fixed height
@@ -129,7 +134,12 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    fix means it can never overlap content even if it still does wrap on a
    narrow enough window. */
 #app-header{position:fixed;top:0;left:0;right:0;min-height:var(--hh);background:var(--bg-page2);border-bottom:1px solid rgba(241,234,217,.12);display:flex;align-items:center;gap:12px;padding:8px 20px;z-index:100;box-shadow:var(--shadow-sm);flex-wrap:wrap}
-.h-logo{font-family:var(--serif);font-size:1.25rem;color:var(--text-oncream);white-space:nowrap;font-weight:600;letter-spacing:.02em}
+/* Item 1 (Round 3) — logo/title made clickable → All Titles (dashboard).
+   cursor+hover feedback added so it reads as an actual control, not just
+   decorative text; no underline (it's not an <a>, and this sits in the
+   dark header chrome where a random underline would look like a mistake). */
+.h-logo{font-family:var(--serif);font-size:1.25rem;color:var(--text-oncream);white-space:nowrap;font-weight:600;letter-spacing:.02em;cursor:pointer;transition:opacity .15s}
+.h-logo:hover{opacity:.8}
 .h-logo span{color:var(--imprint-headpress)}
 .h-nav{display:flex;gap:2px;flex-shrink:0}
 .h-tab{padding:6px 14px;border-radius:var(--r4);font-size:.85rem;cursor:pointer;background:none;border:none;color:var(--text-oncream-dim);font-family:var(--sans)}
@@ -260,6 +270,17 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .detail-subtitle-text{font-family:var(--serif);font-size:1rem;color:var(--text2);font-style:italic}
 .detail-author-text{font-size:.9rem;color:var(--text2)}
 .detail-meta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--text3)}
+/* Item 3 (Round 3) — real editable imprint control, replacing the plain
+   read-only <span> that used to sit here (imprint could only ever be set
+   once, at title-creation, in the Add Title modal — a genuine missing
+   feature, confirmed live, not a discoverability issue). Placed right in
+   the meta row next to the status badge/dates — the most discoverable
+   spot for "how do I change this", since it's exactly where David was
+   already looking for it. Styled as a small pill to sit comfortably
+   alongside .status-badge rather than looking like a stray form control
+   dropped into a summary strip. */
+.imprint-edit-select{font-size:.82rem;padding:3px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600}
+.imprint-edit-select:focus{outline:none;border-color:var(--sage)}
 .status-badge{padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .badge-inprogress{background:var(--amber-bg);color:var(--amber-border)}
 .badge-notscheduled{background:var(--neutral-bg);color:var(--neutral-border)}
@@ -352,8 +373,10 @@ label.field-label{font-size:.78rem;color:var(--text3);font-weight:600;text-trans
 /* Item 9 (Round 2) — text size bumped up one notch across every text
    field (this rule, .richtext, and the pipeline stage inputs below all
    moved up together) — Content & Marketing was called out by name but the
-   brief is explicit this is a global change, not a per-box one. */
-input[type=text],input[type=date],input[type=number],input[type=url],input[type=email],select,textarea{width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.95rem;font-family:var(--sans);color:var(--text);background:var(--surface);transition:border-color .15s}
+   brief is explicit this is a global change, not a per-box one.
+   Item 7 (Round 3) — bumped a bit further again (.95rem → 1.05rem), same
+   global scope, same set of rules moved together. */
+input[type=text],input[type=date],input[type=number],input[type=url],input[type=email],select,textarea{width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:1.05rem;font-family:var(--sans);color:var(--text);background:var(--surface);transition:border-color .15s}
 input[type=text]:focus,input[type=date]:focus,input[type=number]:focus,input[type=url]:focus,input[type=email]:focus,select:focus,textarea:focus{outline:none;border-color:var(--sage)}
 input[readonly]{background:var(--bg);color:var(--text3);cursor:default}
 textarea{resize:vertical;min-height:80px;line-height:1.5}
@@ -371,9 +394,23 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .richtext-toolbar{display:flex;gap:4px}
 .rt-btn{padding:2px 9px;border:1px solid var(--border2);border-radius:4px;background:var(--surface);cursor:pointer;font-size:.78rem;color:var(--text2)}
 .rt-btn:hover{background:var(--bg2)}
-.richtext{border:1px solid var(--border);border-radius:var(--r4);padding:8px 10px;font-size:.95rem;font-family:var(--sans);color:var(--text);background:var(--surface);min-height:70px;line-height:1.55}
+.richtext{border:1px solid var(--border);border-radius:var(--r4);padding:8px 10px;font-size:1.05rem;font-family:var(--sans);color:var(--text);background:var(--surface);min-height:70px;line-height:1.55}
 .richtext:focus{outline:none;border-color:var(--sage)}
-.richtext p{margin-bottom:.6em}
+/* Item 7 (Round 3) — paragraph spacing inside rich-text fields (Content &
+   Marketing etc.), not covered by Round 2's autoGrow/font-size pass. The
+   toolbar's ¶ button already wrapped text in <p> (see .richtext p below),
+   but plain Enter-key presses in a contenteditable div default to <div>
+   blocks in most browsers, which this rule didn't reach — so spacing only
+   ever appeared if David deliberately clicked ¶ first. Fixed two ways
+   (app.js): (1) each richtext box now sets
+   document.execCommand('defaultParagraphSeparator','p') on focus, so a
+   plain Enter creates a real <p> going forward; (2) this CSS rule now also
+   covers .richtext div as a safety net for any already-saved content (or
+   any browser that ignores defaultParagraphSeparator) that still used
+   <div> blocks — so spacing shows either way. Margin bumped .6em → .9em on
+   top, per the brief's "a bit more" ask. */
+.richtext p,.richtext div{margin-bottom:.9em}
+.richtext p:last-child,.richtext div:last-child{margin-bottom:0}
 .richtext[data-empty="1"]:not(:focus)::before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none}
 .field-row{display:flex;align-items:center;gap:8px}
 .field-row input[type=text]{flex:1}
@@ -442,7 +479,11 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 /* Expected date shrunk (7/26 item 27); Notes widened (7/26 item 28) via the
    grid template above (90px vs 1fr). Item 9 (Round 2) — font size bumped
    slightly, same as every other text field. */
-.stage-date-input,.stage-notes-input{padding:4px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;color:var(--text);background:var(--surface);font-family:var(--sans)}
+/* Item 7 (Round 3) — bumped .85rem→.92rem, smaller step than the main
+   field bump above (1.05rem) deliberately: these sit in the fixed-width
+   90px/1fr pipeline grid columns (see .stage-box), so a full-size jump
+   risks the Date column starting to wrap/clip. Still a real, visible bump. */
+.stage-date-input,.stage-notes-input{padding:4px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.92rem;color:var(--text);background:var(--surface);font-family:var(--sans)}
 .stage-date-input:focus,.stage-notes-input:focus{outline:none;border-color:var(--sage)}
 .stage-date-input{width:100%}
 .stage-notes-input{width:100%}
@@ -466,13 +507,32 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    with a preview snippet of the latest note, so David can see at a glance
    which titles have notes without opening each one to check. Click a row
    to jump straight to that title's detail view. ── */
-.qn-list-item{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);cursor:pointer;margin-bottom:10px;transition:box-shadow .15s}
-.qn-list-item:hover{box-shadow:var(--shadow-md)}
+/* Item 6 (Round 3) — reworked from "one row per title, latest-note preview
+   only" into a real grouped list: every title's individual ACTIVE notes now
+   render as their own row (not just the latest), each with a checkbox.
+   Checking a note off is an ARCHIVE action, not a strikethrough-in-place —
+   per David's live refinement, addressed notes move out of the active list
+   entirely into a separate Archived view (toggle below) rather than being
+   deleted, so nothing is ever lost, just moved. */
+.qn-mode-toggle{display:flex;gap:2px;margin-bottom:16px;background:var(--bg-page2);border:1px solid rgba(241,234,217,.14);border-radius:var(--r8);padding:4px;width:fit-content}
+.qn-mode-btn{padding:6px 16px;border-radius:6px;font-size:.82rem;font-family:var(--sans);border:none;background:none;color:var(--text-oncream-dim);cursor:pointer}
+.qn-mode-btn:hover{color:var(--text-oncream)}
+.qn-mode-btn.active{background:var(--sage);color:#fff;font-weight:600}
+.qn-group{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);margin-bottom:14px;overflow:hidden}
+.qn-group-header{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border)}
+.qn-group-header:hover{background:var(--surface-hover)}
 .qn-list-title{font-family:var(--serif);font-weight:600;font-size:.95rem;color:var(--text);white-space:nowrap}
-.qn-list-count{font-size:.68rem;color:var(--sage-border);background:var(--sage-bg);border-radius:10px;padding:1px 8px;flex-shrink:0}
-.qn-list-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
-.qn-list-snippet{font-size:.85rem;color:var(--text2);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
-.qn-list-meta{font-size:.72rem;color:var(--text3)}
+.qn-list-count{font-size:.68rem;color:var(--sage-border);background:var(--sage-bg);border-radius:10px;padding:1px 8px;flex-shrink:0;margin-left:auto}
+.qn-group-notes{display:flex;flex-direction:column}
+.qn-note-row{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-top:1px dashed var(--border)}
+.qn-group-notes .qn-note-row:first-child{border-top:none}
+.qn-note-row input[type=checkbox]{margin-top:3px;flex-shrink:0;accent-color:var(--sage);width:16px;height:16px;cursor:pointer}
+.qn-note-text-wrap{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.qn-note-text{font-size:.88rem;color:var(--text2);line-height:1.4}
+.qn-note-date{font-size:.72rem;color:var(--text3)}
+.qn-note-row.archived .qn-note-text{color:var(--text3)}
+.qn-restore-btn{flex-shrink:0;background:none;border:1px solid var(--border2);border-radius:var(--r4);color:var(--sage-border);cursor:pointer;padding:3px 9px;font-size:.78rem}
+.qn-restore-btn:hover{background:var(--sage-bg)}
 /* ── PRINTER CONTACTS ── */
 .printer-contacts{display:flex;flex-direction:column;gap:6px}
 .printer-row{display:flex;gap:8px;align-items:center}
@@ -490,9 +550,16 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .po-source-label{font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
 
 /* ── QUICK NOTE CAPTURE (item 32) — fast, low-friction, floating ── */
-#quick-note-fab{position:fixed;right:22px;bottom:calc(var(--fh) + 18px);z-index:150;width:50px;height:50px;border-radius:50%;background:var(--sage);color:#fff;border:none;box-shadow:var(--shadow-lg);cursor:pointer;font-size:1.4rem;display:flex;align-items:center;justify-content:center;transition:transform .15s}
+/* Item 5 (Round 3) — made bigger/bolder/easier to spot: 50px→64px, icon
+   scaled up to match, a visible white ring added (it previously blended
+   into the sage-green fill with nothing separating the two), and the
+   shadow deepened so it reads as sitting clearly above the page rather
+   than flush with it. */
+#quick-note-fab{position:fixed;right:24px;bottom:calc(var(--fh) + 20px);z-index:150;width:64px;height:64px;border-radius:50%;background:var(--sage);color:#fff;border:3px solid #fff;box-shadow:0 6px 20px rgba(17,17,17,.35);cursor:pointer;font-size:1.9rem;display:flex;align-items:center;justify-content:center;transition:transform .15s}
 #quick-note-fab:hover{transform:scale(1.08);background:var(--sage-border)}
-.qn-panel{position:fixed;right:22px;bottom:calc(var(--fh) + 78px);z-index:150;width:340px;max-width:calc(100vw - 44px);background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r12);box-shadow:var(--shadow-lg);padding:16px}
+/* bottom offset bumped alongside item 5's bigger fab (64px tall now, was
+   50px) so the panel doesn't overlap the button's top edge. */
+.qn-panel{position:fixed;right:24px;bottom:calc(var(--fh) + 94px);z-index:150;width:340px;max-width:calc(100vw - 44px);background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r12);box-shadow:var(--shadow-lg);padding:16px}
 .qn-panel h4{font-family:var(--serif);font-weight:600;font-size:1rem;margin-bottom:10px;color:var(--text)}
 .qn-panel select,.qn-panel textarea{margin-bottom:8px}
 .qn-panel textarea{min-height:80px}
@@ -535,7 +602,7 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 </div>
 
 <header id="app-header">
-  <div class="h-logo">Book <span>Production Hub</span></div>
+  <div class="h-logo" onclick="gotoTitles()" role="button" tabindex="0" title="Go to All Titles" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();gotoTitles();}">Book <span>Production Hub</span></div>
   <nav class="h-nav">
     <button class="h-tab active" id="tab-titles" onclick="gotoTitles()">All Titles</button>
     <!-- Item 5 (Round 2) — Quick Notes list/index view, so David can see

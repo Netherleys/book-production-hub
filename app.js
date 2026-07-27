@@ -93,6 +93,10 @@ let view = 'titles', selectedId = null, saveTimer = null, syncStatus = 'none';
 let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', printTiming:'' }, isbnFilter = 'all';
 let isbnLocked = {}; // titleId -> {isbnPbk:bool, isbnHbk:bool, isbnEbk:bool} — true = locked (default). Item 18 lock mechanism, session-only by design (see build report).
 let qnOpen = false;
+// Item 6 (Round 3) — Active/Archived toggle state for the Quick Notes list
+// view. Session-only (not persisted) — always opens back on Active, same
+// pattern as isbnFilter above.
+let qnListMode = 'active';
 let assignCtx = null;
 let devMode = false; // true when previewing with sample data, no network writes
 let poLogRowsCache = null; // lazy-loaded PO Log rows from the PO tracker sheet
@@ -144,6 +148,123 @@ function isPublished(t){ return t.status==='Complete' || t.status==='Completed' 
 function toBool(v){ return v===true || v==='TRUE' || v==='true' || v===1 || v==='1'; }
 function fromBool(v){ return v ? 'TRUE' : 'FALSE'; }
 function safeJson(str, fallback){ if(!str) return fallback; try{ const p=JSON.parse(str); return p==null?fallback:p; }catch(e){ return fallback; } }
+
+// ─── SHARED GROWABLE LISTS (item 4, Round 3 — generalised to also cover
+// Release Block, added same round after David's live follow-up) ───
+// Both Author Liaison/PR Contact (item 4) and Release Block (David's
+// follow-up) share the exact same underlying problem: a value that used to
+// be either hardcoded in source (Author Liaison's David/Jen/Other <select>)
+// or free-typed with no master list at all (PR Contact; Release Block —
+// "e.g. 2027 Q1" typed fresh per title, risking inconsistent naming, which
+// is exactly what David flagged), where what's actually wanted is one
+// shared, growable list David can add to over time, reused everywhere that
+// value is picked. Rather than build two bespoke mechanisms, one generic
+// localStorage-backed named-list helper underlies both — see
+// getLocalList/addToLocalList below, then the two thin wrappers
+// (getContacts/addContactName and getReleaseBlocks/addReleaseBlockName)
+// and growableListSelectHtml() as the one shared <select>-with-"+ Add new…"
+// renderer both features use.
+//
+// DESIGN DECISION — why localStorage, not a new Sheet tab/column (see build
+// report for the full tradeoff writeup): every other shared/growable list
+// this app reads (ISBN pool, PO Tracker) lives in a Sheet tab a human
+// (Marcus, or David via Sheet share) provisioned ahead of time — and this
+// codebase has already been bitten twice by shipping code that assumes a
+// column/tab exists before it actually does (see the blockId/quickNotes_json
+// comment above TITLE_COLS: blockId sat unread in the live Sheet for weeks
+// because the column-mapping code was never updated to match it). Adding
+// real Sheet tabs for these two lists would need them created live in the
+// actual spreadsheet first — outside what this build can verify/guarantee
+// lands before this code ships. localStorage has no such dependency: fully
+// self-contained in what's shipped here, works immediately, David grows
+// either list himself via "+ Add new…" inline, no separate admin step.
+// The real tradeoff, flagged plainly: both lists are per-browser/per-device,
+// not synced like the Sheet-backed title data itself — a name or block
+// David adds on his desktop won't automatically show up on his laptop. If
+// cross-device sync turns out to matter in practice, the fix is a
+// follow-up: have Marcus add real Sheet tabs, then swap the two get*/add*
+// wrappers below to read/write via sheetsGet/sheetsAppend (same calls
+// already used for ISBNs) — everything calling into
+// growableListSelectHtml() stays unchanged either way.
+function getLocalList(storageKey, seedFn){
+  try{
+    const raw = (typeof localStorage!=='undefined') ? localStorage.getItem(storageKey) : null;
+    if(raw){ const arr = JSON.parse(raw); if(Array.isArray(arr) && arr.length) return arr; }
+  }catch(e){}
+  return seedFn ? seedFn() : [];
+}
+function saveLocalList(storageKey, list){
+  try{ if(typeof localStorage!=='undefined') localStorage.setItem(storageKey, JSON.stringify(list)); }catch(e){}
+}
+function addToLocalList(storageKey, name, seedFn){
+  name=(name||'').trim(); if(!name) return null;
+  const list=getLocalList(storageKey, seedFn);
+  if(!list.some(n=>n.toLowerCase()===name.toLowerCase())){ list.push(name); saveLocalList(storageKey, list); }
+  return name;
+}
+// Generic renderer: a <select> populated from `list`, plus a trailing
+// "+ Add new…" option, used for both contacts and release blocks. If the
+// field's current saved value isn't already in the list (legacy free-text
+// data, or the old hardcoded "Other" option), it's added as an extra option
+// at the top so nothing already saved is silently dropped from view.
+function growableListSelectHtml(fieldId, currentVal, list, changeHandlerJs, addLabel){
+  const opts=list.slice();
+  if(currentVal && !opts.some(n=>String(n).toLowerCase()===String(currentVal).toLowerCase())) opts.unshift(currentVal);
+  // If nothing's set yet, an explicit blank option is selected by default —
+  // otherwise the <select> would silently render its first real option as
+  // "selected" purely by HTML default, even though nothing was actually
+  // chosen/saved for this title yet (t.dates.releaseBlock etc. would stay
+  // '' internally until the user actually interacts with the dropdown).
+  const blankOption = !currentVal ? `<option value="" selected>— none —</option>` : '';
+  const optionsHtml=opts.map(n=>`<option value="${esc(n)}" ${n===currentVal?'selected':''}>${esc(n)}</option>`).join('');
+  return `<select id="${fieldId}" onchange="${changeHandlerJs}">${blankOption}${optionsHtml}<option value="__add_new__">+ Add new ${esc(addLabel||'')}…</option></select>`;
+}
+
+const CONTACTS_LS_KEY = 'bookHub_contactList_v1';
+function getContacts(){ return getLocalList(CONTACTS_LS_KEY, ()=>['David','Jen']); } // seed matches the previous hardcoded Author Liaison list
+function addContactName(name){ return addToLocalList(CONTACTS_LS_KEY, name, ()=>['David','Jen']); }
+// Shared field for both Author Liaison and PR Contact — path is the fc()
+// dot-path to write to ('authorLiaison' or 'publicity.prContact').
+function contactSelectHtml(fieldId,titleId,path,currentVal){
+  return growableListSelectHtml(fieldId, currentVal, getContacts(), `onContactSelect('${titleId}','${path}',this)`, 'contact');
+}
+function onContactSelect(titleId,path,selectEl){
+  if(selectEl.value==='__add_new__'){
+    const name=window.prompt('Add a new contact name (shared across both Author Liaison and PR Contact):');
+    if(name && name.trim()){ addContactName(name.trim()); fc(titleId,path,name.trim()); }
+    // Full re-render either way: on success the option lists on BOTH
+    // contact selects need the new name; on cancel, the <select> already
+    // visually jumped to "__add_new__" and needs resetting back to the
+    // field's real saved value.
+    renderDetail();
+    return;
+  }
+  fc(titleId,path,selectEl.value);
+}
+
+const RELEASE_BLOCKS_LS_KEY = 'bookHub_releaseBlockList_v1';
+// Seeds from whatever release-block text is already sitting on loaded
+// titles (so existing values aren't invisible in the new dropdown the very
+// first time this runs), rather than an arbitrary hardcoded guess.
+function releaseBlockSeed(){
+  const seen=new Set();
+  (data.titles||[]).forEach(t=>{ if(t.dates && t.dates.releaseBlock) seen.add(t.dates.releaseBlock); });
+  return Array.from(seen).sort();
+}
+function getReleaseBlocks(){ return getLocalList(RELEASE_BLOCKS_LS_KEY, releaseBlockSeed); }
+function addReleaseBlockName(name){ return addToLocalList(RELEASE_BLOCKS_LS_KEY, name, releaseBlockSeed); }
+function releaseBlockSelectHtml(fieldId,titleId,currentVal){
+  return growableListSelectHtml(fieldId, currentVal, getReleaseBlocks(), `onReleaseBlockSelect('${titleId}',this)`, 'release block');
+}
+function onReleaseBlockSelect(titleId,selectEl){
+  if(selectEl.value==='__add_new__'){
+    const name=window.prompt('Add a new release block (e.g. "2027 Q2"):');
+    if(name && name.trim()){ addReleaseBlockName(name.trim()); fc(titleId,'dates.releaseBlock',name.trim()); }
+    renderDetail();
+    return;
+  }
+  fc(titleId,'dates.releaseBlock',selectEl.value);
+}
 // Auto-expanding textarea helper (items 20/22 — Content & Marketing/Author
 // boxes read as a real word-processing surface, not a fixed scrollable
 // frame). Works alongside the CSS field-sizing:content progressive
@@ -233,7 +354,16 @@ function rowToTitle(row){
   const pc = safeJson(c.printerContacts_json, {});
   let contacts = (pc.contacts && pc.contacts.length) ? pc.contacts.slice() : PRINTER_DEF.map(p=>Object.assign({},p));
   const filesLinks = Object.assign({links:[]}, safeJson(c.filesLinks_json, {}));
-  const quickNotes = safeJson(c.quickNotes_json, []) || [];
+  // Item 6 (Round 3) — every note is normalised to always carry a stable
+  // `id` and an `archived` flag the moment data loads, regardless of
+  // whether it's a brand-new note (already gets both at creation, see
+  // saveQuickNote()) or older data saved before this round existed. This
+  // means archiveQuickNote()/restoreQuickNote() can always reference a note
+  // reliably by id, and `!n.archived` reads as "active" for legacy notes
+  // with no flag at all, with no separate migration step required.
+  const quickNotes = (safeJson(c.quickNotes_json, []) || []).map(n=>({
+    id: n.id || uid(), ts: n.ts, text: n.text, archived: !!n.archived, archivedTs: n.archivedTs||''
+  }));
   let stagesRaw = safeJson(c.production_json, []);
   let stages = PIPELINE_STAGES.map(name=>{
     const found = (stagesRaw||[]).find(s=>s.stage===name || s.name===name);
@@ -360,7 +490,16 @@ function loadDevSampleData(){
       commercial:Object.assign({},defTitle().commercial,{isbnPbk:'978-1-915316-62-2', isbnEbk:'978-1-915316-63-9'}),
       dates:{releaseBlock:'2027 Q1',softDate:'',streetDate: new Date(Date.now()+45*86400000).toISOString().slice(0,10), printDate:'', autoPrintDate:true},
       imagesFolderLink:'https://onedrive.live.com/example-images-folder', workingFolderLink:'D:\\PROJECTS - BOOKS\\Book_Beyond Bone Tomahawk',
-      content:Object.assign({},defTitle().content,{fullDescription:'Sample description for dev preview.'})
+      content:Object.assign({},defTitle().content,{fullDescription:'Sample description for dev preview.'}),
+      // Item 6 (Round 3) dev-preview fixtures — two active notes + one
+      // already-archived note, so the Active/Archived toggle and the
+      // grouped-checkbox behaviour both have something real to exercise
+      // without needing a live Sheet.
+      quickNotes:[
+        {id:'qn-sample-1a', ts:new Date(Date.now()-2*86400000).toISOString(), text:'Chase Rich for the final author photo.', archived:false, archivedTs:''},
+        {id:'qn-sample-1b', ts:new Date(Date.now()-1*86400000).toISOString(), text:'Confirm trim size with Marcus before print quote.', archived:false, archivedTs:''},
+        {id:'qn-sample-1c', ts:new Date(Date.now()-6*86400000).toISOString(), text:'Old note — already dealt with.', archived:true, archivedTs:new Date(Date.now()-3*86400000).toISOString()}
+      ]
     }),
     defTitle({id:'sample-2', title:'Sample Not Scheduled Title', authors:'Jane Author', status:'Not Scheduled', imprint:'Oil and Water Press'})
   ], isbns:[
@@ -559,7 +698,13 @@ function getSectionStatus(t,key){
 // order (below) so they can never go stale again regardless of future
 // additions/reorders. Flagged for David in the build report as an open
 // point, not silently decided.
-const SECTION_KEYS = ['commercial','content','author','pipeline','dates','print','publicity','toc','productionNotes','poTracker','futureEdition'];
+// Item 1 (Round 3, David's live follow-up) — "Dates & Scheduling" moved from
+// position 5 to position 1 (top of the list). Pure reorder of this one
+// array — SECTION_LABELS below numbers itself dynamically off this order
+// (round 2's fix, see the .forEach a few lines down), and the jump-nav
+// sidebar/accordion both just iterate SECTION_KEYS in whatever order it's
+// in — so nothing else needed touching to make this change.
+const SECTION_KEYS = ['dates','commercial','content','author','pipeline','print','publicity','toc','productionNotes','poTracker','futureEdition'];
 const SECTION_LABEL_TEXT = {commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content & Marketing',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Production Notes',futureEdition:'Info & Future Edition'};
 const SECTION_LABELS = {};
 SECTION_KEYS.forEach((k,i)=>{ SECTION_LABELS[k] = (i+1)+'. '+SECTION_LABEL_TEXT[k]; });
@@ -665,6 +810,32 @@ function renderTitles(){
 // visible text label anywhere on the card.
 function imprintKey(imprint){ return (imprint||'').toLowerCase().indexOf('oil')===0||(imprint||'').toLowerCase().indexOf('oowp')===0 ? 'oowp' : 'headpress'; }
 function imprintName(imprint){ return imprintKey(imprint)==='oowp' ? 'Oil On Water Press' : 'Headpress'; }
+// Item 3 (Round 3) — real editable imprint control for existing titles.
+// Before this, imprint could only ever be set once, at title-creation time
+// (new-imprint select in the Add Title modal, see index.html) — the detail
+// view only ever rendered it as a plain read-only <span>. Confirmed live
+// there was genuinely no edit path anywhere, so this is a new control, not
+// a discoverability fix. Values match the Add Title modal's options
+// exactly ("Headpress" / "Oil and Water Press") so round-tripping through
+// the Sheet's imprint column is unaffected.
+function imprintEditSelect(t){
+  const ik=imprintKey(t.imprint);
+  return `<select class="imprint-edit-select" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
+    <option value="Headpress" ${ik==='headpress'?'selected':''}>Headpress</option>
+    <option value="Oil and Water Press" ${ik==='oowp'?'selected':''}>Oil and Water Press</option>
+  </select>`;
+}
+function onImprintChange(titleId,value){
+  const t=getTitle(titleId);if(!t)return;
+  t.imprint=value;
+  debouncedSave(titleId);
+  // Full re-render (same pattern used elsewhere for structural changes,
+  // e.g. addPrinterContact/removePrinterContact below) so the imprint dot
+  // colour next to the title and the card-grid colour-code both pick up
+  // the change immediately — imprint changes are rare/deliberate edits,
+  // not per-keystroke typing, so losing focus on re-render is a non-issue.
+  renderDetail();
+}
 function renderCard(t){
   const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention"></div>':'';
   // Real thumbnails, 2026-07-15 — investigated three options (see build
@@ -751,7 +922,7 @@ function renderDetail(){
             ${t.authors?`<div class="detail-author-text">${esc(t.authors)}</div>`:''}
             <div class="detail-meta-row">
               <span class="status-badge ${badgeClass}">${esc(t.status)}</span>
-              <span>${esc(t.imprint)}</span>
+              ${imprintEditSelect(t)}
               ${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}
               ${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}
               ${daysHtml}
@@ -884,12 +1055,18 @@ async function revealWorkingFolder(titleId){
 // both still write to the exact same data paths they always did
 // (authorLiaison / publicity.prContact), so nothing about the underlying
 // Sheet columns changes, only where these two fields are surfaced in the UI.
+// Item 4 (Round 3) — Author Liaison was already a dropdown but hardcoded
+// (David/Jen/Other) in source; PR Contact was still plain free text. Both
+// now render from the same shared, growable contact list (see
+// contactSelectHtml()/getContacts() above) instead — Author Liaison stops
+// being a special hardcoded case, PR Contact gains the dropdown David asked
+// for, and either field can grow the list via "+ Add new contact…".
 function renderKeyContacts(t){const id=t.id;
   return `<div class="key-contacts-box">
     <div class="key-contacts-label">Key Contacts</div>
     <div class="field-grid">
-      ${frow('Author Liaison',`<select id="f-${id}-liaison" onchange="fc('${id}','authorLiaison',this.value)"><option ${t.authorLiaison==='David'?'selected':''}>David</option><option ${t.authorLiaison==='Jen'?'selected':''}>Jen</option><option ${t.authorLiaison==='Other'?'selected':''}>Other</option></select>`)}
-      ${frow('PR Contact',inp(`f-${id}-prContact`,t.publicity.prContact,'Name and contact info',`fc('${id}','publicity.prContact',this.value)`))}
+      ${frow('Author Liaison',contactSelectHtml(`f-${id}-liaison`,id,'authorLiaison',t.authorLiaison))}
+      ${frow('PR Contact',contactSelectHtml(`f-${id}-prContact`,id,'publicity.prContact',t.publicity.prContact))}
     </div>
   </div>`;}
 
@@ -967,7 +1144,7 @@ function richTa(titleId,fieldKey,path,val,ph){
     </div>
     <div id="${editId}" class="richtext" contenteditable="true" data-placeholder="${esc(ph)}" data-empty="${isEmpty?'1':'0'}"
       oninput="fc('${titleId}','${path}',this.innerHTML);this.dataset.empty=this.innerText.trim()?'0':'1'"
-      onfocus="this.dataset.wasEmpty=this.dataset.empty" onblur="this.dataset.empty=this.innerText.trim()?'0':'1'"
+      onfocus="this.dataset.wasEmpty=this.dataset.empty;try{document.execCommand('defaultParagraphSeparator',false,'p')}catch(e){}" onblur="this.dataset.empty=this.innerText.trim()?'0':'1'"
       >${val||''}</div>
   </div>`;
 }
@@ -1088,7 +1265,7 @@ function renderDates(t){const id=t.id;const d=t.dates;
   // in the grid), auto-calculate checkbox is a small caption BELOW it
   // instead — functionally identical, but no longer disturbs row alignment.
   return `<div class="field-grid">
-    ${frow('Release Block',inp(`f-${id}-releaseBlock`,d.releaseBlock,'e.g. 2027 Q1',`fc('${id}','dates.releaseBlock',this.value)`))}
+    ${frow('Release Block',releaseBlockSelectHtml(`f-${id}-releaseBlock`,id,d.releaseBlock))}
     ${frow('Soft Date',`<input type="date" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)">`)}
     ${frow('Street Date',`<input type="date" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)">`)}
     ${frow('Print Date',`<input type="date" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)"><label style="font-size:.72rem;color:var(--text3);display:flex;align-items:center;gap:4px;margin-top:4px"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label>`)}
@@ -1312,38 +1489,73 @@ function renderISBNs(){
     <div style="margin-top:10px;display:flex;gap:8px"><button class="btn btn-primary btn-sm" onclick="confirmAddISBN()">Add</button><button class="btn btn-sm" onclick="document.getElementById('add-isbn-form').classList.add('hidden')">Cancel</button></div>
   </div>`;}
 
-// ─── QUICK NOTES — LIST/INDEX VIEW (item 5, Round 2) ───
-// Before this, the only way to know a title had a quick note at all was to
-// open its detail view and scroll to notice the floating panel's "recent"
-// list — there was no way to see, at a glance, which titles across the
-// whole catalogue had notes. This is a dedicated view (its own header tab)
-// listing every title with at least one note, most-recently-noted title
-// first, each row showing a preview snippet of its latest note — clicking
-// a row jumps straight into that title's detail view.
+// ─── QUICK NOTES — LIST/INDEX VIEW (item 5, Round 2; reworked item 6,
+// Round 3) ───
+// Round 2: before this, the only way to know a title had a quick note at
+// all was to open its detail view and scroll to notice the floating
+// panel's "recent" list — there was no way to see, at a glance, which
+// titles across the whole catalogue had notes. This dedicated view (its
+// own header tab) confirmed exactly that "at a glance" ask — David just
+// wanted confirmation it existed, which it does, no rework needed there.
+//
+// Round 3 (item 6): additive on top, per David's live follow-up while
+// reviewing this build — each title's INDIVIDUAL active notes now render
+// as their own row (not just a one-line "latest note" preview), each with
+// a checkbox. Checking a note off is an ARCHIVE action, not a strikethrough
+// -in-place toggle: the note leaves the Active list and moves to a
+// separate Archived view (the toggle below), so David can still look back
+// at what's been addressed rather than it just vanishing. Nothing is ever
+// deleted — see archiveQuickNote()/restoreQuickNote() further down (near
+// saveQuickNote()).
+function setQnListMode(mode){ qnListMode=mode; renderQuickNotesList(); }
 function renderQuickNotesList(){
   const main=document.getElementById('main');
-  const withNotes = data.titles.filter(t=>t.quickNotes && t.quickNotes.length);
-  if(!withNotes.length){
-    main.innerHTML='<div class="empty-state"><h3>No quick notes yet</h3><p>Jot one against any title using the &#128221; button (bottom-right) — it\'ll show up here, most recent first.</p></div>';
+  const mode=qnListMode;
+  const groups = data.titles
+    .map(t=>({ t, notes:(t.quickNotes||[]).filter(n=> mode==='archived' ? n.archived : !n.archived) }))
+    .filter(g=>g.notes.length);
+  const toggleHtml = `<div class="qn-mode-toggle">
+    <button type="button" class="qn-mode-btn ${mode==='active'?'active':''}" onclick="setQnListMode('active')">Active</button>
+    <button type="button" class="qn-mode-btn ${mode==='archived'?'active':''}" onclick="setQnListMode('archived')">Archived</button>
+  </div>`;
+  const headingHtml = `<h2 style="font-family:var(--serif);font-weight:600;font-size:1.3rem;color:var(--text-oncream);margin-bottom:14px">Quick Notes</h2>`;
+  if(!groups.length){
+    const emptyMsg = mode==='archived'
+      ? 'Nothing archived yet — checking off a note in the Active list moves it here.'
+      : 'Jot one against any title using the &#128221; button (bottom-right) — it\'ll show up here, grouped by title.';
+    main.innerHTML=headingHtml+toggleHtml+`<div class="empty-state"><h3>No ${esc(mode)} notes</h3><p>${emptyMsg}</p></div>`;
     return;
   }
-  const sorted = withNotes.slice().sort((a,b)=>{
-    const la=a.quickNotes[a.quickNotes.length-1], lb=b.quickNotes[b.quickNotes.length-1];
-    return new Date(lb.ts) - new Date(la.ts);
-  });
-  const rows = sorted.map(t=>{
-    const latest = t.quickNotes[t.quickNotes.length-1];
-    const when = new Date(latest.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-    return `<div class="qn-list-item" onclick="gotoDetail('${t.id}')">
-      <div class="qn-list-body">
+  // Groups ordered by their most-recently-noted item first (same
+  // most-recent-first ordering Round 2 already established). groups is
+  // already filtered to non-empty .notes arrays above, so this is always
+  // safe to compute.
+  const latestTs = g => Math.max.apply(null, g.notes.map(n=>new Date(n.ts).getTime()||0));
+  groups.sort((a,b)=> latestTs(b) - latestTs(a));
+  const groupsHtml = groups.map(({t,notes})=>{
+    const sortedNotes = notes.slice().sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+    const noteRows = sortedNotes.map(n=>{
+      const when = new Date(n.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+      if(mode==='active'){
+        return `<div class="qn-note-row">
+          <input type="checkbox" title="Mark addressed — archives this note" onclick="event.stopPropagation()" onchange="archiveQuickNote('${t.id}','${n.id}')">
+          <div class="qn-note-text-wrap"><span class="qn-note-text">${esc(n.text)}</span><span class="qn-note-date">Noted ${esc(when)}</span></div>
+        </div>`;
+      }
+      return `<div class="qn-note-row archived">
+        <button type="button" class="qn-restore-btn" title="Restore to Active" onclick="event.stopPropagation();restoreQuickNote('${t.id}','${n.id}')">&#8635; Restore</button>
+        <div class="qn-note-text-wrap"><span class="qn-note-text">${esc(n.text)}</span><span class="qn-note-date">Noted ${esc(when)}</span></div>
+      </div>`;
+    }).join('');
+    return `<div class="qn-group">
+      <div class="qn-group-header" onclick="gotoDetail('${t.id}')">
         <span class="qn-list-title">${esc(t.title)}</span>
-        <span class="qn-list-snippet">${esc(latest.text)}</span>
-        <span class="qn-list-meta">Last noted ${esc(when)}</span>
+        <span class="qn-list-count">${notes.length} note${notes.length===1?'':'s'}</span>
       </div>
-      <span class="qn-list-count">${t.quickNotes.length} note${t.quickNotes.length===1?'':'s'}</span>
+      <div class="qn-group-notes">${noteRows}</div>
     </div>`;
   }).join('');
-  main.innerHTML=`<h2 style="font-family:var(--serif);font-weight:600;font-size:1.3rem;color:var(--text-oncream);margin-bottom:14px">Quick Notes — ${withNotes.length} title${withNotes.length===1?'':'s'} with notes</h2>${rows}`;
+  main.innerHTML=headingHtml+toggleHtml+groupsHtml;
 }
 
 // ─── ISBN ASSIGN FROM DETAIL ───
@@ -1565,8 +1777,14 @@ function renderQuickNoteRecent(){
   const box=document.getElementById('qn-recent');
   if(!sel||!box)return;
   const t=getTitle(sel.value);
-  if(!t||!t.quickNotes||!t.quickNotes.length){ box.innerHTML='<em>No quick notes yet for this title.</em>'; return; }
-  box.innerHTML=t.quickNotes.slice().reverse().slice(0,5).map(n=>`<div class="qn-recent-item"><b>${esc(new Date(n.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}</b> — ${esc(n.text)}</div>`).join('');
+  // Item 6 (Round 3) — this "recent" preview (inside the floating capture
+  // panel) only ever showed a jotting aid, never had its own archive UI, so
+  // it now shows ACTIVE notes only — an addressed/archived note dropping
+  // out of this quick preview too is the expected read-through of "archived
+  // = dealt with", consistent with it also leaving the main Quick Notes list.
+  const active=(t&&t.quickNotes)?t.quickNotes.filter(n=>!n.archived):[];
+  if(!active.length){ box.innerHTML='<em>No quick notes yet for this title.</em>'; return; }
+  box.innerHTML=active.slice().reverse().slice(0,5).map(n=>`<div class="qn-recent-item"><b>${esc(new Date(n.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}</b> — ${esc(n.text)}</div>`).join('');
 }
 function saveQuickNote(){
   const sel=document.getElementById('qn-title-select');
@@ -1576,7 +1794,7 @@ function saveQuickNote(){
   if(!text)return;
   const t=getTitle(sel.value);if(!t)return;
   if(!t.quickNotes)t.quickNotes=[];
-  t.quickNotes.push({ts:new Date().toISOString(),text});
+  t.quickNotes.push({id:uid(),ts:new Date().toISOString(),text,archived:false,archivedTs:''});
   textEl.value='';
   saveTitle(t.id); // immediate, not debounced — a quick note should feel saved instantly
   renderQuickNoteRecent();
@@ -1585,6 +1803,30 @@ function saveQuickNote(){
   // today, but this keeps behaviour honest if a future pass surfaces them
   // there — no stale state left behind).
   if(view==='detail'&&selectedId===t.id) renderDetail();
+}
+// Item 6 (Round 3) — David's live refinement: checking a note off in the
+// Quick Notes list is an ARCHIVE action, not an in-place strikethrough/done
+// toggle. The note is never deleted — it moves out of the Active list into
+// a separate Archived view (toggle in renderQuickNotesList above) so David
+// can still look back at what's been addressed. archived/archivedTs live on
+// the same note object inside quickNotes_json (no new Sheet column needed —
+// this is all inside the existing JSON blob), so nothing about the Sheet
+// schema changes for this.
+function archiveQuickNote(titleId,noteId){
+  const t=getTitle(titleId);if(!t||!t.quickNotes)return;
+  const n=t.quickNotes.find(x=>x.id===noteId);if(!n)return;
+  n.archived=true;n.archivedTs=new Date().toISOString();
+  saveTitle(titleId); // immediate, same "feels instant" rule as saveQuickNote()
+  renderQuickNotesList();
+  renderQuickNoteRecent();
+}
+function restoreQuickNote(titleId,noteId){
+  const t=getTitle(titleId);if(!t||!t.quickNotes)return;
+  const n=t.quickNotes.find(x=>x.id===noteId);if(!n)return;
+  n.archived=false;n.archivedTs='';
+  saveTitle(titleId);
+  renderQuickNotesList();
+  renderQuickNoteRecent();
 }
 
 // Item 21 — HTML output view for Content & Marketing. Generates a simple,
