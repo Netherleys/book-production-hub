@@ -88,7 +88,11 @@ const PRINTER_DEF = [
   {name:'Frank Gaynor US', email:'fwgaynor@bookprinterswest.com'}];
 
 // ─── STATE ───
-let data = { titles: [], isbns: [] };
+// `blocks` added Round 4 — the live "Blocks" tab (sheetId 1400180106, same
+// "Book Production Titles" Sheet), loaded once alongside titles/isbns (see
+// loadAllData()/loadDevSampleData()) and read synchronously off this cache
+// from here on, same pattern as `isbns`.
+let data = { titles: [], isbns: [], blocks: [] };
 let view = 'titles', selectedId = null, saveTimer = null, syncStatus = 'none';
 let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', printTiming:'' }, isbnFilter = 'all';
 let isbnLocked = {}; // titleId -> {isbnPbk:bool, isbnHbk:bool, isbnEbk:bool} — true = locked (default). Item 18 lock mechanism, session-only by design (see build report).
@@ -158,34 +162,46 @@ function safeJson(str, fallback){ if(!str) return fallback; try{ const p=JSON.pa
 // "e.g. 2027 Q1" typed fresh per title, risking inconsistent naming, which
 // is exactly what David flagged), where what's actually wanted is one
 // shared, growable list David can add to over time, reused everywhere that
-// value is picked. Rather than build two bespoke mechanisms, one generic
-// localStorage-backed named-list helper underlies both — see
-// getLocalList/addToLocalList below, then the two thin wrappers
-// (getContacts/addContactName and getReleaseBlocks/addReleaseBlockName)
-// and growableListSelectHtml() as the one shared <select>-with-"+ Add new…"
-// renderer both features use.
+// value is picked. One generic named-list helper (getLocalList/
+// addToLocalList) plus growableListSelectHtml() (the shared <select>-with-
+// "+ Add new…" renderer) underlie both features.
 //
-// DESIGN DECISION — why localStorage, not a new Sheet tab/column (see build
-// report for the full tradeoff writeup): every other shared/growable list
-// this app reads (ISBN pool, PO Tracker) lives in a Sheet tab a human
-// (Marcus, or David via Sheet share) provisioned ahead of time — and this
-// codebase has already been bitten twice by shipping code that assumes a
-// column/tab exists before it actually does (see the blockId/quickNotes_json
-// comment above TITLE_COLS: blockId sat unread in the live Sheet for weeks
-// because the column-mapping code was never updated to match it). Adding
-// real Sheet tabs for these two lists would need them created live in the
-// actual spreadsheet first — outside what this build can verify/guarantee
-// lands before this code ships. localStorage has no such dependency: fully
-// self-contained in what's shipped here, works immediately, David grows
-// either list himself via "+ Add new…" inline, no separate admin step.
-// The real tradeoff, flagged plainly: both lists are per-browser/per-device,
-// not synced like the Sheet-backed title data itself — a name or block
-// David adds on his desktop won't automatically show up on his laptop. If
-// cross-device sync turns out to matter in practice, the fix is a
-// follow-up: have Marcus add real Sheet tabs, then swap the two get*/add*
-// wrappers below to read/write via sheetsGet/sheetsAppend (same calls
-// already used for ISBNs) — everything calling into
-// growableListSelectHtml() stays unchanged either way.
+// UPDATE — Round 4: Contacts stays on localStorage; Release Block moved to
+// the live Sheet. Round 3's design decision below (still accurate for
+// Contacts) flagged the per-device tradeoff plainly and named the exact
+// follow-up if it ever mattered: "have Marcus add real Sheet tabs, then swap
+// the get*/add* wrappers to read/write via sheetsGet/sheetsAppend." That
+// follow-up landed this round for Release Block specifically — Marcus's
+// research (MARCUS_BookProductionHub_MultiUserAccess_2026-07-27.md) found
+// the Sheet tab already existed (`Blocks`, sheetId 1400180106, built by Fred
+// 2026-07-11) as the real managed, user-growable list — see the dedicated
+// RELEASE BLOCKS section below getContacts/addContactName for the swap.
+// Contacts (Author Liaison/PR Contact) are UNTOUCHED this round — David
+// hasn't confirmed those need the same fix, so they stay exactly as round 3
+// shipped them, per-device tradeoff and all.
+//
+// DESIGN DECISION (Round 3, still current for Contacts only) — why
+// localStorage, not a new Sheet tab/column (see build report for the full
+// tradeoff writeup): every other shared/growable list this app reads (ISBN
+// pool, PO Tracker) lives in a Sheet tab a human (Marcus, or David via Sheet
+// share) provisioned ahead of time — and this codebase has already been
+// bitten twice by shipping code that assumes a column/tab exists before it
+// actually does (see the blockId/quickNotes_json comment above TITLE_COLS:
+// blockId sat unread in the live Sheet for weeks because the column-mapping
+// code was never updated to match it). Adding a real Sheet tab for Contacts
+// would need it created live in the actual spreadsheet first — outside
+// what this build can verify/guarantee lands before this code ships.
+// localStorage has no such dependency: fully self-contained in what's
+// shipped here, works immediately, David grows the list himself via "+ Add
+// new…" inline, no separate admin step. The real tradeoff, flagged plainly:
+// this list is per-browser/per-device, not synced like the Sheet-backed
+// title data itself — a contact name David adds on his desktop won't
+// automatically show up on his laptop. If cross-device sync turns out to
+// matter for Contacts too, the same follow-up applies: have Marcus add a
+// real Sheet tab, then swap getContacts/addContactName to sheetsGet/
+// sheetsAppend — contactSelectHtml()/onContactSelect() would need no
+// changes either way, same as the Release Block swap below didn't need to
+// touch growableListSelectHtml() or releaseBlockSelectHtml()'s callers.
 function getLocalList(storageKey, seedFn){
   try{
     const raw = (typeof localStorage!=='undefined') ? localStorage.getItem(storageKey) : null;
@@ -207,16 +223,28 @@ function addToLocalList(storageKey, name, seedFn){
 // field's current saved value isn't already in the list (legacy free-text
 // data, or the old hardcoded "Other" option), it's added as an extra option
 // at the top so nothing already saved is silently dropped from view.
+// `list` accepts either a flat array of strings (value===label — what
+// Contacts still passes) or an array of {value,label} objects (Round 4 —
+// what Release Block now passes, since its stored/matched value is a
+// block_id slug but the visible text is the human block_name from the
+// Blocks tab). Normalised to {value,label} once here so no caller below
+// needs to care which shape it was given.
 function growableListSelectHtml(fieldId, currentVal, list, changeHandlerJs, addLabel){
-  const opts=list.slice();
-  if(currentVal && !opts.some(n=>String(n).toLowerCase()===String(currentVal).toLowerCase())) opts.unshift(currentVal);
+  const opts=list.map(item=>(item && typeof item==='object')?item:{value:item,label:item});
+  if(currentVal && !opts.some(o=>String(o.value).toLowerCase()===String(currentVal).toLowerCase())){
+    // Legacy/orphaned value not (or not yet) in the managed list — still
+    // shown so nothing already saved silently vanishes from view. No name
+    // to look up for it, so it falls back to showing the raw value as its
+    // own label.
+    opts.unshift({value:currentVal,label:currentVal});
+  }
   // If nothing's set yet, an explicit blank option is selected by default —
   // otherwise the <select> would silently render its first real option as
   // "selected" purely by HTML default, even though nothing was actually
-  // chosen/saved for this title yet (t.dates.releaseBlock etc. would stay
-  // '' internally until the user actually interacts with the dropdown).
+  // chosen/saved for this title yet (t.blockId etc. would stay '' internally
+  // until the user actually interacts with the dropdown).
   const blankOption = !currentVal ? `<option value="" selected>— none —</option>` : '';
-  const optionsHtml=opts.map(n=>`<option value="${esc(n)}" ${n===currentVal?'selected':''}>${esc(n)}</option>`).join('');
+  const optionsHtml=opts.map(o=>`<option value="${esc(o.value)}" ${String(o.value)===String(currentVal)?'selected':''}>${esc(o.label)}</option>`).join('');
   return `<select id="${fieldId}" onchange="${changeHandlerJs}">${blankOption}${optionsHtml}<option value="__add_new__">+ Add new ${esc(addLabel||'')}…</option></select>`;
 }
 
@@ -242,28 +270,97 @@ function onContactSelect(titleId,path,selectEl){
   fc(titleId,path,selectEl.value);
 }
 
-const RELEASE_BLOCKS_LS_KEY = 'bookHub_releaseBlockList_v1';
-// Seeds from whatever release-block text is already sitting on loaded
-// titles (so existing values aren't invisible in the new dropdown the very
-// first time this runs), rather than an arbitrary hardcoded guess.
-function releaseBlockSeed(){
-  const seen=new Set();
-  (data.titles||[]).forEach(t=>{ if(t.dates && t.dates.releaseBlock) seen.add(t.dates.releaseBlock); });
-  return Array.from(seen).sort();
+// ─── RELEASE BLOCKS (Round 4 — swapped from localStorage to the live
+// "Blocks" tab, per Marcus Webb's research: MARCUS_BookProductionHub_
+// MultiUserAccess_2026-07-27.md) ───
+// The Blocks tab (sheetId 1400180106, columns block_id/block_name/
+// sortOrder/notes, in the same "Book Production Titles" Sheet) already
+// existed — built by Fred 2026-07-11 — as the real managed, user-growable
+// list: David adds a row there directly and it exists, no code change
+// needed, and it's naturally shared across every device/browser since it
+// lives in the Sheet rather than one browser's localStorage. data.blocks is
+// loaded once in loadAllData()/loadDevSampleData() (same pattern as
+// data.isbns) — everything below reads that cache rather than re-fetching
+// per render.
+//
+// RETARGET (same pass, per Marcus's correction): the dropdown's save path
+// moves from `dates.releaseBlock` to `blockId`. Per the Sheet's own ReadMe
+// (2026-07-11 addendum), `releaseBlock`/`planningSheet` are explicitly
+// read-only migration provenance, not meant to be live-edited — `blockId`
+// is the actual authoritative live field, already what the round-2 Block
+// filter keys off (populateBlockFilter() below). titleToRow() still writes
+// back whatever `dates.releaseBlock` value a title loaded with, unchanged —
+// nothing edits or clears it, it just stops being the field this dropdown
+// drives.
+//
+// FLAGGED, NOT SILENTLY HANDLED — migration/backfill edge case: a title can
+// have a `dates.releaseBlock` value (e.g. "2027 Q1") but no `blockId` at
+// all — the dev-preview sample title 'sample-1' is deliberately left in
+// exactly this state below, unfixed, to exercise it. There's no reliable
+// automatic mapping from old free-text values onto the 5 real block_ids
+// (2025-h2/2026-h1/2026-h2/2027/not-yet-assigned) — "2027 Q1" could
+// plausibly mean '2027' or a half-year bucket that doesn't cleanly exist,
+// and guessing wrong silently would misfile a title. Titles in this state
+// render with blockId's dropdown on "— none —" (same as never having been
+// set) and fall into the existing "Unassigned" bucket in the Block filter,
+// same as any other title with no blockId — nothing crashes or
+// misrepresents data, but David/whoever owns this needs to actually pick
+// the right block per title rather than have this code guess for them.
+function getReleaseBlocks(){
+  return (data.blocks||[]).slice()
+    .sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0))
+    .map(b=>({value:b.block_id, label:b.block_name}));
 }
-function getReleaseBlocks(){ return getLocalList(RELEASE_BLOCKS_LS_KEY, releaseBlockSeed); }
-function addReleaseBlockName(name){ return addToLocalList(RELEASE_BLOCKS_LS_KEY, name, releaseBlockSeed); }
-function releaseBlockSelectHtml(fieldId,titleId,currentVal){
-  return growableListSelectHtml(fieldId, currentVal, getReleaseBlocks(), `onReleaseBlockSelect('${titleId}',this)`, 'release block');
+function slugifyBlockName(name){
+  let s = String(name||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'');
+  if(!s) s = 'block-'+Date.now();
+  // De-dupe against existing block_ids — e.g. two differently-worded names
+  // that happen to slugify the same, or the same name typo'd twice — rather
+  // than silently colliding two different blocks onto one id.
+  let candidate=s, n=2;
+  const existing = new Set((data.blocks||[]).map(b=>b.block_id));
+  while(existing.has(candidate)){ candidate = s+'-'+n; n++; }
+  return candidate;
 }
-function onReleaseBlockSelect(titleId,selectEl){
+// Appends a new row to the live Blocks tab and updates the local cache
+// immediately (optimistic — same pattern as ISBN assignment's
+// `data.isbns.push(rec); saveIsbn(rec);` a few hundred lines down: update
+// state synchronously so the UI reflects it at once, fire the Sheets write
+// in the background). Returns the new block_id once the local state is
+// updated (the caller doesn't need to wait on the network write to proceed,
+// but this function is itself async so it CAN be awaited where useful, e.g.
+// onReleaseBlockSelect below awaits it just long enough to get the id back).
+async function addReleaseBlockName(name){
+  name=(name||'').trim(); if(!name) return null;
+  const existingMatch=(data.blocks||[]).find(b=>b.block_name.toLowerCase()===name.toLowerCase());
+  if(existingMatch) return existingMatch.block_id;
+  const block_id=slugifyBlockName(name);
+  const sortOrder=Math.max(0,...(data.blocks||[]).map(b=>b.sortOrder||0))+1;
+  data.blocks.push({block_id, block_name:name, sortOrder, notes:''});
+  if(!devMode){
+    try{
+      await sheetsAppend(CFG.TITLES_SHEET_ID, 'Blocks', [block_id, name, sortOrder, '']);
+    }catch(e){
+      showReconnect('Adding release block failed to save to the Sheet: '+e.message+' — the new block is visible locally this session but was NOT saved; a reload will lose it.');
+      console.error(e);
+    }
+  }
+  return block_id;
+}
+function releaseBlockSelectHtml(fieldId,titleId,currentBlockId){
+  return growableListSelectHtml(fieldId, currentBlockId, getReleaseBlocks(), `onReleaseBlockSelect('${titleId}',this)`, 'release block');
+}
+async function onReleaseBlockSelect(titleId,selectEl){
   if(selectEl.value==='__add_new__'){
     const name=window.prompt('Add a new release block (e.g. "2027 Q2"):');
-    if(name && name.trim()){ addReleaseBlockName(name.trim()); fc(titleId,'dates.releaseBlock',name.trim()); }
+    if(name && name.trim()){
+      const blockId=await addReleaseBlockName(name.trim());
+      if(blockId) fc(titleId,'blockId',blockId);
+    }
     renderDetail();
     return;
   }
-  fc(titleId,'dates.releaseBlock',selectEl.value);
+  fc(titleId,'blockId',selectEl.value);
 }
 // Auto-expanding textarea helper (items 20/22 — Content & Marketing/Author
 // boxes read as a real word-processing surface, not a fixed scrollable
@@ -486,6 +583,13 @@ function defTitle(o={}){
 function loadDevSampleData(){
   devMode = true;
   data = { titles:[
+    // Round 4 — 'sample-1' is deliberately left with a dates.releaseBlock
+    // value ("2027 Q1") but NO blockId, on purpose: this is the exact
+    // migration/backfill edge case flagged in the RELEASE BLOCKS comment
+    // above (real live titles can be in this state) — kept unfixed here so
+    // the dropdown's "— none —"/Unassigned fallback path actually gets
+    // exercised by the smoke test, rather than silently guess-assigning it
+    // to a blockId.
     defTitle({id:'sample-1', title:'Beyond Bone Tomahawk', subtitle:'On The Borders And The Brutality Of The Western', authors:'Rich Johnson', status:'In Progress', imprint:'Headpress',
       commercial:Object.assign({},defTitle().commercial,{isbnPbk:'978-1-915316-62-2', isbnEbk:'978-1-915316-63-9'}),
       dates:{releaseBlock:'2027 Q1',softDate:'',streetDate: new Date(Date.now()+45*86400000).toISOString().slice(0,10), printDate:'', autoPrintDate:true},
@@ -505,6 +609,15 @@ function loadDevSampleData(){
   ], isbns:[
     {isbn:'978-1-909394-11-7', format:'', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null},
     {isbn:'978-1-909394-12-4', format:'PBK', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null}
+  ], blocks:[
+    // Mirrors the real live "Blocks" tab exactly (Marcus Webb's research,
+    // 2026-07-27) so dev preview exercises the same shape/values as
+    // production, not an arbitrary stand-in set.
+    {block_id:'2025-h2', block_name:'2025 (2/2) August-January', sortOrder:1, notes:'provenance note, per-title sourcing'},
+    {block_id:'2026-h1', block_name:'2026 (1/2) February-July', sortOrder:2, notes:'provenance note'},
+    {block_id:'2026-h2', block_name:'2026 (2/2) August-January', sortOrder:3, notes:'provenance note (incl. harmonised titles)'},
+    {block_id:'2027', block_name:'2027', sortOrder:4, notes:'titles on the 2027 year-sheet, no half-year chosen yet'},
+    {block_id:'not-yet-assigned', block_name:'Not Yet Assigned', sortOrder:999, notes:'titles genuinely unscheduled'}
   ]};
   document.getElementById('auth-overlay').classList.add('hidden');
   document.getElementById('whoami').textContent = 'DEV PREVIEW — not saving';
@@ -543,10 +656,19 @@ async function loadAllData(){
   try{
     const titleRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Titles!A2:'+TITLE_RANGE_LAST_COL+'2000');
     const isbnRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'ISBNs!A2:F2000');
+    // Round 4 — Blocks tab (block_id/block_name/sortOrder/notes), loaded
+    // once here alongside titles/isbns and read synchronously off
+    // data.blocks from then on by getReleaseBlocks()/populateBlockFilter().
+    const blockRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Blocks!A2:D200');
     data.titles = titleRows
       .filter(r => r[0] && r[0] !== 'EXAMPLE-DELETE-ME')
       .map((r,i) => { const t = rowToTitle(r); t._row = findRowIndex(titleRows, r) + 2; return t; });
     data.isbns = isbnRows.map((r,i) => { const o = isbnRowToObj(r); o._row = i+2; return o; });
+    data.blocks = blockRows.filter(r=>r[0]).map(r=>({
+      block_id: r[0]||'', block_name: r[1]||r[0]||'',
+      sortOrder: (r[2]!==undefined && r[2]!=='') ? Number(r[2]) : 999,
+      notes: r[3]||''
+    }));
     setSyncStatus('saved');
     document.getElementById('footer-sync-label').textContent = 'Connected — Book Production Titles';
     render();
@@ -764,19 +886,27 @@ function syncHeaderHeight(){
 window.addEventListener('resize', syncHeaderHeight);
 
 // Item 4 — release-Block filter. Populated from the distinct blockId values
-// actually present on titles (not a separate Blocks-tab fetch — the Blocks
-// tab only holds display names/sort order for a small fixed set, and we
-// don't have those names loaded client-side; using the human-readable
-// releaseBlock text already on each title row is simpler and can't drift
-// out of sync with what's actually assigned). Titles with no block at all
-// group under "Unassigned" — deliberately surfaced rather than hidden,
-// since that's a real known gap (5 titles, see build report).
+// actually present on titles, grouping under "Unassigned" for titles with no
+// block at all — deliberately surfaced rather than hidden, since that's a
+// real known gap.
+// Round 4 update: display labels now come from data.blocks (the live Blocks
+// tab, loaded once in loadAllData()/loadDevSampleData() — see the RELEASE
+// BLOCKS section above) instead of falling back to each title's own
+// dates.releaseBlock text. That fallback made sense when nothing else was
+// loaded client-side, but now that the dropdown writes blockId instead of
+// dates.releaseBlock (this round's retarget), releaseBlock stops being kept
+// current for anything edited going forward — so leaning on it here would
+// have made filter labels silently drift stale/wrong. block_name from the
+// Blocks tab is the actual live source of truth; dates.releaseBlock is only
+// still used as a last-resort fallback for a blockId that (for whatever
+// reason) isn't found in data.blocks, so nothing renders blank.
 function populateBlockFilter(){
   const sel=document.getElementById('filter-block');if(!sel)return;
   const cur=filters.block;
+  const blockNameById={}; (data.blocks||[]).forEach(b=>{ blockNameById[b.block_id]=b.block_name; });
   const blocks=new Map(); // blockId -> display label
   data.titles.forEach(t=>{
-    if(t.blockId) blocks.set(t.blockId, t.dates.releaseBlock||t.blockId);
+    if(t.blockId) blocks.set(t.blockId, blockNameById[t.blockId]||t.dates.releaseBlock||t.blockId);
   });
   const hasUnassigned = data.titles.some(t=>!t.blockId);
   let html='<option value="">All Blocks</option>';
@@ -1265,7 +1395,7 @@ function renderDates(t){const id=t.id;const d=t.dates;
   // in the grid), auto-calculate checkbox is a small caption BELOW it
   // instead — functionally identical, but no longer disturbs row alignment.
   return `<div class="field-grid">
-    ${frow('Release Block',releaseBlockSelectHtml(`f-${id}-releaseBlock`,id,d.releaseBlock))}
+    ${frow('Release Block',releaseBlockSelectHtml(`f-${id}-releaseBlock`,id,t.blockId))}
     ${frow('Soft Date',`<input type="date" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)">`)}
     ${frow('Street Date',`<input type="date" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)">`)}
     ${frow('Print Date',`<input type="date" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)"><label style="font-size:.72rem;color:var(--text3);display:flex;align-items:center;gap:4px;margin-top:4px"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label>`)}
