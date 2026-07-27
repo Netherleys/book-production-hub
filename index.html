@@ -6,7 +6,10 @@
 <title>Book Production Hub</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,500;0,600;0,700;1,500&family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!-- 2026-07-27 (Mia Chen, UI Revision 2, item 4): Playfair Display dropped —
+     David resolved the font-approval question left open on 2026-07-26 in
+     favour of sans-serif, not serif. Only Public Sans is loaded now. -->
+<link href="https://fonts.googleapis.com/css2?family=Public+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root {
   /* Re-themed 2026-07-26 (Mia Chen) — David's full UI/UX revision pass.
@@ -61,17 +64,32 @@
   --shadow-lg:0 6px 24px rgba(17,17,17,.16);
   --r4:4px;--r8:8px;--r12:12px;
 
-  /* Font pick (item 8, flagged for approval per the brief — not silently
-     final): Playfair Display for headings/titles — a high-contrast
-     editorial serif used widely by magazines/publishing houses, a good fit
-     for Headpress's identity and a step up in "character" from the previous
-     plain Georgia. Public Sans for body/UI chrome — still clean and
-     highly legible at small sizes (forms, tables) but has more personality
-     than the generic Segoe UI/system-ui stack it replaces. */
-  --serif:'Playfair Display',Georgia,'Palatino Linotype',Palatino,serif;
+  /* Font — RESOLVED 2026-07-27 (Round 2, item 4): the 2026-07-26 font
+     question ("flagging for approval") is answered — David wants
+     sans-serif, not the Playfair Display serif that was live. --serif is
+     kept as the variable NAME (so every heading/title rule below that
+     already references var(--serif) doesn't need touching one-by-one) but
+     now points at the same Public Sans stack as body text, per the brief's
+     "Public Sans is a reasonable reuse" steer. Headings still read as
+     visually distinct via size/weight, just no longer a separate serif face. */
+  --serif:'Public Sans','Segoe UI',system-ui,Arial,sans-serif;
   --sans:'Public Sans','Segoe UI',system-ui,Arial,sans-serif;
   --hh:58px;--fh:36px;
-  --detail-width:1000px;      /* item 11 — detail/production-sheet working area, slimmer than before */
+  --detail-width:1000px;      /* item 11 (7/26) — detail/production-sheet working area, slimmer than before */
+
+  /* Detail-page background (item 6, Round 2) — muted green replacing the
+     dark chrome, scoped ONLY to the title/detail view (see
+     body[data-view="detail"] below) — dashboard/ISBN views keep the
+     existing dark chrome. Deliberately a different, deeper tone than
+     --sage (the functional accent/status colour) so "in-progress/complete"
+     status colouring is never confused with the page chrome itself.
+     Paired against --surface2 (the same cream already used on the
+     Commercial box, now the shared box-background standard, item 13) —
+     David's own framing was "complement the cream... or vice versa", so
+     this and --surface2 are treated as one deliberate colour pair. Exact
+     shade is a judgement call (documented in the build report). */
+  --bg-detail-green:#3F4C3A;
+  --bg-detail-green2:#485A42;
 }
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 /* Generic hide-by-class rule — several toggled elements (e.g. the ISBN
@@ -86,10 +104,31 @@
    contrast (table header stripes, hover states, etc). Distinct from the new
    dark --bg-page used for the app's outer chrome (body/header/footer). */
 :root{--bg:#F5F1E6;--bg2:#EDE6D3}
-body{font-family:var(--sans);font-size:14px;color:var(--text-oncream);background:var(--bg-page);min-height:100vh;padding-top:var(--hh);padding-bottom:var(--fh)}
+body{font-family:var(--sans);font-size:14px;color:var(--text-oncream);background:var(--bg-page);min-height:100vh;padding-top:var(--hh);padding-bottom:var(--fh);transition:background .2s}
+/* Item 6 (Round 2) — muted-green page background, detail/title view only.
+   render() sets document.body.dataset.view on every route change; header/
+   footer keep their own explicit dark background regardless (they're
+   shared global chrome, unaffected by this). */
+body[data-view="detail"]{background:var(--bg-detail-green)}
 a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* ── HEADER (dark chrome, item 5 — page/chrome goes dark, cards stay light) ── */
-#app-header{position:fixed;top:0;left:0;right:0;height:var(--hh);background:var(--bg-page2);border-bottom:1px solid rgba(241,234,217,.12);display:flex;align-items:center;gap:12px;padding:0 20px;z-index:100;box-shadow:var(--shadow-sm)}
+/* Items 1/2 (Round 2) — the header used to be a HARD-fixed height
+   (height:var(--hh)) while its own filter row (.h-search-wrap) was allowed
+   to flex-wrap. On narrower/zoomed viewports the three filter selects
+   wrapped onto their own line(s), but the fixed-height box didn't grow to
+   contain them — the wrapped rows rendered outside the header's box and on
+   top of the card grid below (confirmed live via David's screenshot,
+   Team Inbox/dashboard dropdown filers.png: three full-width dropdowns
+   stacked directly over the title cards). Root fix: header is now
+   min-height, not height, so it can genuinely grow when it wraps —
+   app.js's syncHeaderHeight() then measures the REAL rendered height on
+   every render/resize and writes it back into --hh, so body's
+   padding-top (and everything else keyed to --hh) always matches reality,
+   however many rows the toolbar wraps to. Item 2's dropdown-width fix
+   (below, .h-select) reduces how often wrapping happens at all, but this
+   fix means it can never overlap content even if it still does wrap on a
+   narrow enough window. */
+#app-header{position:fixed;top:0;left:0;right:0;min-height:var(--hh);background:var(--bg-page2);border-bottom:1px solid rgba(241,234,217,.12);display:flex;align-items:center;gap:12px;padding:8px 20px;z-index:100;box-shadow:var(--shadow-sm);flex-wrap:wrap}
 .h-logo{font-family:var(--serif);font-size:1.25rem;color:var(--text-oncream);white-space:nowrap;font-weight:600;letter-spacing:.02em}
 .h-logo span{color:var(--imprint-headpress)}
 .h-nav{display:flex;gap:2px;flex-shrink:0}
@@ -98,7 +137,13 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .h-tab.active{background:var(--sage);color:#fff;font-weight:600}
 .h-search-wrap{display:flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap}
 #hdr-search{flex:1;min-width:80px;max-width:220px;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;background:var(--surface);color:var(--text)}
-.h-select{padding:5px 8px;border:1px solid var(--border);border-radius:var(--r4);font-size:.82rem;background:var(--surface);color:var(--text);cursor:pointer}
+/* Item 2 (Round 2) — the three filter dropdowns had no width cap at all, so
+   they rendered at whatever their widest <option> text demanded (in
+   practice, close to the full available flex-row width) — confirmed live,
+   see screenshot referenced above. flex-shrink:0/flex-grow:0 stops them
+   stretching to fill the row; max-width caps their own natural size. */
+.h-select{padding:5px 8px;border:1px solid var(--border);border-radius:var(--r4);font-size:.82rem;background:var(--surface);color:var(--text);cursor:pointer;flex:0 0 auto;max-width:150px;text-overflow:ellipsis}
+#filter-imprint,#filter-block,#filter-printtiming{max-width:150px}
 .h-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .btn{padding:6px 14px;border-radius:var(--r4);border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:.82rem;cursor:pointer;font-family:var(--sans);transition:background .15s}
 .btn:hover{background:var(--bg2)}
@@ -126,8 +171,13 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    item 2: overview grid spreads to full width) ── */
 #main{padding:20px 24px 40px}
 #main.main-titles{max-width:none}
-#main.main-detail{max-width:var(--detail-width);margin:0 auto}
+/* Item 8 (Round 2) — widened by exactly the sidebar's own footprint
+   (170px width + 20px gap) so the detail-content column keeps its
+   original --detail-width instead of being squeezed narrower to make room
+   for the new sidebar. */
+#main.main-detail{max-width:calc(var(--detail-width) + 190px);margin:0 auto}
 #main.main-isbns{max-width:1100px;margin:0 auto}
+#main.main-quicknotes{max-width:900px;margin:0 auto}
 /* ── TITLES GRID ── */
 .titles-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;background:var(--bg-page2);border:1px solid rgba(241,234,217,.1);border-radius:var(--r8);padding:12px 14px}
 .titles-toolbar .h-select, .titles-toolbar input{background:var(--surface)}
@@ -143,12 +193,29 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .book-card[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
 .book-card[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
 .imprint-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;background:var(--imprint-accent,var(--border2))}
-/* Cover thumbnail — reduced height, fit-to-size (item 9): object-fit:contain
-   on a neutral fill so non-2:3 cover images letterbox cleanly instead of
-   being stretched or cropped. */
-.book-cover{height:150px;background:linear-gradient(135deg,#e8e0d0 0%,#d8cfc0 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
-.book-cover img{width:100%;height:100%;object-fit:contain;background:#EDE6D3}
-.cover-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;width:100%;padding:10px;text-align:center;gap:4px}
+/* Item 3 (Round 2) — sanity-checked live before touching this: the CSS here
+   was already object-fit:contain (letterbox), not stretch — confirmed by
+   reading the deployed index.html directly (GitHub Pages serves this repo's
+   main branch verbatim, no build step, so there's no drift between "live"
+   and what's in the repo) and by checking the actual /covers/*.jpg source
+   files' real pixel dimensions (they range from ~0.63 to ~0.99
+   width:height — genuinely NOT uniform). So nothing regressed and no image
+   is literally being squashed. What WAS true: the fixed 150px-tall (cards)
+   / 200px-tall (detail) box forced every cover into an IDENTICAL outer
+   footprint regardless of its real shape, then letterboxed inside it — so
+   a tall gothic-format cover and a near-square one both visually read as
+   "the same size/shape", just with different amounts of empty fill around
+   them. That's almost certainly what "stretching" was describing in
+   practice, even though the mechanism wasn't CSS stretch. Fix: drop the
+   fixed height. width is fixed (card width / 140px detail), height is now
+   auto so each cover renders at its own true aspect ratio — a tall cover is
+   visibly taller, a square one visibly square. min/max-height keep the
+   grid from breaking on extreme outliers; object-fit:contain is kept only
+   as a safety net for anything hitting that max-height ceiling, not as the
+   primary sizing mechanism anymore. */
+.book-cover{min-height:110px;max-height:230px;background:linear-gradient(135deg,#e8e0d0 0%,#d8cfc0 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
+.book-cover img{width:100%;height:auto;max-height:230px;object-fit:contain;display:block;background:#EDE6D3}
+.cover-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:110px;width:100%;padding:10px;text-align:center;gap:4px}
 .cover-ph-h{font-family:var(--serif);font-size:1.5rem;color:var(--border2);opacity:.6}
 .cover-ph-title{font-family:var(--serif);font-size:.72rem;color:var(--text2);line-height:1.25;word-break:break-word}
 .cover-ph-imprint{font-size:.65rem;color:var(--text3);text-transform:uppercase;letter-spacing:.05em}
@@ -178,9 +245,15 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* ── DETAIL VIEW ── */
 .detail-back{display:inline-flex;align-items:center;gap:6px;color:var(--text-oncream-dim);cursor:pointer;font-size:.85rem;margin-bottom:14px;background:none;border:none;font-family:var(--sans)}
 .detail-back:hover{color:var(--text-oncream)}
-.detail-top{display:grid;grid-template-columns:140px 1fr;gap:22px;margin-bottom:16px;background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);padding:18px;box-shadow:var(--shadow-sm)}
-.detail-cover{width:140px;height:200px;background:linear-gradient(135deg,#e8e0d0,#d8cfc0);border-radius:var(--r4);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
-.detail-cover img{width:100%;height:100%;object-fit:contain;background:#EDE6D3}
+/* Item 13 (Round 2, cream box standard) — background swapped from
+   --surface (white) to --surface2 (the same cream tint the Commercial box
+   already used) so this box matches every other box in the detail view. */
+.detail-top{display:grid;grid-template-columns:140px 1fr;gap:22px;margin-bottom:16px;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);padding:18px;box-shadow:var(--shadow-sm)}
+/* Item 3 (Round 2) — same fix as .book-cover above: fixed width (matches
+   the detail-top grid's 140px column), natural height instead of a forced
+   200px crop-box, min/max-height clamp only for extreme outliers. */
+.detail-cover{width:140px;min-height:120px;max-height:280px;background:linear-gradient(135deg,#e8e0d0,#d8cfc0);border-radius:var(--r4);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
+.detail-cover img{width:100%;height:auto;max-height:280px;object-fit:contain;display:block;background:#EDE6D3}
 .detail-info{display:flex;flex-direction:column;gap:8px;min-width:0}
 .detail-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .detail-title-text{font-family:var(--serif);font-size:1.4rem;font-weight:600;color:var(--text);line-height:1.2}
@@ -194,10 +267,26 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .badge-released{background:var(--sage-bg);color:var(--sage-border)}
 .detail-strip-wrap{margin-top:6px}
 .detail-strip-label{font-size:.72rem;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
-.detail-strip{display:flex;gap:4px;flex-wrap:wrap}
-.detail-p-dot{width:11px;height:11px;border-radius:50%;cursor:pointer;transition:transform .1s,box-shadow .1s;position:relative}
-.detail-p-dot:hover{transform:scale(1.3);box-shadow:0 0 0 2px var(--border2)}
+/* Item 7 (Round 2) — circles → squares, flush against each other (no
+   gap/padding between adjacent squares — gap:0 on the wrapper, no margin on
+   the squares themselves), bigger/more prominent (11px → 18px), and the
+   "Not Started" default is now white (dotColor() in app.js) rather than the
+   old neutral grey. A 1px border is added on every square — without it, a
+   white "Not Started" square would be invisible against this box's cream
+   background, and since the squares now touch edge-to-edge with no gap,
+   the border is also what visually separates one stage from the next. */
+.detail-strip{display:flex;gap:0;flex-wrap:wrap}
+.detail-p-dot{width:18px;height:18px;border-radius:0;border:1px solid var(--card-border);box-sizing:border-box;cursor:pointer;transition:transform .1s,box-shadow .1s;position:relative}
+.detail-p-dot:hover{transform:scale(1.25);box-shadow:0 0 0 2px var(--border2);z-index:2}
 .detail-p-dot[title]:hover::after{content:attr(title);position:absolute;bottom:calc(100% + 4px);left:50%;transform:translateX(-50%);background:var(--text);color:#fff;font-size:.7rem;padding:2px 6px;border-radius:3px;white-space:nowrap;z-index:10;pointer-events:none}
+/* ── KEY CONTACTS (item 12, Round 2) — new standalone box, NOT part of the
+   numbered accordion list, sitting directly beneath the title/subtitle
+   block. Pulls Author Liaison (was in the Author box) and PR Contact (was
+   in Publicity & Marketing) out into one shared spot. Cream standard
+   (item 13) applied like every other box. ── */
+.key-contacts-box{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);padding:16px;margin-bottom:16px}
+.key-contacts-label{font-family:var(--serif);font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:10px}
+
 /* ── FOLDER LINKS ROW (new fields) ── */
 .folder-links-row{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
 .folder-link-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}
@@ -205,18 +294,40 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .folder-link-row{display:flex;gap:6px;align-items:center}
 .folder-link-row input{flex:1;min-width:0}
 
-/* ── TOC / JUMP-NAV (item 12) — sticky bar for the detail/production-sheet
-   view, same pattern as the Dashboard's Anchor-Nav (dash-nav). Sits inside
-   the light detail area (not the dark chrome) since it's scoped to one
-   title's page, not global navigation. ── */
-.toc-nav{position:sticky;top:var(--hh);z-index:40;display:flex;gap:6px;overflow-x:auto;background:#111;border-radius:var(--r8);padding:8px 10px;margin-bottom:14px;box-shadow:var(--shadow-sm)}
-.toc-nav-item{flex-shrink:0;font-size:.76rem;color:rgba(255,255,255,.75);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:14px;padding:4px 11px;white-space:nowrap;cursor:pointer;transition:background .15s}
-.toc-nav-item:hover{background:rgba(255,255,255,.18);color:#fff}
-.toc-nav-item.active{background:#fff;color:#111;border-color:#fff;font-weight:600}
+/* ── JUMP-NAV (item 8, Round 2) — converted from a sticky HORIZONTAL bar
+   (which needed horizontal scrolling to see every item — the whole
+   complaint) into a floating vertical sidebar to the LEFT of the detail
+   content. .detail-layout is the new two-column flex wrapper (sidebar +
+   content); #main.main-detail is widened to fit both without shrinking the
+   content column that already existed (see below) — content stays the
+   same --detail-width it always was, the sidebar is genuinely additional
+   space, not stolen from it. position:sticky (not fixed) so it scrolls
+   away with the rest of the page at the very top/bottom rather than
+   floating over the header/footer chrome. Collapses back to a horizontal
+   top bar under 900px (see media query) — a sidebar that's fixed-width but
+   the viewport isn't wide enough for both column + content stops being
+   "floating alongside", it starts overlapping/cramping, so the original
+   horizontal pattern is the better fallback there. */
+.detail-layout{display:flex;align-items:flex-start;gap:20px}
+.detail-content{flex:1;min-width:0;max-width:var(--detail-width)}
+.toc-sidenav{position:sticky;top:calc(var(--hh) + 16px);z-index:40;display:flex;flex-direction:column;gap:4px;width:170px;flex-shrink:0;background:#111;border-radius:var(--r8);padding:10px;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto}
+.toc-side-item{display:block;font-size:.76rem;color:rgba(255,255,255,.75);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:6px;padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:background .15s}
+.toc-side-item:hover{background:rgba(255,255,255,.18);color:#fff}
+.toc-side-item.active{background:#fff;color:#111;border-color:#fff;font-weight:600}
+@media (max-width:900px){
+  .detail-layout{flex-direction:column}
+  .toc-sidenav{position:sticky;top:var(--hh);width:100%;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-height:none}
+  .toc-side-item{flex-shrink:0}
+}
 
 /* ── ACCORDION ── */
 .accordion{display:flex;flex-direction:column;gap:8px}
-.accord-section{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);overflow:hidden;scroll-margin-top:calc(var(--hh) + 46px)}
+/* Item 13 (Round 2, cream box standard) — background swapped from
+   --surface (white) to --surface2 (cream) so every section box is cream
+   fill edge-to-edge inside its border, not a white box with a smaller
+   cream rectangle floating inside it (the Commercial-box complaint this
+   generalises). Border/shadow/radius (the shared "card" language) unchanged. */
+.accord-section{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);overflow:hidden;scroll-margin-top:calc(var(--hh) + 46px)}
 .accord-header{display:flex;align-items:center;gap:0;cursor:pointer;user-select:none;border-left:4px solid var(--neutral-dot)}
 .accord-header.stripe-complete{border-left-color:var(--sage)}
 .accord-header.stripe-partial{border-left-color:var(--amber)}
@@ -238,7 +349,11 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .field-group{display:flex;flex-direction:column;gap:4px}
 .field-group.full{grid-column:1/-1}
 label.field-label{font-size:.78rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
-input[type=text],input[type=date],input[type=number],input[type=url],input[type=email],select,textarea{width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.87rem;font-family:var(--sans);color:var(--text);background:var(--surface);transition:border-color .15s}
+/* Item 9 (Round 2) — text size bumped up one notch across every text
+   field (this rule, .richtext, and the pipeline stage inputs below all
+   moved up together) — Content & Marketing was called out by name but the
+   brief is explicit this is a global change, not a per-box one. */
+input[type=text],input[type=date],input[type=number],input[type=url],input[type=email],select,textarea{width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.95rem;font-family:var(--sans);color:var(--text);background:var(--surface);transition:border-color .15s}
 input[type=text]:focus,input[type=date]:focus,input[type=number]:focus,input[type=url]:focus,input[type=email]:focus,select:focus,textarea:focus{outline:none;border-color:var(--sage)}
 input[readonly]{background:var(--bg);color:var(--text3);cursor:default}
 textarea{resize:vertical;min-height:80px;line-height:1.5}
@@ -256,7 +371,7 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .richtext-toolbar{display:flex;gap:4px}
 .rt-btn{padding:2px 9px;border:1px solid var(--border2);border-radius:4px;background:var(--surface);cursor:pointer;font-size:.78rem;color:var(--text2)}
 .rt-btn:hover{background:var(--bg2)}
-.richtext{border:1px solid var(--border);border-radius:var(--r4);padding:8px 10px;font-size:.87rem;font-family:var(--sans);color:var(--text);background:var(--surface);min-height:70px;line-height:1.55}
+.richtext{border:1px solid var(--border);border-radius:var(--r4);padding:8px 10px;font-size:.95rem;font-family:var(--sans);color:var(--text);background:var(--surface);min-height:70px;line-height:1.55}
 .richtext:focus{outline:none;border-color:var(--sage)}
 .richtext p{margin-bottom:.6em}
 .richtext[data-empty="1"]:not(:focus)::before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none}
@@ -276,33 +391,58 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .check-item label{font-size:.85rem;color:var(--text);cursor:pointer;line-height:1.4}
 .check-item.done label{text-decoration:line-through;color:var(--text3)}
 
-/* ── COMMERCIAL BOX TINT (item 17) ── */
-.field-tint{background:var(--surface2);border-radius:var(--r8);padding:14px}
+/* ── COMMERCIAL BOX TINT — neutralised (item 13, Round 2). This div used to
+   BE the cream tint, floating inset inside a white .accord-section (the
+   exact "white border framing the cream tint" complaint) — now that
+   .accord-section itself is cream (see above), this wrapper is transparent
+   with no extra padding of its own, so Commercial reads as one continuous
+   cream surface up to the section's own edge/padding, same as every other
+   box, rather than double-framed. Class kept (Commercial's markup still
+   wraps in it) purely so nothing else has to change there. */
+.field-tint{background:transparent;border-radius:0;padding:0}
 
-/* ── PRODUCTION PIPELINE — reworked (items 25/26): each stage is its own
-   clearly bounded box with status shown INSIDE it, chained together with
-   zero gap between adjacent stages in the same group, and a visible gap
-   between distinct status-type groupings — mirrors the colour-blocked
-   grouping found in David's original "Book Planning 2025" Google Sheet
-   (Overview/Setup/Production/Payment/Marketing/Contacts/Formats/Extras —
-   see build report for the exact row-grouping this was read from). ── */
+/* ── PRODUCTION PIPELINE — reworked 2026-07-26 (items 25/26 then): each
+   stage is its own clearly bounded box with status shown INSIDE it,
+   chained together with zero gap between adjacent stages in the same
+   group, and a visible gap between distinct status-type groupings —
+   mirrors the colour-blocked grouping found in David's original
+   "Book Planning 2025" Google Sheet. Round 2 (items 14-17) below: ── */
 .pipeline-chain{display:flex;flex-direction:column;gap:14px}
 .pipeline-group-label{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:2px}
-.pipeline-group-boxes{display:flex;flex-direction:column;border-radius:var(--r8);overflow:hidden;border:1px solid var(--border)}
-.stage-box{display:grid;grid-template-columns:26px 1fr auto 90px 1fr;gap:10px;align-items:center;padding:8px 12px;background:var(--surface);border-bottom:1px solid var(--border)}
+/* Item 17 — cream standard applies here too; border darkened from --border
+   to --border2 since the original --border tone is too close to the new
+   cream background to read clearly (it was designed for contrast against
+   white). */
+.pipeline-group-boxes{display:flex;flex-direction:column;border-radius:var(--r8);overflow:hidden;border:1px solid var(--border2)}
+/* Items 14/15 (Round 2) — root cause of the column-misalignment complaint:
+   each .stage-box is its OWN grid container (one per row), so an `auto`
+   column (the old status-button slot) sizes itself independently per row
+   based on that row's own button-label width ("Not Started" vs "Complete"
+   are different lengths) — meaning Status/Date/Notes never actually lined
+   up between rows even though they looked like they should. Fix: every
+   column is now a FIXED width except the trailing Notes column, so there is
+   nothing left that can vary row-to-row — true column alignment across
+   every stage, guaranteed by construction rather than coincidence. Name
+   column narrowed 1fr→130px (item 14, gives Notes the room it was
+   competing for); Status column auto→100px (item 15/16 — also now the
+   fixed-width slot the new fuller-width status bar fills, see .stage-btn). */
+.stage-box{display:grid;grid-template-columns:22px 130px 100px 90px 1fr;gap:10px;align-items:center;padding:8px 12px;background:transparent;border-bottom:1px solid var(--border2)}
 .stage-box:last-child{border-bottom:none}
 .stage-box-num{font-size:.72rem;color:var(--text3)}
 .stage-box-name{font-size:.85rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-/* Simplified status control (item 3): three flat, low-saturation states,
-   status shown as the button's own fill+label rather than a floating pill
-   elsewhere on the page. */
-.stage-btn{padding:4px 11px;border-radius:6px;border:1px solid transparent;cursor:pointer;font-size:.74rem;font-weight:600;font-family:var(--sans);white-space:nowrap;transition:background .15s}
+/* Item 16 (Round 2) — status control redrawn as a low-height, fuller-width
+   bar (fills its fixed 100px column) instead of a small centred pill, so
+   it reads as a status strip rather than a button; each of the 3 possible
+   statuses (Not Started/In Progress/Complete) keeps its own distinct
+   colour, now just more visually prominent. */
+.stage-btn{width:100%;height:22px;padding:0 6px;border-radius:4px;border:1px solid transparent;cursor:pointer;font-size:.72rem;font-weight:700;font-family:var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s;display:flex;align-items:center;justify-content:center;text-transform:uppercase;letter-spacing:.03em}
 .stage-not-started{background:var(--neutral-bg);color:var(--neutral-border);border-color:var(--neutral-dot)}
 .stage-in-progress{background:var(--amber-bg);color:var(--amber-border);border-color:var(--amber-border)}
 .stage-complete{background:var(--sage-bg);color:var(--sage-border);border-color:var(--sage-border)}
-/* Expected date shrunk (item 27); Notes widened (item 28) via the grid
-   template above (90px vs 1fr) rather than equal-width columns. */
-.stage-date-input,.stage-notes-input{padding:4px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.78rem;color:var(--text);background:var(--surface);font-family:var(--sans)}
+/* Expected date shrunk (7/26 item 27); Notes widened (7/26 item 28) via the
+   grid template above (90px vs 1fr). Item 9 (Round 2) — font size bumped
+   slightly, same as every other text field. */
+.stage-date-input,.stage-notes-input{padding:4px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;color:var(--text);background:var(--surface);font-family:var(--sans)}
 .stage-date-input:focus,.stage-notes-input:focus{outline:none;border-color:var(--sage)}
 .stage-date-input{width:100%}
 .stage-notes-input{width:100%}
@@ -321,6 +461,18 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .isbn-badge-ebk{background:#e0eef8;color:#2a5a8a}
 .isbn-badge-hbk{background:#f0ece0;color:#6a5a2a}
 .isbn-badge-other{background:var(--bg2);color:var(--text3)}
+/* ── QUICK NOTES — LIST/INDEX VIEW (item 5, Round 2) — a visible list of
+   every title that has at least one quick note, most-recently-noted first,
+   with a preview snippet of the latest note, so David can see at a glance
+   which titles have notes without opening each one to check. Click a row
+   to jump straight to that title's detail view. ── */
+.qn-list-item{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);cursor:pointer;margin-bottom:10px;transition:box-shadow .15s}
+.qn-list-item:hover{box-shadow:var(--shadow-md)}
+.qn-list-title{font-family:var(--serif);font-weight:600;font-size:.95rem;color:var(--text);white-space:nowrap}
+.qn-list-count{font-size:.68rem;color:var(--sage-border);background:var(--sage-bg);border-radius:10px;padding:1px 8px;flex-shrink:0}
+.qn-list-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:3px}
+.qn-list-snippet{font-size:.85rem;color:var(--text2);overflow:hidden;text-overflow:ellipsis;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
+.qn-list-meta{font-size:.72rem;color:var(--text3)}
 /* ── PRINTER CONTACTS ── */
 .printer-contacts{display:flex;flex-direction:column;gap:6px}
 .printer-row{display:flex;gap:8px;align-items:center}
@@ -386,6 +538,9 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
   <div class="h-logo">Book <span>Production Hub</span></div>
   <nav class="h-nav">
     <button class="h-tab active" id="tab-titles" onclick="gotoTitles()">All Titles</button>
+    <!-- Item 5 (Round 2) — Quick Notes list/index view, so David can see
+         which titles have notes without opening each one individually. -->
+    <button class="h-tab" id="tab-quicknotes" onclick="gotoQuickNotesList()">Quick Notes</button>
     <button class="h-tab" id="tab-isbns" onclick="gotoISBNs()">ISBN Manager</button>
   </nav>
   <div class="h-search-wrap" id="search-wrap">

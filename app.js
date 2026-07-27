@@ -123,7 +123,11 @@ function getTitle(id){ return data.titles.find(t=>t.id===id)||null; }
 function daysUntil(ds){ if(!ds) return null; const d=new Date(ds); if(isNaN(d)) return null; d.setHours(0,0,0,0); const t=new Date(); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
 function formatDate(ds){ if(!ds) return ''; const d=new Date(ds); if(isNaN(d)) return ds; return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); }
 function calcAutoPrint(sd){ if(!sd) return ''; const d=new Date(sd); if(isNaN(d)) return ''; d.setDate(d.getDate()-60); return d.toISOString().slice(0,10); }
-function dotColor(status){ if(status==='Complete') return 'var(--sage)'; if(status==='In Progress') return 'var(--amber)'; return 'var(--neutral-dot)'; }
+// Item 7 (Round 2) — default "Not Started" colour changed from the old
+// neutral grey to white per the brief (dots are now squares too, see
+// index.html .detail-p-dot — a border was added there since a plain white
+// square needs one to stay visible against the box's own background).
+function dotColor(status){ if(status==='Complete') return 'var(--sage)'; if(status==='In Progress') return 'var(--amber)'; return '#fff'; }
 // 2026-07-26 bug fix (item 15): live Sheet data uses the literal string
 // "Completed" for status (confirmed live — 5 titles), not "Complete" as the
 // Add-Title dropdown writes — a pre-existing mismatch that meant already-
@@ -529,13 +533,36 @@ function getSectionStatus(t,key){
     default:return 'partial';
   }
 }
-// Section order (item 30 — PO Tracker moved up from position 7 to position
-// 2, right after Commercial, and defaults open like Pipeline, so it's no
-// longer "buried" several scrolls down). Files & Links removed entirely
-// (item 31 — redundant with the top-of-page folder links row already
-// added 2026-07-15, see renderFolderLinksRow()).
-const SECTION_KEYS = ['commercial','poTracker','content','author','pipeline','dates','print','publicity','toc','productionNotes','futureEdition'];
-const SECTION_LABELS = {commercial:'1. Commercial',poTracker:'2. PO Tracker / Print Estimates',content:'3. Content & Marketing',author:'4. Author',pipeline:'5. Production Pipeline',dates:'6. Dates & Scheduling',print:'7. Print & Distribution',publicity:'8. Publicity & Marketing',toc:'9. TOC / Excerpt / Insight',productionNotes:'10. Production Notes',futureEdition:'11. Info & Future Edition'};
+// Section order — 7/26 (item 30): PO Tracker moved up from position 7 to
+// position 2, right after Commercial, defaults open like Pipeline, made
+// visually prominent (see .po-prominent) — "no longer buried". Files &
+// Links removed entirely (item 31 — redundant with the top-of-page folder
+// links row already added 2026-07-15, see renderFolderLinksRow()).
+//
+// Round 2 (items 20/21) — SUPERSEDES the 7/26 placement above: "wrong place
+// for David's actual workflow" — PO Tracker moves from position 2 down to
+// second-to-last (right before Info & Future Edition), with Future Edition
+// bumped one further as the direct, mechanical consequence. Left its
+// always-open + .po-prominent highlight behaviour untouched — the brief
+// only asked for a REORDER, not a restyle, so it's still always-open and
+// still gets the highlighted border, just later in the list now.
+//
+// NOTE on the literal numbers in the brief ("moves to position 11" /
+// "becomes box 12"): with the new Key Contacts block (item 12) rendered
+// as its own standalone, un-numbered block (not one of these accordion
+// sections — see renderKeyContacts()), this list is still 11 keys long,
+// so PO Tracker lands at 10 and Future Edition at 11, not literally
+// "11"/"12". Rather than hand-forcing mismatched literal numbers (which
+// would require either double-counting Key Contacts as a numbered section
+// despite the brief calling it "standalone", or leaving a gap in the
+// sequence), labels are now generated DYNAMICALLY from this array's actual
+// order (below) so they can never go stale again regardless of future
+// additions/reorders. Flagged for David in the build report as an open
+// point, not silently decided.
+const SECTION_KEYS = ['commercial','content','author','pipeline','dates','print','publicity','toc','productionNotes','poTracker','futureEdition'];
+const SECTION_LABEL_TEXT = {commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content & Marketing',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Production Notes',futureEdition:'Info & Future Edition'};
+const SECTION_LABELS = {};
+SECTION_KEYS.forEach((k,i)=>{ SECTION_LABELS[k] = (i+1)+'. '+SECTION_LABEL_TEXT[k]; });
 function isOpen(titleId,key){
   if(key==='pipeline'||key==='poTracker')return true;
   const k=`${titleId}-${key}`;
@@ -547,18 +574,49 @@ function isOpen(titleId,key){
 function render(){
   document.getElementById('tab-titles').classList.toggle('active',view==='titles');
   document.getElementById('tab-isbns').classList.toggle('active',view==='isbns');
+  const qnTab=document.getElementById('tab-quicknotes'); if(qnTab) qnTab.classList.toggle('active',view==='quicknotes');
   document.getElementById('search-wrap').style.display=view==='titles'?'flex':'none';
   document.getElementById('btn-add-title').style.display=view==='titles'?'inline-block':'none';
   const main=document.getElementById('main');
   main.className='main-'+view; // item 11/2 — width split by view (titles=full width, detail=slimmer, isbns=medium)
+  // Item 6 (Round 2) — muted-green page background is scoped to the
+  // detail/title view only (see body[data-view="detail"] in index.html);
+  // every other view keeps the existing dark chrome.
+  document.body.dataset.view = view;
   if(view==='titles'){ populateBlockFilter(); renderTitles(); }
   else if(view==='detail')renderDetail();
   else if(view==='isbns')renderISBNs();
+  else if(view==='quicknotes')renderQuickNotesList();
   populateQuickNoteTitles();
+  // Items 1/2 (Round 2) — header is no longer a fixed height (see
+  // #app-header in index.html), so its real rendered height is re-measured
+  // on every render (the filter row only exists in the 'titles' view, so
+  // the header's actual height genuinely changes between views) and synced
+  // into --hh, which body padding-top and everything else keyed to --hh
+  // reads from. This is what actually prevents the header from ever
+  // overlapping the content below it, regardless of how many rows the
+  // filter toolbar wraps to.
+  syncHeaderHeight();
 }
 function gotoTitles(){view='titles';selectedId=null;render();}
 function gotoISBNs(){view='isbns';render();}
 function gotoDetail(id){view='detail';selectedId=id;render();}
+function gotoQuickNotesList(){view='quicknotes';render();}
+// Item 1 (Round 2) — see render()'s comment above for why this exists.
+// Measured on a rAF tick so it runs after the browser has actually laid
+// out the just-injected HTML (offsetHeight would still read the PREVIOUS
+// layout if measured synchronously in the same tick as the innerHTML swap
+// in some edge cases, e.g. font loading reflow) — rAF is enough of a
+// nudge to be reliably accurate without adding a real delay.
+function syncHeaderHeight(){
+  requestAnimationFrame(()=>{
+    const header=document.getElementById('app-header');
+    if(!header)return;
+    const h=Math.round(header.getBoundingClientRect().height);
+    if(h>0) document.documentElement.style.setProperty('--hh', h+'px');
+  });
+}
+window.addEventListener('resize', syncHeaderHeight);
 
 // Item 4 — release-Block filter. Populated from the distinct blockId values
 // actually present on titles (not a separate Blocks-tab fetch — the Blocks
@@ -671,33 +729,44 @@ function renderDetail(){
     : coverPlaceholder;
   const detailStrip=t.pipeline.stages.map((s,i)=>`<div class="detail-p-dot" style="background:${dotColor(s.status)}" title="${esc(s.name)}: ${esc(s.status)}" onclick="cycleStage('${t.id}',${i})"></div>`).join('');
   const accordionHtml=SECTION_KEYS.map(k=>renderAccordionSection(t,k)).join('');
-  // Item 12 — TOC/jump-nav for the production sheet, same sticky-bar pattern
-  // as the Dashboard's Anchor-Nav (dash-nav), scoped to this one title.
-  const tocNavHtml=`<nav class="toc-nav" id="toc-nav">${SECTION_KEYS.map(k=>`<a class="toc-nav-item" href="#asec-${t.id}-${k}">${esc((SECTION_LABELS[k]||k).replace(/^\d+\.\s*/,''))}</a>`).join('')}</nav>`;
+  // Item 8 (Round 2) — jump-nav converted from a sticky HORIZONTAL bar
+  // (needed horizontal scrolling to see every item — the whole complaint)
+  // into a floating vertical sidebar to the left of the content column
+  // (.toc-sidenav, see index.html; collapses back to a horizontal bar under
+  // 900px via media query). Labels no longer strip a leading "N. " prefix
+  // via regex — SECTION_LABELS builds its own numbering dynamically now
+  // (see the SECTION_KEYS/SECTION_LABELS block above), so the label text is
+  // already just the plain name.
+  const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav">${SECTION_KEYS.map(k=>`<a class="toc-side-item" href="#asec-${t.id}-${k}">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`).join('')}</nav>`;
   main.innerHTML=`
     <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
-    <div class="detail-top">
-      <div class="detail-cover" title="Set the Cover Image URL below to show a real thumbnail here">${coverHtml}</div>
-      <div class="detail-info">
-        <div class="detail-title-row"><span class="imprint-dot" data-imprint="${imprintKey(t.imprint)}" style="background:var(--imprint-${imprintKey(t.imprint)==='oowp'?'oowp':'headpress'})" title="${esc(imprintName(t.imprint))}"></span><span class="detail-title-text">${esc(t.title)}</span></div>
-        ${t.subtitle?`<div class="detail-subtitle-text">${esc(t.subtitle)}</div>`:''}
-        ${t.authors?`<div class="detail-author-text">${esc(t.authors)}</div>`:''}
-        <div class="detail-meta-row">
-          <span class="status-badge ${badgeClass}">${esc(t.status)}</span>
-          <span>${esc(t.imprint)}</span>
-          ${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}
-          ${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}
-          ${daysHtml}
+    <div class="detail-layout">
+      ${tocNavHtml}
+      <div class="detail-content">
+        <div class="detail-top">
+          <div class="detail-cover" title="Set the Cover Image URL below to show a real thumbnail here">${coverHtml}</div>
+          <div class="detail-info">
+            <div class="detail-title-row"><span class="imprint-dot" data-imprint="${imprintKey(t.imprint)}" style="background:var(--imprint-${imprintKey(t.imprint)==='oowp'?'oowp':'headpress'})" title="${esc(imprintName(t.imprint))}"></span><span class="detail-title-text">${esc(t.title)}</span></div>
+            ${t.subtitle?`<div class="detail-subtitle-text">${esc(t.subtitle)}</div>`:''}
+            ${t.authors?`<div class="detail-author-text">${esc(t.authors)}</div>`:''}
+            <div class="detail-meta-row">
+              <span class="status-badge ${badgeClass}">${esc(t.status)}</span>
+              <span>${esc(t.imprint)}</span>
+              ${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}
+              ${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}
+              ${daysHtml}
+            </div>
+            <div class="detail-strip-wrap">
+              <div class="detail-strip-label">Production Pipeline — click to cycle status</div>
+              <div class="detail-strip" id="detail-strip-${t.id}">${detailStrip}</div>
+            </div>
+            ${renderFolderLinksRow(t)}
+          </div>
         </div>
-        <div class="detail-strip-wrap">
-          <div class="detail-strip-label">Production Pipeline — click to cycle status</div>
-          <div class="detail-strip" id="detail-strip-${t.id}">${detailStrip}</div>
-        </div>
-        ${renderFolderLinksRow(t)}
+        ${renderKeyContacts(t)}
+        <div class="accordion" id="accordion-${t.id}">${accordionHtml}</div>
       </div>
-    </div>
-    ${tocNavHtml}
-    <div class="accordion" id="accordion-${t.id}">${accordionHtml}</div>`;
+    </div>`;
   autoGrowAll(main);
   // PO Tracker data isn't in the row payload (it lives in a different
   // spreadsheet, fetched on demand) — if that section is already open on
@@ -807,6 +876,22 @@ async function revealWorkingFolder(titleId){
   try{ await navigator.clipboard.writeText(path); }catch(e){}
   alert('Could not reach the local reveal helper (is book_reveal_helper.py running on port 8744?).\n\nPath copied to clipboard:\n'+path);
 }
+
+// Item 12 (Round 2) — new standalone "Key Contacts" block, sitting directly
+// beneath the title/subtitle block (detail-top), NOT inside the numbered
+// accordion list. Pulls Author Liaison (previously in the Author box) and
+// PR Contact (previously in Publicity & Marketing) into one shared spot —
+// both still write to the exact same data paths they always did
+// (authorLiaison / publicity.prContact), so nothing about the underlying
+// Sheet columns changes, only where these two fields are surfaced in the UI.
+function renderKeyContacts(t){const id=t.id;
+  return `<div class="key-contacts-box">
+    <div class="key-contacts-label">Key Contacts</div>
+    <div class="field-grid">
+      ${frow('Author Liaison',`<select id="f-${id}-liaison" onchange="fc('${id}','authorLiaison',this.value)"><option ${t.authorLiaison==='David'?'selected':''}>David</option><option ${t.authorLiaison==='Jen'?'selected':''}>Jen</option><option ${t.authorLiaison==='Other'?'selected':''}>Other</option></select>`)}
+      ${frow('PR Contact',inp(`f-${id}-prContact`,t.publicity.prContact,'Name and contact info',`fc('${id}','publicity.prContact',this.value)`))}
+    </div>
+  </div>`;}
 
 function renderAccordionSection(t,key){
   const st=getSectionStatus(t,key);
@@ -934,22 +1019,24 @@ function renderContent(t){const id=t.id;const c=t.content;
     ${frow('Keywords / Metadata',inp(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`))}
     <div class="field-group full">
       <button class="btn btn-sm" onclick="openHtmlOutput('${id}')">View HTML Output &#8599;</button>
-      <p style="font-size:.72rem;color:var(--text3);margin-top:4px">Generates a copy-pasteable HTML version of the fields above (item 21 — formatting restore/HTML output).</p>
+      <p style="font-size:.72rem;color:var(--text3);margin-top:4px">Opens the literal HTML source of the fields above as plain text (e.g. an italicised word shows as the actual characters &lt;i&gt;word&lt;/i&gt;, not styled italics) — select all and copy (item 11, Round 2).</p>
     </div>
   </div>`;}
 
 function renderAuthor(t){const id=t.id;const a=t.authorInfo;
-  // Item 24 — "Other contributors" now sits BELOW "Previous publications"
-  // (was reversed before). Item 21/23 — Socials field widened to a proper
-  // auto-expanding textarea (was a single-line input) so it comfortably
-  // holds multiple lines/entries.
+  // Item 24 (7/26) — "Other contributors" sits BELOW "Previous publications"
+  // (was reversed before). Item 21/23 (7/26) — Socials field widened to a
+  // proper auto-expanding textarea (was a single-line input) so it
+  // comfortably holds multiple lines/entries.
+  // Item 12 (Round 2) — Author Liaison moved OUT of this box entirely, into
+  // the new standalone Key Contacts block under the title header (see
+  // renderKeyContacts()) — it's no longer rendered here.
   return `<div class="field-grid">
     ${frow('Author Bio',taAuto(`f-${id}-bio`,a.bio,'',`fc('${id}','authorInfo.bio',this.value)`),'full')}
     ${frow('Author Hometown',inp(`f-${id}-hometown`,a.hometown,'',`fc('${id}','authorInfo.hometown',this.value)`))}
     ${frow('Socials & Societies',taAuto(`f-${id}-socials`,a.socials,'One per line is fine…',`fc('${id}','authorInfo.socials',this.value)`),'full')}
     ${frow('Previous Publications',taAuto(`f-${id}-prevPubs`,a.previousPublications,'',`fc('${id}','authorInfo.previousPublications',this.value)`),'full')}
     ${frow('Other Contributors',taAuto(`f-${id}-otherContribs`,a.otherContributors,'',`fc('${id}','authorInfo.otherContributors',this.value)`),'full')}
-    ${frow('Author Liaison',`<select id="f-${id}-liaison" onchange="fc('${id}','authorLiaison',this.value)"><option ${t.authorLiaison==='David'?'selected':''}>David</option><option ${t.authorLiaison==='Jen'?'selected':''}>Jen</option><option ${t.authorLiaison==='Other'?'selected':''}>Other</option></select>`)}
   </div>`;}
 
 // Items 25/26 — reworked pipeline: each stage is its own bounded box with
@@ -989,11 +1076,22 @@ function renderDates(t){const id=t.id;const d=t.dates;
   const info=computeDayInfo(t);
   const colorVar={published:'var(--sage)',ok:'var(--sage)',notice:'var(--amber-border)','due-soon':'#B8722E',overdue:'var(--terra)',neutral:'var(--text3)'}[info.colorClass]||'var(--text3)';
   const ddHtml=`<span style="color:${colorVar};font-weight:600">${esc(info.kind==='overdue'?'OVERDUE — '+info.label:info.label)}</span>`;
+  // Item 18 (Round 2) — root cause of "the print-date auto-calculate
+  // element knocks the row beneath it out of alignment": the checkbox+label
+  // used to sit ABOVE the date input inside this one field-group, which
+  // pushed THIS input down a full extra line versus its row-mate (Street
+  // Date's input sits directly under its label, one line up) — so even
+  // though both fields are technically in the same CSS grid row, their
+  // <input> boxes didn't line up with each other, and the checkbox's shadow
+  // was cast onto whatever this row's height decided for the row beneath
+  // it too. Fix: input now comes FIRST (lines up with every sibling input
+  // in the grid), auto-calculate checkbox is a small caption BELOW it
+  // instead — functionally identical, but no longer disturbs row alignment.
   return `<div class="field-grid">
     ${frow('Release Block',inp(`f-${id}-releaseBlock`,d.releaseBlock,'e.g. 2027 Q1',`fc('${id}','dates.releaseBlock',this.value)`))}
     ${frow('Soft Date',`<input type="date" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)">`)}
     ${frow('Street Date',`<input type="date" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)">`)}
-    ${frow('Print Date',`<div style="display:flex;flex-direction:column;gap:4px"><label style="font-size:.8rem;color:var(--text3)"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label><input type="date" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)"></div>`)}
+    ${frow('Print Date',`<input type="date" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)"><label style="font-size:.72rem;color:var(--text3);display:flex;align-items:center;gap:4px;margin-top:4px"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label>`)}
     ${frow('Print Status',`<div id="f-${id}-daysToprint" style="padding:8px 0;font-size:.9rem">${ddHtml}</div>`)}
   </div>`;}
 
@@ -1004,9 +1102,9 @@ function renderPrint(t){const id=t.id;const p=t.print;
       <button class="btn-danger btn-sm" onclick="removePrinterContact('${id}',${i})">Remove</button>
     </div>`).join('');
   return `<div class="field-grid">
-    ${frow('Print Estimate / Quotes',ta(`f-${id}-printEstimate`,p.printEstimate,'Record printer quotes here…',`fc('${id}','print.printEstimate',this.value)`),'full')}
+    ${frow('Print Estimate / Quotes',taAuto(`f-${id}-printEstimate`,p.printEstimate,'Record printer quotes here…',`fc('${id}','print.printEstimate',this.value)`),'full')}
     ${frow('SCB eBook Cover Spec',inp(`f-${id}-scbSpec`,p.scbEbookCoverSpec,'',`fc('${id}','print.scbEbookCoverSpec',this.value)`),'full')}
-    ${frow('For LSI Notes',ta(`f-${id}-forLsi`,p.forLsiNotes,'',`fc('${id}','print.forLsiNotes',this.value)`),'full')}
+    ${frow('For LSI Notes',taAuto(`f-${id}-forLsi`,p.forLsiNotes,'',`fc('${id}','print.forLsiNotes',this.value)`),'full')}
     <div class="field-group full"><label class="field-label">Printer Contacts</label>
       <div class="printer-contacts">${contactRows}</div>
       <button class="btn btn-sm" style="margin-top:8px" onclick="addPrinterContact('${id}')">+ Add Printer Contact</button>
@@ -1141,20 +1239,22 @@ function poInvoiceOpenLink(){
   return `<p style="margin-top:8px"><a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">Open full PO &amp; Invoice Tracker &#8599;</a></p>`;
 }
 
+// Item 12 (Round 2) — PR Contact moved OUT of this box, into the new
+// standalone Key Contacts block under the title header (see
+// renderKeyContacts()) — no longer rendered here.
 function renderPublicity(t){const id=t.id;const p=t.publicity;
   return `<div class="field-grid">
-    ${frow('Publicity Statement',ta(`f-${id}-pubStmt`,p.publicityStatement,'',`fc('${id}','publicity.publicityStatement',this.value)`),'full')}
-    ${frow('PR Contact',inp(`f-${id}-prContact`,p.prContact,'Name and contact info',`fc('${id}','publicity.prContact',this.value)`),'full')}
-    ${frow('Marketing Notes',ta(`f-${id}-marketing`,p.marketing,'',`fc('${id}','publicity.marketing',this.value)`),'full')}
+    ${frow('Publicity Statement',taAuto(`f-${id}-pubStmt`,p.publicityStatement,'',`fc('${id}','publicity.publicityStatement',this.value)`),'full')}
+    ${frow('Marketing Notes',taAuto(`f-${id}-marketing`,p.marketing,'',`fc('${id}','publicity.marketing',this.value)`),'full')}
     <p style="grid-column:1/-1;font-size:.78rem;color:var(--text3)">Amazon A+, PLS.ORG, Newsletter and Promo Film status now live in the Production Pipeline section above (they were duplicated in both places in the original app) — use each stage's Notes field for detail.</p>
   </div>`;}
 
 function renderTOC(t){const id=t.id;const c=t.toc;
   return `<div class="field-grid">
-    ${frow('Table of Contents',ta(`f-${id}-toc`,c.tableOfContents,'',`fc('${id}','toc.tableOfContents',this.value)`),'full')}
-    ${frow('How I Came to Write This Book',ta(`f-${id}-howIWrote`,c.howICameToWriteThis,'',`fc('${id}','toc.howICameToWriteThis',this.value)`),'full')}
-    ${frow('Excerpt',ta(`f-${id}-excerpt`,c.excerpt,'',`fc('${id}','toc.excerpt',this.value)`),'full')}
-    ${frow('Competing Titles',ta(`f-${id}-competing`,c.competingTitles,'',`fc('${id}','toc.competingTitles',this.value)`),'full')}
+    ${frow('Table of Contents',taAuto(`f-${id}-toc`,c.tableOfContents,'',`fc('${id}','toc.tableOfContents',this.value)`),'full')}
+    ${frow('How I Came to Write This Book',taAuto(`f-${id}-howIWrote`,c.howICameToWriteThis,'',`fc('${id}','toc.howICameToWriteThis',this.value)`),'full')}
+    ${frow('Excerpt',taAuto(`f-${id}-excerpt`,c.excerpt,'',`fc('${id}','toc.excerpt',this.value)`),'full')}
+    ${frow('Competing Titles',taAuto(`f-${id}-competing`,c.competingTitles,'',`fc('${id}','toc.competingTitles',this.value)`),'full')}
   </div>`;}
 
 function renderProductionNotes(t){const id=t.id;
@@ -1164,13 +1264,13 @@ function renderProductionNotes(t){const id=t.id;
   </div>`).join('');
   return `<div class="checklist">${items}</div>
   <div class="field-grid" style="margin-top:14px">
-    ${frow('Proofing Notes',ta(`f-${id}-proofingNotes`,t.productionNotes.proofingNotes,'',`fc('${id}','productionNotes.proofingNotes',this.value)`),'full')}
-    ${frow('Typesetting Notes',ta(`f-${id}-typesettingNotes`,t.productionNotes.typesettingNotes,'',`fc('${id}','productionNotes.typesettingNotes',this.value)`),'full')}
+    ${frow('Proofing Notes',taAuto(`f-${id}-proofingNotes`,t.productionNotes.proofingNotes,'',`fc('${id}','productionNotes.proofingNotes',this.value)`),'full')}
+    ${frow('Typesetting Notes',taAuto(`f-${id}-typesettingNotes`,t.productionNotes.typesettingNotes,'',`fc('${id}','productionNotes.typesettingNotes',this.value)`),'full')}
   </div>`;}
 
 function renderFutureEdition(t){const id=t.id;const f=t.futureEdition;
   return `<div class="field-grid">
-    ${frow('Info & Changes for Future Edition',ta(`f-${id}-futureInfo`,f.infoAndChanges,'',`fc('${id}','futureEdition.infoAndChanges',this.value)`),'full')}
+    ${frow('Info & Changes for Future Edition',taAuto(`f-${id}-futureInfo`,f.infoAndChanges,'',`fc('${id}','futureEdition.infoAndChanges',this.value)`),'full')}
     ${frow('Print-Ready Files',`<select id="f-${id}-prf" onchange="fc('${id}','futureEdition.printReadyFilesStatus',this.value)"><option ${f.printReadyFilesStatus==='Not Ready'?'selected':''}>Not Ready</option><option ${f.printReadyFilesStatus==='Ready'?'selected':''}>Ready</option><option ${f.printReadyFilesStatus==='Submitted'?'selected':''}>Submitted</option></select>`)}
   </div>`;}
 
@@ -1211,6 +1311,40 @@ function renderISBNs(){
     <div class="field-group"><label class="field-label">Format</label><select id="new-isbn-fmt"><option value="">—</option><option value="PBK">PBK</option><option value="EBK">EBK</option><option value="HBK">HBK</option></select></div></div>
     <div style="margin-top:10px;display:flex;gap:8px"><button class="btn btn-primary btn-sm" onclick="confirmAddISBN()">Add</button><button class="btn btn-sm" onclick="document.getElementById('add-isbn-form').classList.add('hidden')">Cancel</button></div>
   </div>`;}
+
+// ─── QUICK NOTES — LIST/INDEX VIEW (item 5, Round 2) ───
+// Before this, the only way to know a title had a quick note at all was to
+// open its detail view and scroll to notice the floating panel's "recent"
+// list — there was no way to see, at a glance, which titles across the
+// whole catalogue had notes. This is a dedicated view (its own header tab)
+// listing every title with at least one note, most-recently-noted title
+// first, each row showing a preview snippet of its latest note — clicking
+// a row jumps straight into that title's detail view.
+function renderQuickNotesList(){
+  const main=document.getElementById('main');
+  const withNotes = data.titles.filter(t=>t.quickNotes && t.quickNotes.length);
+  if(!withNotes.length){
+    main.innerHTML='<div class="empty-state"><h3>No quick notes yet</h3><p>Jot one against any title using the &#128221; button (bottom-right) — it\'ll show up here, most recent first.</p></div>';
+    return;
+  }
+  const sorted = withNotes.slice().sort((a,b)=>{
+    const la=a.quickNotes[a.quickNotes.length-1], lb=b.quickNotes[b.quickNotes.length-1];
+    return new Date(lb.ts) - new Date(la.ts);
+  });
+  const rows = sorted.map(t=>{
+    const latest = t.quickNotes[t.quickNotes.length-1];
+    const when = new Date(latest.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+    return `<div class="qn-list-item" onclick="gotoDetail('${t.id}')">
+      <div class="qn-list-body">
+        <span class="qn-list-title">${esc(t.title)}</span>
+        <span class="qn-list-snippet">${esc(latest.text)}</span>
+        <span class="qn-list-meta">Last noted ${esc(when)}</span>
+      </div>
+      <span class="qn-list-count">${t.quickNotes.length} note${t.quickNotes.length===1?'':'s'}</span>
+    </div>`;
+  }).join('');
+  main.innerHTML=`<h2 style="font-family:var(--serif);font-weight:600;font-size:1.3rem;color:var(--text-oncream);margin-bottom:14px">Quick Notes — ${withNotes.length} title${withNotes.length===1?'':'s'} with notes</h2>${rows}`;
+}
 
 // ─── ISBN ASSIGN FROM DETAIL ───
 function openPool(titleId,field,label){
@@ -1480,7 +1614,25 @@ function openHtmlOutput(titleId){
 <h2>Selling Points</h2><ul>${(t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<li>${esc2(s)}</li>`).join('')}</ul>
 <h2>Quotes</h2>${(t.content.quotes||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<blockquote>${esc2(s)}</blockquote>`).join('\n')}
 </body></html>`;
-  const blob=new Blob([html],{type:'text/html'});
+  // Item 11 (Round 2) — this button was doing the wrong job: it opened the
+  // HTML above RENDERED (an italicised word showed as actual italics, not
+  // as the characters "<i>word</i>"). David wants the literal HTML SOURCE
+  // as visible plain text instead, so he can see/copy the exact markup.
+  // Fix: esc() the whole generated `html` string (turning every real "<"
+  // and ">" into "&lt;"/"&gt;" so the browser can't interpret them as tags)
+  // and place it inside a <pre> block in a NEW, separate wrapper document —
+  // the `html` string itself is unchanged/still generated the same way, it
+  // is just no longer served as live markup, only as escaped text content.
+  const escapedSource = esc(html);
+  const sourceViewHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc2(t.title)} — HTML Source</title>
+<style>body{font-family:'SFMono-Regular',Consolas,'Courier New',monospace;background:#1c1c1c;color:#d9d5c9;margin:0;padding:24px}
+p.hint{font-family:Georgia,serif;color:#9c9686;margin:0 0 16px;font-size:.9rem}
+pre{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;margin:0}</style>
+</head><body>
+<p class="hint">Literal HTML source for "${esc2(t.title)}" — select all and copy, exactly as shown (tags included).</p>
+<pre>${escapedSource}</pre>
+</body></html>`;
+  const blob=new Blob([sourceViewHtml],{type:'text/html'});
   const url=URL.createObjectURL(blob);
   window.open(url,'_blank','noopener');
 }
