@@ -262,8 +262,15 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* Item 3 (Round 2) — same fix as .book-cover above: fixed width (matches
    the detail-top grid's 140px column), natural height instead of a forced
    200px crop-box, min/max-height clamp only for extreme outliers. */
-.detail-cover{width:140px;min-height:120px;max-height:280px;background:linear-gradient(135deg,#e8e0d0,#d8cfc0);border-radius:var(--r4);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
-.detail-cover img{width:100%;height:auto;max-height:280px;object-fit:contain;display:block;background:#EDE6D3}
+/* Item 2 (Round 4) — the no-image placeholder gradient (#e8e0d0→#d8cfc0)
+   and the <img> tag's own separate letterbox fill (#EDE6D3) were two
+   different mismatched tan/beige tones, neither of which was actually the
+   cream standard (--surface2) every other box in this view already uses
+   (see .detail-top just above). Both flattened to --surface2 so the cover
+   slot — image or empty — blends into the surrounding cream box instead of
+   reading as its own separate tan panel. */
+.detail-cover{width:140px;min-height:120px;max-height:280px;background:var(--surface2);border-radius:var(--r4);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
+.detail-cover img{width:100%;height:auto;max-height:280px;object-fit:contain;display:block;background:var(--surface2)}
 .detail-info{display:flex;flex-direction:column;gap:8px;min-width:0}
 .detail-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .detail-title-text{font-family:var(--serif);font-size:1.4rem;font-weight:600;color:var(--text);line-height:1.2}
@@ -279,7 +286,14 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    already looking for it. Styled as a small pill to sit comfortably
    alongside .status-badge rather than looking like a stray form control
    dropped into a summary strip. */
-.imprint-edit-select{font-size:.82rem;padding:3px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600}
+/* Item 1 (Round 4) — this <select> had no width cap at all, so it rendered
+   as wide as its longest option text ("Oil and Water Press"), blowing out
+   the meta row instead of sitting as a small pill next to .status-badge.
+   Capped with max-width + ellipsis truncation on the closed box; "Headpress"
+   fits in full, "Oil and Water Press" truncates to "Oil and Water P…" —
+   the full value is still visible on focus/open (native <select> dropdown
+   list isn't affected by these rules, only the closed control's box). */
+.imprint-edit-select{font-size:.82rem;padding:3px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imprint-edit-select:focus{outline:none;border-color:var(--sage)}
 .status-badge{padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .badge-inprogress{background:var(--amber-bg);color:var(--amber-border)}
@@ -408,8 +422,13 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    covers .richtext div as a safety net for any already-saved content (or
    any browser that ignores defaultParagraphSeparator) that still used
    <div> blocks — so spacing shows either way. Margin bumped .6em → .9em on
-   top, per the brief's "a bit more" ask. */
-.richtext p,.richtext div{margin-bottom:.9em}
+   top, per the brief's "a bit more" ask.
+   Item 3 (Round 4) — .9em still read as "a bit more margin," not a genuine
+   blank-line gap. Bumped again, .9em → 1.5em (within the brief's suggested
+   ~1.4–1.6em range), which at this field's 1.55 line-height reads as close
+   to a full extra blank line between paragraphs rather than incremental
+   spacing. */
+.richtext p,.richtext div{margin-bottom:1.5em}
 .richtext p:last-child,.richtext div:last-child{margin-bottom:0}
 .richtext[data-empty="1"]:not(:focus)::before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none}
 .field-row{display:flex;align-items:center;gap:8px}

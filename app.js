@@ -1845,34 +1845,50 @@ function openHtmlOutput(titleId){
   // output. Falls back gracefully for older plain-text values too, since
   // plain text has no tags to preserve or break.
   const rich=s=>s||'';
-  const html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc2(t.title)} — Content &amp; Marketing (HTML Output)</title>
-<style>body{font-family:Georgia,serif;max-width:700px;margin:40px auto;padding:0 20px;line-height:1.6;color:#222}h1{font-size:1.4rem}h2{font-size:1rem;text-transform:uppercase;letter-spacing:.04em;color:#888;margin-top:2em}</style>
+  // Items 4 & 5 (Round 4) — this used to be one big `html` document string
+  // (doctype/head/h1/all six field h2s) that got esc()'d in its ENTIRETY
+  // and dumped into a single <pre>, so the h2 headings just showed up as
+  // literal "&lt;h2&gt;Full Description&lt;/h2&gt;" text buried inside the
+  // wall of escaped source — no real navigation/scanning, and dark-on-black
+  // besides. Fixed by keeping each field's generated HTML fragment SEPARATE
+  // (never assembled into one big string), so the source-view page below
+  // can give each one its own real, rendered <h2> — actual page structure
+  // David can scan/jump around — with only that field's own fragment
+  // escaped underneath it as literal text. Copy-paste of an individual
+  // field's <pre> block still gets exact markup, tags included, same as
+  // before — just scoped per-field instead of the whole document at once.
+  const fields = [
+    ['Full Description', rich(t.content.fullDescription)],
+    ['Jacket Blurb', rich(t.content.jacketBlurb)],
+    ['Brief Description', rich(t.content.briefDescription)],
+    ['Sales Handle', `<p>${esc2(t.content.salesHandle)}</p>`],
+    ['Selling Points', `<ul>${(t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<li>${esc2(s)}</li>`).join('')}</ul>`],
+    ['Quotes', (t.content.quotes||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<blockquote>${esc2(s)}</blockquote>`).join('\n')]
+  ];
+  const sections = fields.map(([label,fragment])=>
+`<section class="src-field">
+<h2>${esc2(label)}</h2>
+<pre>${esc(fragment)}</pre>
+</section>`).join('\n');
+  // Item 4 (Round 4) — inverted from dark (#1c1c1c bg / #d9d5c9 text) to a
+  // light cream background with near-black text, per the brief: this view
+  // is meant for reading/copying into distributor systems, not a code-editor
+  // aesthetic. Headings/hint copy use the same serif as the rest of the app
+  // for a real page feel; the escaped-source <pre> blocks stay monospace.
+  const sourceViewHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc2(t.title)} — HTML Source</title>
+<style>
+body{font-family:Georgia,serif;background:#FAF7EF;color:#1c1c1c;margin:0;padding:32px 24px 60px}
+h1{font-size:1.35rem;margin:0 0 6px;color:#1c1c1c}
+p.hint{color:#555;margin:0 0 28px;font-size:.9rem;max-width:720px}
+.src-field{max-width:720px;margin:0 0 30px;padding-bottom:22px;border-bottom:1px solid #ddd7c6}
+.src-field:last-child{border-bottom:none}
+h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.05em;color:#7a7362;margin:0 0 10px;font-weight:700}
+pre{white-space:pre-wrap;word-break:break-word;font-family:'SFMono-Regular',Consolas,'Courier New',monospace;font-size:13px;line-height:1.6;margin:0;color:#1c1c1c;background:#fff;border:1px solid #e4dfd0;border-radius:4px;padding:10px 12px}
+</style>
 </head><body>
 <h1>${esc2(t.title)}${t.subtitle?' — '+esc2(t.subtitle):''}</h1>
-<h2>Full Description</h2>${rich(t.content.fullDescription)}
-<h2>Jacket Blurb</h2>${rich(t.content.jacketBlurb)}
-<h2>Brief Description</h2>${rich(t.content.briefDescription)}
-<h2>Sales Handle</h2><p>${esc2(t.content.salesHandle)}</p>
-<h2>Selling Points</h2><ul>${(t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<li>${esc2(s)}</li>`).join('')}</ul>
-<h2>Quotes</h2>${(t.content.quotes||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<blockquote>${esc2(s)}</blockquote>`).join('\n')}
-</body></html>`;
-  // Item 11 (Round 2) — this button was doing the wrong job: it opened the
-  // HTML above RENDERED (an italicised word showed as actual italics, not
-  // as the characters "<i>word</i>"). David wants the literal HTML SOURCE
-  // as visible plain text instead, so he can see/copy the exact markup.
-  // Fix: esc() the whole generated `html` string (turning every real "<"
-  // and ">" into "&lt;"/"&gt;" so the browser can't interpret them as tags)
-  // and place it inside a <pre> block in a NEW, separate wrapper document —
-  // the `html` string itself is unchanged/still generated the same way, it
-  // is just no longer served as live markup, only as escaped text content.
-  const escapedSource = esc(html);
-  const sourceViewHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc2(t.title)} — HTML Source</title>
-<style>body{font-family:'SFMono-Regular',Consolas,'Courier New',monospace;background:#1c1c1c;color:#d9d5c9;margin:0;padding:24px}
-p.hint{font-family:Georgia,serif;color:#9c9686;margin:0 0 16px;font-size:.9rem}
-pre{white-space:pre-wrap;word-break:break-word;font-size:13px;line-height:1.6;margin:0}</style>
-</head><body>
-<p class="hint">Literal HTML source for "${esc2(t.title)}" — select all and copy, exactly as shown (tags included).</p>
-<pre>${escapedSource}</pre>
+<p class="hint">Literal HTML source for "${esc2(t.title)}", split per field below — jump to the section you need and select/copy exactly as shown (tags included).</p>
+${sections}
 </body></html>`;
   const blob=new Blob([sourceViewHtml],{type:'text/html'});
   const url=URL.createObjectURL(blob);
