@@ -153,6 +153,21 @@ function dotColor(status){ if(status==='Complete') return 'var(--sage)'; if(stat
 // so both the string-mismatch and the NaN-fallthrough are fixed at the root
 // rather than patched at each call site.
 function isPublished(t){ return t.status==='Complete' || t.status==='Completed' || t.status==='Released'; }
+// Round 9, item 1 — the values status can hold. Matches the Add Title
+// modal's new-status options (Not Scheduled/In Progress/Complete/Released)
+// PLUS 'Completed' — the literal legacy string already live on 5 real
+// titles (see the item-15 comment above) that the Add Title modal never
+// actually offers but which real data already contains, so the edit
+// control has to be able to display/keep it, not just the 4 the modal
+// writes.
+const STATUS_VALUES=['Not Scheduled','In Progress','Complete','Completed','Released'];
+// Single source of truth for the badge/edit-control colour class, factored
+// out of renderDetail() so the same logic backs both the read-only card
+// badge and the new editable one (statusEditSelect below) — previously
+// this was inlined once, in renderDetail only.
+function statusBadgeClass(status){
+  return isPublished({status}) ? (status==='Released'?'badge-released':'badge-complete') : ({'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled'}[status]||'badge-notscheduled');
+}
 function toBool(v){ return v===true || v==='TRUE' || v==='true' || v===1 || v==='1'; }
 function fromBool(v){ return v ? 'TRUE' : 'FALSE'; }
 function safeJson(str, fallback){ if(!str) return fallback; try{ const p=JSON.parse(str); return p==null?fallback:p; }catch(e){ return fallback; } }
@@ -412,6 +427,61 @@ async function sheetsAppend(spreadsheetId, sheetName, rowValues){
   // updatedRange looks like "Titles!A17:AN17" — pull the row number out.
   const m = /![A-Z]+(\d+):/.exec((j.updates||{}).updatedRange||'');
   return m ? parseInt(m[1],10) : null;
+}
+// Round 9, item 2 — real row delete, added for Delete Title. Checked every
+// existing Sheets helper first (sheetsGet/Put/Append above, plus how ISBN
+// pool saves and Blocks-tab appends work): none of them delete anything —
+// this app had never needed to remove a row before, only read/write/append
+// one. sheetsGet/Put/Append all address a sheet by NAME (e.g. 'Titles'),
+// which is all the values API needs — but a genuine row delete has to go
+// through spreadsheets.batchUpdate's deleteDimension request, which
+// addresses sheets by their numeric gid, not name, so that has to be
+// resolved first.
+const _sheetGidCache = {};
+async function getSheetGid(spreadsheetId, sheetName){
+  const key = spreadsheetId+'::'+sheetName;
+  if(_sheetGidCache[key] !== undefined) return _sheetGidCache[key];
+  const url = SHEETS_API+spreadsheetId+'?fields='+encodeURIComponent('sheets.properties(sheetId,title)');
+  const resp = await fetch(url, { headers: authHeaders() });
+  if(!resp.ok){
+    const body = await resp.text().catch(()=>'');
+    throw new Error('Sheets metadata GET '+resp.status+': '+body.slice(0,300));
+  }
+  const j = await resp.json();
+  const sheet = (j.sheets||[]).find(s=>s.properties && s.properties.title===sheetName);
+  if(!sheet) throw new Error('Could not find a "'+sheetName+'" tab in the spreadsheet.');
+  _sheetGidCache[key] = sheet.properties.sheetId;
+  return sheet.properties.sheetId;
+}
+// Physically removes ONE row via batchUpdate/deleteDimension — a real
+// Sheets-side delete, not a client-side splice that reappears on reload and
+// not a blank-out-the-cells soft-delete either: the row is actually gone,
+// so the sheet doesn't accumulate dead rows every time a title is deleted.
+// rowNumber1Based is the same 1-indexed sheet row already cached as
+// t._row everywhere else (see saveTitle's Titles!A{row} range) — converted
+// here to the API's 0-indexed, end-exclusive range.
+//
+// Known consequence, handled by the caller (deleteTitleConfirmed below):
+// deleteDimension shifts every row BELOW the deleted one up by one. Any
+// other title object already loaded this session has its _row cached from
+// before the shift, so it's stale the instant this call succeeds — the
+// caller re-runs loadAllData() straight after so every title's _row is
+// recomputed against the sheet's new layout, rather than leaving other
+// titles' next save silently writing to the wrong (shifted) row.
+async function sheetsDeleteRow(spreadsheetId, sheetName, rowNumber1Based){
+  const sheetId = await getSheetGid(spreadsheetId, sheetName);
+  const url = SHEETS_API+spreadsheetId+':batchUpdate';
+  const body = { requests: [{ deleteDimension: { range: {
+    sheetId, dimension: 'ROWS',
+    startIndex: rowNumber1Based-1, // 0-indexed, inclusive
+    endIndex: rowNumber1Based      // exclusive — removes exactly this one row
+  } } }] };
+  const resp = await fetch(url, { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify(body) });
+  if(!resp.ok){
+    const errBody = await resp.text().catch(()=>'');
+    throw new Error('Sheets batchUpdate (delete row) '+resp.status+': '+errBody.slice(0,300));
+  }
+  return resp.json();
 }
 
 // ─── TITLE ROW <-> OBJECT MAPPING ───
@@ -995,6 +1065,42 @@ function onImprintChange(titleId,value){
   renderDetail();
 }
 
+// Round 9, item 1 — real edit control for status. Same bug class as
+// imprint/title/subtitle/author before it: status could only ever be set
+// once, at title-creation (new-status select in the Add Title modal, see
+// index.html), then only ever rendered afterward as a plain read-only
+// .status-badge <span> — confirmed live there was genuinely no edit path,
+// which is exactly what produced David's "Not Scheduled" confusion on a
+// title that already had a real Street Date (status is a separate manual
+// field, never derived from schedule data — that auto-derive question is
+// a bigger design call flagged to David directly, out of scope here).
+//
+// Implementation choice: rather than bolting a second select next to the
+// badge (the pattern imprintEditSelect uses, sitting alongside
+// .status-badge), the badge itself BECOMES the control — same badge-*
+// colour classes, same pill shape, just swapped from <span> to <select>.
+// Status IS what the badge shows, so there's no reason for a separate
+// control; this also means the coloured badge people already read at a
+// glance keeps working exactly as before, just clickable now.
+function statusEditSelect(t){
+  const cls=statusBadgeClass(t.status);
+  const opt=v=>`<option value="${esc(v)}" ${t.status===v?'selected':''}>${esc(v)}</option>`;
+  return `<select class="status-badge ${cls}" title="Change status" onchange="onStatusChange('${t.id}',this.value)">
+    ${STATUS_VALUES.map(opt).join('')}
+  </select>`;
+}
+function onStatusChange(titleId,value){
+  const t=getTitle(titleId);if(!t)return;
+  t.status=value;
+  debouncedSave(titleId);
+  // Full re-render, same reasoning as onImprintChange — status changes are
+  // rare/deliberate, and the badge colour class, the card-grid progress bar
+  // ("Published" vs percentage — see renderCard's isPublished() check) and
+  // the day-count badge all read off status too, so all of it needs to
+  // pick up the change immediately, not just the control itself.
+  renderDetail();
+}
+
 // ─── ROUND 5: Title/Subtitle/Author real edit controls + contributor-role
 // selector ───
 // Item 1 — Title, Subtitle and Author(s) had no edit path anywhere except
@@ -1104,8 +1210,8 @@ function renderDetail(){
   const daysHtml=`<span class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
   // Badge: 'Completed' (the literal live-data string, see isPublished()) now
   // maps onto the same badge-complete style as 'Complete' — item 15's
-  // underlying status-string mismatch fix.
-  const badgeClass=isPublished(t)?(t.status==='Released'?'badge-released':'badge-complete'):({'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled'}[t.status]||'badge-notscheduled');
+  // underlying status-string mismatch fix. (Round 9: factored into
+  // statusBadgeClass() so statusEditSelect() below can share it.)
   // 2026-07-15: real thumbnail if a Cover Image URL is set (see renderCard()
   // for why this is a pasted direct URL rather than a Graph API fetch),
   // same onerror fallback pattern as the card grid.
@@ -1128,7 +1234,10 @@ function renderDetail(){
   // already just the plain name.
   const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav">${SECTION_KEYS.map(k=>`<a class="toc-side-item" href="#asec-${t.id}-${k}">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`).join('')}</nav>`;
   main.innerHTML=`
-    <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
+    <div class="detail-header-row">
+      <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
+      <button class="btn-delete-title" onclick="openDeleteConfirm('${t.id}')" title="Permanently delete this title">Delete Title&hellip;</button>
+    </div>
     <div class="detail-layout">
       ${tocNavHtml}
       <div class="detail-content">
@@ -1143,7 +1252,7 @@ function renderDetail(){
             </div>
             ${t.authors?`<div class="detail-author-preview" id="detail-author-preview-${t.id}">Displays as: “${esc(contributorLabel(t))}”</div>`:''}
             <div class="detail-meta-row">
-              <span class="status-badge ${badgeClass}">${esc(t.status)}</span>
+              ${statusEditSelect(t)}
               ${imprintEditSelect(t)}
               ${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}
               ${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}
@@ -2137,6 +2246,86 @@ async function confirmAddTitle(){
   ['new-title','new-subtitle','new-authors'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   gotoDetail(t.id);
   await saveTitle(t.id); // append immediately (not debounced) so _row is assigned right away
+}
+
+// ─── DELETE TITLE (Round 9, item 2) ───
+// Confirmed via code search before writing any of this: no delete/remove-
+// title function existed anywhere in the app — a title could be created
+// (confirmAddTitle above) but never removed, so a test title had nowhere
+// to go. This is genuinely destructive and per-title (unlike e.g.
+// removePrinterContact, which just drops one entry from a sub-list within
+// a title), so it gets its own real confirmation modal rather than a
+// single confirm() dialog — David has to type the title's exact name
+// before the button even enables, the same friction pattern GitHub/similar
+// tools use for "delete this repo"-class actions, specifically so it can't
+// be triggered by one stray/fast click.
+let pendingDeleteTitleId=null;
+function openDeleteConfirm(titleId){
+  const t=getTitle(titleId);if(!t)return;
+  pendingDeleteTitleId=titleId;
+  const body=document.getElementById('delete-confirm-body');
+  if(body){
+    body.innerHTML = `<p>You're about to permanently delete:</p>
+      <p class="delete-confirm-title">"${esc(t.title)}"${t.authors?' — '+esc(contributorLabel(t)):''}</p>
+      <p>This removes the ENTIRE title record from the live Sheet: every field on this page for this title — Contents &amp; Marketing text, the production checklist, print/publicity/TOC notes, dates, ISBN values, cover and folder links, quick notes, everything. It does not touch the ISBN pool, the Blocks list, or any other separate tracker sheet — only this one title's row.</p>
+      <p><strong>This cannot be undone from inside the app.</strong> To confirm, type the title exactly as shown above:</p>
+      <input type="text" id="delete-confirm-input" placeholder="Type the title name to confirm" autocomplete="off" oninput="onDeleteConfirmInput()">`;
+  }
+  const confirmBtn=document.getElementById('confirm-delete-btn');
+  if(confirmBtn){confirmBtn.disabled=true;confirmBtn.textContent='Delete Title';}
+  document.getElementById('delete-confirm-modal').classList.remove('hidden');
+  const input=document.getElementById('delete-confirm-input');
+  if(input) input.focus();
+}
+function onDeleteConfirmInput(){
+  const t=getTitle(pendingDeleteTitleId);if(!t)return;
+  const el=document.getElementById('delete-confirm-input');
+  const btn=document.getElementById('confirm-delete-btn');
+  if(btn) btn.disabled = !el || el.value.trim()!==t.title.trim();
+}
+function closeDeleteConfirm(){
+  document.getElementById('delete-confirm-modal').classList.add('hidden');
+  pendingDeleteTitleId=null;
+}
+async function confirmDeleteTitle(){
+  const titleId=pendingDeleteTitleId;
+  const t=getTitle(titleId);if(!t)return;
+  const btn=document.getElementById('confirm-delete-btn');
+  if(btn){btn.disabled=true;btn.textContent='Deleting…';}
+  if(devMode){
+    // Preview sandbox only — same guard used by saveTitle/saveIsbn, no
+    // network write ever happens in devMode, so just drop it from the
+    // in-memory array so the UI still demonstrates the flow.
+    data.titles=data.titles.filter(x=>x.id!==titleId);
+    closeDeleteConfirm();
+    gotoTitles();
+    return;
+  }
+  try{
+    if(t._row){
+      // The real Sheets-side delete — see sheetsDeleteRow above for why
+      // this is a full deleteDimension row removal rather than a client-
+      // side splice (which would just reappear on the next load/reload,
+      // exactly the gap this brief called out).
+      await sheetsDeleteRow(CFG.TITLES_SHEET_ID, 'Titles', t._row);
+    }
+    // t._row can legitimately be unset only if a brand-new title's initial
+    // saveTitle() append (confirmAddTitle above) somehow never completed —
+    // in that case there's nothing on the Sheet to delete yet, so just
+    // drop the local object.
+    closeDeleteConfirm();
+    gotoTitles();
+    // Re-fetch everything from the Sheet so every remaining title's cached
+    // _row is recomputed against the post-delete layout — deleteDimension
+    // physically shifts every row below the deleted one up by one, which
+    // would otherwise leave other titles' _row stale for the rest of this
+    // session (see the long comment on sheetsDeleteRow).
+    await loadAllData();
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Delete Title';}
+    showReconnect('Delete failed: '+e.message+' — the title has NOT been removed from the Sheet.');
+    console.error(e);
+  }
 }
 
 // ─── FILTERS ───

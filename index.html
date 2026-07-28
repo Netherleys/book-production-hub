@@ -164,6 +164,16 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .btn-ghost:hover{color:var(--text)}
 .btn-danger{background:none;border:1px solid var(--terra-border);color:var(--terra);cursor:pointer;padding:3px 8px;font-size:.78rem;border-radius:var(--r4)}
 .btn-danger:hover{background:var(--terra-bg)}
+/* Round 9, item 2 — solid-fill confirm button inside the delete-title
+   modal (a white/cream surface, unlike .btn-delete-title's dark-chrome
+   context above), styled to look genuinely committed-to rather than a
+   casual "OK" — filled terra, not the outline-only .btn-danger used for
+   the small inline "Remove printer contact" link elsewhere. Starts
+   disabled (see the delete-confirm-modal markup) until the typed name
+   matches, so .btn[disabled]'s existing dimmed style is what David sees
+   until then. */
+.btn-danger-solid{background:var(--terra);color:#fff;border:1px solid var(--terra-border);font-weight:600}
+.btn-danger-solid:hover:not([disabled]){background:var(--terra-border)}
 .btn[disabled]{opacity:.5;cursor:default}
 /* On-dark-chrome variant of .btn, for header actions */
 #app-header .btn{background:rgba(241,234,217,.06);color:var(--text-oncream);border-color:rgba(241,234,217,.2)}
@@ -253,8 +263,24 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .progress-fill.done{background:var(--sage)}
 .progress-label{font-size:.68rem;color:var(--text3);white-space:nowrap;flex-shrink:0}
 /* ── DETAIL VIEW ── */
-.detail-back{display:inline-flex;align-items:center;gap:6px;color:var(--text-oncream-dim);cursor:pointer;font-size:.85rem;margin-bottom:14px;background:none;border:none;font-family:var(--sans)}
+/* Round 9, item 2 — wraps the existing back-link and the new Delete Title
+   button on one line, opposite ends. Deliberately NOT placed inside
+   .detail-meta-row alongside the status/imprint pills (see statusEditSelect/
+   imprintEditSelect below) — that row gets clicked/changed often, and a
+   destructive action sitting right next to frequently-used controls is
+   exactly the "too easy to trigger by accident" risk the brief called out.
+   This row sits on its own above the whole detail-top card instead. */
+.detail-header-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px}
+.detail-back{display:inline-flex;align-items:center;gap:6px;color:var(--text-oncream-dim);cursor:pointer;font-size:.85rem;margin-bottom:0;background:none;border:none;font-family:var(--sans)}
 .detail-back:hover{color:var(--text-oncream)}
+/* Sits directly on the dark page background (--bg-page), not inside a
+   cream card, so it can't reuse .btn-danger's subtle cream-card styling
+   (confirmed too low-contrast there) — solid terra border/text at rest,
+   filled solid on hover so it's unambiguous, same terra "this is the
+   danger colour" language the rest of the app already uses (card-deadline
+   overdue text, sync-dot error state). */
+.btn-delete-title{background:none;border:1px solid var(--terra);color:var(--terra);cursor:pointer;padding:5px 12px;font-size:.8rem;border-radius:var(--r4);font-family:var(--sans);white-space:nowrap}
+.btn-delete-title:hover{background:var(--terra);color:var(--text-oncream)}
 /* Item 13 (Round 2, cream box standard) — background swapped from
    --surface (white) to --surface2 (the same cream tint the Commercial box
    already used) so this box matches every other box in the detail view. */
@@ -334,6 +360,17 @@ input[type=text].detail-author-input:focus{border-color:var(--sage);background:v
 .badge-notscheduled{background:var(--neutral-bg);color:var(--neutral-border)}
 .badge-complete{background:var(--sage-bg);color:var(--sage-border)}
 .badge-released{background:var(--sage-bg);color:var(--sage-border)}
+/* Round 9, item 1 — status becomes a real <select>, styled on top of the
+   existing .status-badge pill classes above rather than a separate
+   control (see statusEditSelect() in app.js for why: status IS the badge,
+   there's nothing to add alongside it, the badge itself becomes clickable).
+   Border stays transparent at rest so it still reads as the exact same
+   plain badge it always was; only on hover/focus does it reveal itself as
+   an actual control, same discoverability idiom the plain-text-until-
+   focused Title/Subtitle/Author inputs already use elsewhere in this view. */
+select.status-badge{border:1px solid transparent;cursor:pointer;font-family:var(--sans)}
+select.status-badge:hover{border-color:rgba(0,0,0,.15)}
+select.status-badge:focus{outline:none;border-color:var(--sage)}
 .detail-strip-wrap{margin-top:6px}
 .detail-strip-label{font-size:.72rem;color:var(--text3);margin-bottom:4px;text-transform:uppercase;letter-spacing:.05em}
 /* Item 7 (Round 2) — circles → squares, flush against each other (no
@@ -657,6 +694,13 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .modal-footer{display:flex;justify-content:flex-end;gap:10px;margin-top:18px;padding-top:14px;border-top:1px solid var(--border)}
 .modal-field{margin-bottom:12px}
 .modal-field label{display:block;font-size:.78rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px}
+/* Round 9, item 2 — delete-confirm-modal body (filled by openDeleteConfirm()
+   in app.js). Plain <p> spacing plus one emphasised line naming the title
+   being deleted, so it reads as a real warning rather than a generic
+   "Are you sure?" — deliberately more explicit than window.confirm(). */
+#delete-confirm-body p{margin:0 0 10px;font-size:.88rem;line-height:1.5;color:var(--text2)}
+#delete-confirm-body .delete-confirm-title{font-family:var(--serif);font-size:1.05rem;font-weight:600;color:var(--text);padding:8px 12px;background:var(--terra-bg);border-radius:var(--r4);border:1px solid var(--terra-border)}
+#delete-confirm-body input[type=text]{margin-top:4px}
 /* ── AUTH OVERLAY ── */
 #auth-overlay{position:fixed;inset:0;background:rgba(20,19,15,.94);z-index:300;display:flex;align-items:center;justify-content:center}
 #auth-overlay.hidden{display:none}
@@ -814,6 +858,23 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
     <div class="modal-footer">
       <button class="btn" onclick="document.getElementById('add-title-modal').classList.add('hidden')">Cancel</button>
       <button class="btn btn-primary" onclick="confirmAddTitle()">Add Title</button>
+    </div>
+  </div>
+</div>
+
+<!-- Delete title confirmation modal (Round 9, item 2) — body is filled in by
+     openDeleteConfirm() in app.js, since it needs to name the specific
+     title being deleted. Confirm button starts disabled and only enables
+     once the typed input exactly matches the title (onDeleteConfirmInput
+     in app.js) — deliberately more friction than a plain confirm() dialog,
+     since this is a real, permanent Sheets-side delete. -->
+<div id="delete-confirm-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Delete Title</h3>
+    <div id="delete-confirm-body"></div>
+    <div class="modal-footer">
+      <button class="btn" onclick="closeDeleteConfirm()">Cancel</button>
+      <button class="btn btn-danger-solid" id="confirm-delete-btn" disabled onclick="confirmDeleteTitle()">Delete Title</button>
     </div>
   </div>
 </div>
