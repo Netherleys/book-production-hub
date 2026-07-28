@@ -298,8 +298,16 @@ input[type=text].detail-author-input:focus{border-color:var(--sage);background:v
 /* Round 5, item 2 — contributor-role selector (Author(s)/Editor(s)/
    Author(s) & Editor(s)), styled as a small pill matching .imprint-edit-
    select's language so the two read as the same family of "small inline
-   control next to a bigger field" rather than two different UI idioms. */
-.contrib-role-select{font-size:.78rem;padding:2px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;flex-shrink:0}
+   control next to a bigger field" rather than two different UI idioms.
+   Round 8 — max-width added (same pattern as .imprint-edit-select, round 6):
+   with no cap, a native <select> sizes to its widest option text
+   ("Author(s) & Editor(s)"), which combined with .detail-author-input's
+   own min-width:140px overflowed the flex row and tripped its flex-wrap,
+   dropping the select onto its own line. 210px comfortably fits the
+   longest option in full at this font-size/weight; overflow/ellipsis
+   kept as a defensive fallback only, same as the imprint select — none
+   of these three options should actually need truncating. */
+.contrib-role-select{font-size:.78rem;padding:2px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;flex-shrink:0;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .contrib-role-select:focus{outline:none;border-color:var(--sage)}
 .detail-author-preview{font-size:.72rem;color:var(--text3);font-style:italic;margin-top:-2px}
 .detail-meta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--text3)}
