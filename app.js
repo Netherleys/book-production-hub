@@ -565,6 +565,13 @@ function isbnObjToRow(r){
 }
 
 // ─── DEFAULT NEW TITLE ───
+// Round 7, item 5 — every new title now defaults its Cover Image URL to
+// David's real branded "Awaiting Cover" placeholder (yellow bg, AWAITING
+// COVER text) committed into this repo at covers/_awaiting-cover.jpg,
+// instead of the old blank field that fell through to the generic "B" +
+// title-text placeholder box. David can overwrite it with a real cover URL
+// at any time via the same Cover Image URL field as always.
+const DEFAULT_COVER_PLACEHOLDER='covers/_awaiting-cover.jpg';
 function defTitle(o={}){
   const base = {
     id: uid(), title:'', subtitle:'', authors:'', authorLiaison:'David', imprint:'Headpress', status:'Not Scheduled',
@@ -582,7 +589,7 @@ function defTitle(o={}){
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
     quickNotes:[], poManualNotes:'',
-    imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:'', poTrackerIsbnKey:'', poTrackerTitleOverride:'',
+    imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:DEFAULT_COVER_PLACEHOLDER, poTrackerIsbnKey:'', poTrackerTitleOverride:'',
     _row: null
   };
   return Object.assign({}, base, o);
