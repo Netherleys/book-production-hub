@@ -47,9 +47,14 @@ const TITLE_COLS = [
   'poTrackerIsbnKey','poTrackerTitleOverride','bookBiblePresent','lastUpdated',
   'price_json','production_json','publicity_json','editorial_json','authorInfo_json',
   'productionNotes_json','printerContacts_json','filesLinks_json',
-  'blockId','quickNotes_json'
+  'blockId','quickNotes_json',
+  // Round 10, items 1/2 — new column, appended at the end (same pattern
+  // previous rounds used for imagesFolderLink etc.) so existing row
+  // positions/columns are untouched. TRUE/FALSE string, see
+  // applyStatusAutoRules() below for what it means.
+  'statusAuto'
 ];
-const TITLE_RANGE_LAST_COL = 'AP'; // keep in lockstep with TITLE_COLS.length (42)
+const TITLE_RANGE_LAST_COL = 'AQ'; // keep in lockstep with TITLE_COLS.length (43)
 const ISBN_COLS = ['isbn','format','assignedToTitleId','assignedToTitleName','nielsenNotified','legacyArchived'];
 
 // Pipeline stages, grouped for the reworked chained/boxed layout (items
@@ -171,6 +176,47 @@ function statusBadgeClass(status){
 function toBool(v){ return v===true || v==='TRUE' || v==='true' || v===1 || v==='1'; }
 function fromBool(v){ return v ? 'TRUE' : 'FALSE'; }
 function safeJson(str, fallback){ if(!str) return fallback; try{ const p=JSON.parse(str); return p==null?fallback:p; }catch(e){ return fallback; } }
+
+// ─── STATUS AUTO-DERIVATION (Round 10, items 1/2) ───
+// t.statusAuto:true means Status is still under this app's automatic
+// control — either untouched at the 'Not Scheduled' default, or advanced by
+// one of the two rules below (never by a deliberate pick from the
+// statusEditSelect dropdown). onStatusChange() sets this to false the
+// instant David picks ANY value himself, forever — from that point on
+// neither rule below is allowed to touch Status again for this title, no
+// matter what the pipeline stages or Street Date do afterwards.
+//
+// Build note on wording: the brief asks for the auto value "In Production",
+// which isn't one of STATUS_VALUES above (only Not Scheduled/In
+// Progress/Complete/Completed/Released exist — matching the Add Title modal
+// and real Sheet data). Read this as shorthand for the existing "actively
+// being worked on" state rather than a brand-new 6th status value/Sheet
+// schema change, and mapped it onto 'In Progress' — already styled
+// (badge-inprogress), already what the dropdown offers for exactly this
+// meaning. Flagged in the build report; happy to add a genuinely distinct
+// value instead if that's not what was meant.
+function applyStatusAutoRules(t){
+  if(t.statusAuto===false) return false;
+  let changed=false;
+  // Item 2 — Street Date passed: title counts as Complete/Published, full
+  // stop. Checked ahead of item 1 so an already-released title can never be
+  // left sitting on a stale auto-'In Progress' value. Reuses daysUntil() —
+  // the same date-comparison helper computeDayInfo() (and the Todoist
+  // reminder export further down) already use for this exact "has this date
+  // passed" question — rather than a new one-off date parser.
+  if(!isPublished(t)){
+    const d=daysUntil(t.dates.streetDate);
+    if(d!==null && d<0){ t.status='Complete'; changed=true; }
+  }
+  // Item 1 — any Production Pipeline stage moves off its own 'Not Started'
+  // default: advance the still-untouched 'Not Scheduled' default forward.
+  // Only fires from the exact untouched default value, so it can never fire
+  // twice, and never fights whatever item 2 (above) may just have set.
+  if(!changed && t.status==='Not Scheduled' && t.pipeline.stages.some(s=>s.status!=='Not Started')){
+    t.status='In Progress'; changed=true;
+  }
+  return changed;
+}
 
 // ─── SHARED GROWABLE LISTS (item 4, Round 3 — generalised to also cover
 // Release Block, added same round after David's live follow-up) ───
@@ -549,6 +595,17 @@ function rowToTitle(row){
     id: c.title_id, _row: null,
     title: c.title||'', subtitle: c.subtitle||'', authors: c.author||'',
     authorLiaison: c.authorLiaison||'David', imprint: c.imprint||'Headpress', status: c.status||'Not Scheduled',
+    // Round 10, items 1/2 — statusAuto is a new column, so it's blank ('',
+    // see rowToTitle's c[k]=row[i]!==undefined?row[i]:'' default above) on
+    // every row until this app next saves it. Blank is read as "derive from
+    // the current status value": still true (auto-eligible) if status is
+    // literally the untouched 'Not Scheduled' default, false otherwise — so
+    // real legacy titles that already carry a deliberately-set status (from
+    // the old create-once Add Title modal, before per-title editing existed)
+    // are never retroactively auto-managed, only ones genuinely still
+    // sitting at default. Once this saves once, the real TRUE/FALSE string
+    // takes over via toBool().
+    statusAuto: c.statusAuto==='' ? (c.status||'Not Scheduled')==='Not Scheduled' : toBool(c.statusAuto),
     planningSheet: c.planningSheet||'', bookBiblePresent: toBool(c.bookBiblePresent), lastUpdated: c.lastUpdated||'',
     blockId: c.blockId||'',
     dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc) },
@@ -621,6 +678,10 @@ function titleToRow(t){
     poTrackerTitleOverride: t.poTrackerTitleOverride||'',
     bookBiblePresent: fromBool(t.bookBiblePresent), lastUpdated: new Date().toISOString(),
     blockId: t.blockId||'',
+    // Round 10, items 1/2 — persist statusAuto as a real TRUE/FALSE string
+    // once this title has been through this app at all, so subsequent loads
+    // stop having to guess from the status text (see rowToTitle above).
+    statusAuto: fromBool(t.statusAuto),
     price_json, production_json, publicity_json, editorial_json, authorInfo_json,
     productionNotes_json, printerContacts_json, filesLinks_json, quickNotes_json
   };
@@ -702,7 +763,17 @@ function loadDevSampleData(){
         {id:'qn-sample-1c', ts:new Date(Date.now()-6*86400000).toISOString(), text:'Old note — already dealt with.', archived:true, archivedTs:new Date(Date.now()-3*86400000).toISOString()}
       ]
     }),
-    defTitle({id:'sample-2', title:'Sample Not Scheduled Title', authors:'Jane Author', status:'Not Scheduled', imprint:'Oil and Water Press'})
+    defTitle({id:'sample-2', title:'Sample Not Scheduled Title', authors:'Jane Author', status:'Not Scheduled', imprint:'Oil and Water Press'}),
+    // Round 10, items 1/2 dev-preview fixture — status still auto-managed
+    // (statusAuto:true, the defTitle() default, not overridden here) but its
+    // Street Date is already 10 days in the past, so the normalisation pass
+    // below (applyStatusAutoRules(), run once per title straight after this
+    // data is built) should flip it to 'Complete' the moment dev preview
+    // loads — exercises item 2 without needing to wait for a real calendar
+    // date to pass.
+    defTitle({id:'sample-3', title:'Sample Auto-Complete Title', authors:'Pat Editor', status:'In Progress', imprint:'Headpress',
+      dates:{releaseBlock:'',softDate:'',streetDate:new Date(Date.now()-10*86400000).toISOString().slice(0,10), printDate:'', autoPrintDate:false}
+    })
   ], isbns:[
     {isbn:'978-1-909394-11-7', format:'', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null},
     {isbn:'978-1-909394-12-4', format:'PBK', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null}
@@ -716,6 +787,10 @@ function loadDevSampleData(){
     {block_id:'2027', block_name:'2027', sortOrder:4, notes:'titles on the 2027 year-sheet, no half-year chosen yet'},
     {block_id:'not-yet-assigned', block_name:'Not Yet Assigned', sortOrder:999, notes:'titles genuinely unscheduled'}
   ]};
+  // Round 10, item 2 — same load-time normalisation pass loadAllData() runs
+  // on real data (see there); saveTitle() no-ops under devMode anyway, but
+  // running it here too keeps dev preview's behaviour identical to live.
+  data.titles.forEach(t=>{ applyStatusAutoRules(t); });
   document.getElementById('auth-overlay').classList.add('hidden');
   document.getElementById('whoami').textContent = 'DEV PREVIEW — not saving';
   setSyncStatus('none');
@@ -760,6 +835,15 @@ async function loadAllData(){
     data.titles = titleRows
       .filter(r => r[0] && r[0] !== 'EXAMPLE-DELETE-ME')
       .map((r,i) => { const t = rowToTitle(r); t._row = findRowIndex(titleRows, r) + 2; return t; });
+    // Round 10, item 2 — Street Date is a calendar fact, not a user action,
+    // so there's no click/onchange handler to hook it onto the way item 1
+    // hooks into cycleStage(). Instead it's re-checked here, once per load
+    // (covers the normal "David opens the app" case) — any title whose
+    // Street Date has passed since it was last opened gets corrected and
+    // saved back immediately, same non-override rule as everywhere else
+    // (applyStatusAutoRules() no-ops instantly on any title David has
+    // manually set Status on).
+    data.titles.forEach(t=>{ if(applyStatusAutoRules(t)) saveTitle(t.id); });
     data.isbns = isbnRows.map((r,i) => { const o = isbnRowToObj(r); o._row = i+2; return o; });
     data.blocks = blockRows.filter(r=>r[0]).map(r=>({
       block_id: r[0]||'', block_name: r[1]||r[0]||'',
@@ -1103,6 +1187,12 @@ function statusEditSelect(t){
 function onStatusChange(titleId,value){
   const t=getTitle(titleId);if(!t)return;
   t.status=value;
+  // Round 10, items 1/2 — the instant David picks a value himself here,
+  // auto-derivation (applyStatusAutoRules(), see above) must never touch
+  // Status again for this title, permanently — even if he happens to pick
+  // back to 'Not Scheduled' or 'In Progress', values the automatic rules
+  // could also produce on their own.
+  t.statusAuto=false;
   debouncedSave(titleId);
   // Full re-render, same reasoning as onImprintChange — status changes are
   // rare/deliberate, and the badge colour class, the card-grid progress bar
@@ -2182,6 +2272,18 @@ function cycleStage(titleId,idx){
   if(btn){const ns=t.pipeline.stages[idx].status;btn.textContent=ns;btn.className='stage-btn stage-'+ns.toLowerCase().replace(/ /g,'-');}
   const strip=document.getElementById(`detail-strip-${titleId}`);
   if(strip)strip.innerHTML=t.pipeline.stages.map((ss,i)=>`<div class="detail-p-dot" style="background:${dotColor(ss.status)}" title="${esc(ss.name)}: ${esc(ss.status)}" onclick="cycleStage('${titleId}',${i})"></div>`).join('');
+  // Round 10, item 1 — a stage moving off 'Not Started' is exactly the
+  // trigger item 1 asks for; re-evaluate Status auto-derivation now. Full
+  // renderDetail() only when Status itself actually changed as a result (a
+  // rare, meaningful transition — same "full re-render on a rare/deliberate
+  // change" reasoning used for onImprintChange/onStatusChange above); every
+  // OTHER stage click keeps the lightweight per-element DOM patch above so
+  // rapid cycling doesn't lose scroll position.
+  if(applyStatusAutoRules(t)){
+    debouncedSave(titleId);updateSectionHeaders(titleId);
+    renderDetail();
+    return;
+  }
   debouncedSave(titleId);updateSectionHeaders(titleId);
 }
 function checklistChange(titleId,idx,checked){
