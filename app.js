@@ -637,14 +637,25 @@ function isbnObjToRow(r){
 // ─── DEFAULT NEW TITLE ───
 // Round 7, item 5 — every new title now defaults its Cover Image URL to
 // David's real branded "Awaiting Cover" placeholder (yellow bg, AWAITING
-// COVER text) committed into this repo at covers/_awaiting-cover.jpg,
-// instead of the old blank field that fell through to the generic "B" +
-// title-text placeholder box. David can overwrite it with a real cover URL
-// at any time via the same Cover Image URL field as always.
-const DEFAULT_COVER_PLACEHOLDER='covers/_awaiting-cover.jpg';
+// COVER text) committed into this repo, instead of the old blank field that
+// fell through to the generic "B" + title-text placeholder box. David can
+// overwrite it with a real cover URL at any time via the same Cover Image
+// URL field as always.
+// Round 10, item 8 — repointed at David's own upload, covers/Awaiting Cover
+// - 600.jpg (no leading underscore — he uploaded it himself directly via the
+// GitHub website, confirmed live: verified 200 OK / correct byte size on both
+// raw.githubusercontent.com and the Pages URL before wiring this in). The old
+// covers/_awaiting-cover.jpg stays in the repo untouched, just no longer
+// referenced as the default.
+const DEFAULT_COVER_PLACEHOLDER='covers/Awaiting Cover - 600.jpg';
 function defTitle(o={}){
   const base = {
     id: uid(), title:'', subtitle:'', authors:'', authorLiaison:'David', imprint:'Headpress', status:'Not Scheduled',
+    // Round 10, items 1/2 — statusAuto:true means Status is still under this
+    // app's automatic control (see applyStatusAutoRules() below); a brand
+    // new title always starts here. Flips to false forever the instant
+    // David picks a value himself via statusEditSelect/onStatusChange.
+    statusAuto:true,
     planningSheet:'', bookBiblePresent:false, lastUpdated:'', blockId:'',
     dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false},
     commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:''},
