@@ -1232,6 +1232,23 @@ function renderFolderLinksRow(t){
 function looksLikeOneDriveShareLink(url){
   return /(^|\/\/)(1drv\.ms|onedrive\.live\.com)(\/|$|\?)/i.test(String(url||'').trim());
 }
+// Round 7, item 4 — third, distinct failure case: a raw local Windows file
+// path (drive-letter path like C:\Users\...\cover.jpg, a D:\... path, a UNC
+// \\server\share\... path, or a file:// URI). Confirmed as David's actual
+// real-world mistake — copying a path out of a OneDrive-*synced* local
+// folder rather than a real web link. Distinct from both the OneDrive
+// share-link case above (that's still an http(s):// URL, just the wrong
+// *kind* of URL) and a generic broken-link failure: a local path is a hard
+// browser boundary — it can never resolve as a web <img src>, on this
+// machine or any other, no matter how it's hosted, because the browser has
+// no access to another machine's (or even this machine's) local
+// filesystem from a page served over https://. Checked BEFORE the OneDrive
+// case since it's the more specific, more actionable diagnosis.
+function looksLikeLocalFilePath(url){
+  const u=String(url||'').trim();
+  if(!u) return false;
+  return /^[A-Za-z]:[\\/]/.test(u) || /^\\\\/.test(u) || /^file:\/\//i.test(u);
+}
 function onCoverImgError(titleId,imgEl){
   const t=getTitle(titleId);
   const placeholder=t?`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`:'';
@@ -1239,7 +1256,9 @@ function onCoverImgError(titleId,imgEl){
   const msgEl=document.getElementById('cover-url-msg-'+titleId);
   if(!msgEl||!t)return;
   const url=t.coverThumbnailFile||'';
-  msgEl.innerHTML = looksLikeOneDriveShareLink(url)
+  msgEl.innerHTML = looksLikeLocalFilePath(url)
+    ? '<span class="cover-url-warn">&#9888; This looks like a file path on your own computer, not a web address — browsers can\'t load images this way, on any device (not even this one). Upload the file somewhere with a real web link first (a direct-image host, or this repo\'s /covers/ folder), then paste that URL here instead.</span>'
+    : looksLikeOneDriveShareLink(url)
     ? '<span class="cover-url-warn">&#9888; This looks like a OneDrive share link (1drv.ms / onedrive.live.com) — those open a web viewer page, not raw image bytes, so it can\'t load here as a direct image. Use a direct-hosted image URL instead, or add the file to this repo\'s /covers/ folder and reference it as covers/&lt;title-id&gt;.jpg.</span>'
     : '<span class="cover-url-fail">&#9888; Couldn\'t load an image from this URL — check it\'s a direct, publicly-accessible image link (not a viewer page, share link, or something requiring sign-in).</span>';
 }
@@ -1257,10 +1276,19 @@ function onCoverUrlChange(titleId,value){
   fc(titleId,'coverThumbnailFile',value);
   const t=getTitle(titleId);if(!t)return;
   const msgEl=document.getElementById('cover-url-msg-'+titleId);
-  if(msgEl) msgEl.innerHTML='';
   const coverEl=document.querySelector('.detail-cover');
-  if(!coverEl)return;
   const placeholder=`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`;
+  // Round 7, item 4 — a local file path is a known dead end (see
+  // looksLikeLocalFilePath()), so there's no point even attempting the
+  // <img> load and waiting on its onerror to fire — show the specific
+  // warning immediately and skip straight to the placeholder.
+  if(looksLikeLocalFilePath(value)){
+    if(msgEl) msgEl.innerHTML='<span class="cover-url-warn">&#9888; This looks like a file path on your own computer, not a web address — browsers can\'t load images this way, on any device (not even this one). Upload the file somewhere with a real web link first (a direct-image host, or this repo\'s /covers/ folder), then paste that URL here instead.</span>';
+    if(coverEl) coverEl.innerHTML=placeholder;
+    return;
+  }
+  if(msgEl) msgEl.innerHTML='';
+  if(!coverEl)return;
   coverEl.innerHTML = value
     ? `<img src="${esc(value)}" alt="${esc(t.title)} cover" onerror="onCoverImgError('${titleId}',this)" onload="onCoverImgLoad('${titleId}')">`
     : placeholder;
