@@ -979,7 +979,7 @@ function getSectionStatus(t,key){
 // position 2, right after Commercial, defaults open like Pipeline, made
 // visually prominent (see .po-prominent) — "no longer buried". Files &
 // Links removed entirely (item 31 — redundant with the top-of-page folder
-// links row already added 2026-07-15, see renderFolderLinksRow()).
+// links row already added 2026-07-15, see renderLinksStrip()).
 //
 // Round 2 (items 20/21) — SUPERSEDES the 7/26 placement above: "wrong place
 // for David's actual workflow" — PO Tracker moves from position 2 down to
@@ -1383,11 +1383,11 @@ function renderDetail(){
               <div class="detail-strip-label">Production Pipeline — click to cycle status</div>
               <div class="detail-strip" id="detail-strip-${t.id}">${detailStrip}</div>
             </div>
-            ${renderFolderLinksRow(t)}
           </div>
         </div>
-        ${renderKeyContacts(t)}
+        ${renderLinksStrip(t)}
         ${renderExportButtons(t)}
+        ${renderKeyContacts(t)}
         <div class="accordion" id="accordion-${t.id}">${accordionHtml}</div>
       </div>
     </div>`;
@@ -1402,8 +1402,7 @@ function renderDetail(){
 }
 
 // New fields from brief §3: images folder link + working folder link
-// (reveal helper). Placed on the always-visible top panel per the brief's
-// instruction to add them to "the title detail view".
+// (reveal helper).
 //
 // Cover Image URL (added 2026-07-15): a direct link to a single image file,
 // separate from the Images Folder link above (which stays a plain folder
@@ -1431,28 +1430,45 @@ function renderDetail(){
 // publicly-hosted absolute URL still works fine in this field for any
 // future title — a 1drv.ms/onedrive.live.com share link will NOT, per the
 // above; use a direct file host or add the image to /covers/ instead.
-function renderFolderLinksRow(t){
+//
+// Round 10, item 6 — these three fields, previously loose inside the
+// title/cover panel (detail-info), are now pulled into their own small
+// bordered/backgrounded strip directly under it (renderLinksStrip below,
+// renamed from renderFolderLinksRow) — same visual pattern as the Key
+// Contacts box (.key-contacts-box), rather than fields floating inside the
+// title block. David chose this over relocating them into the jump-nav
+// sidebar (flagged as impractical live: too narrow/dark for real text
+// inputs, and collapses under 900px).
+// Round 10, item 9 — a short inline help note now sits under the Cover
+// Image URL field, documenting the GitHub-upload workflow David uses
+// himself (repo's covers/ folder → Add file → Upload files → commit → paste
+// the resulting covers/<filename> path back in here).
+function renderLinksStrip(t){
   const id=t.id;
-  return `<div class="folder-links-row">
-    <div class="folder-link-group">
-      <label class="field-label">Cover Image URL</label>
-      <div class="folder-link-row">
-        <input type="text" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="covers/title-id.jpg, or a direct image URL (NOT a 1drv.ms/OneDrive share link — see code comment)" oninput="onCoverUrlChange('${id}',this.value)">
+  return `<div class="links-strip-box">
+    <div class="links-strip-label">Cover &amp; Folder Links</div>
+    <div class="folder-links-row">
+      <div class="folder-link-group">
+        <label class="field-label">Cover Image URL</label>
+        <div class="folder-link-row">
+          <input type="text" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="covers/title-id.jpg, or a direct image URL (NOT a 1drv.ms/OneDrive share link — see code comment)" oninput="onCoverUrlChange('${id}',this.value)">
+        </div>
+        <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
+        <div class="field-help">To add a new cover: go to this repo's <code>covers</code> folder on github.com &rarr; "Add file" &rarr; "Upload files" &rarr; drag the image in &rarr; commit &rarr; paste the resulting <code>covers/&lt;filename&gt;</code> path in above.</div>
       </div>
-      <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
-    </div>
-    <div class="folder-link-group">
-      <label class="field-label">Images Folder (OneDrive)</label>
-      <div class="folder-link-row">
-        <input type="url" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" placeholder="https://onedrive.live.com/…" oninput="fc('${id}','imagesFolderLink',this.value)">
-        <button class="btn btn-sm" onclick="openImagesFolder('${id}')">Open</button>
+      <div class="folder-link-group">
+        <label class="field-label">Images Folder (OneDrive)</label>
+        <div class="folder-link-row">
+          <input type="url" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" placeholder="https://onedrive.live.com/…" oninput="fc('${id}','imagesFolderLink',this.value)">
+          <button class="btn btn-sm" onclick="openImagesFolder('${id}')">Open</button>
+        </div>
       </div>
-    </div>
-    <div class="folder-link-group">
-      <label class="field-label">Working Folder (local)</label>
-      <div class="folder-link-row">
-        <input type="text" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" placeholder="D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
-        <button class="btn btn-sm" onclick="revealWorkingFolder('${id}')">Reveal in Explorer</button>
+      <div class="folder-link-group">
+        <label class="field-label">Working Folder (local)</label>
+        <div class="folder-link-row">
+          <input type="text" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" placeholder="D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
+          <button class="btn btn-sm" onclick="revealWorkingFolder('${id}')">Reveal in Explorer</button>
+        </div>
       </div>
     </div>
   </div>`;
@@ -1465,7 +1481,7 @@ function renderFolderLinksRow(t){
 // either way. onCoverImgError() below now distinguishes that specific,
 // very-likely cause from a genuine generic load failure (wrong URL, deleted
 // file, host down, etc.) and writes a real, visible message into the
-// cover-url-msg-${id} box added next to the field in renderFolderLinksRow().
+// cover-url-msg-${id} box added next to the field in renderLinksStrip().
 function looksLikeOneDriveShareLink(url){
   return /(^|\/\/)(1drv\.ms|onedrive\.live\.com)(\/|$|\?)/i.test(String(url||'').trim());
 }
@@ -1592,11 +1608,15 @@ function renderKeyContacts(t){const id=t.id;
 // it no longer belongs tucked inside one specific section — moved up here,
 // next to Key Contacts, which is the one block that always renders above
 // the numbered accordion regardless of which sections are open/closed.
+// Round 10, item 7 — moved again, this time to sit directly beneath the new
+// Cover & Folder Links strip (renderLinksStrip(), item 6) rather than next
+// to Key Contacts. Buttons made a little bigger (.btn-export, up from
+// .btn-sm) and the explanatory paragraph that used to sit next to them is
+// deleted outright, per the brief — just the two buttons now.
 function renderExportButtons(t){
   return `<div class="export-actions-row">
-    <button class="btn btn-sm" onclick="openHtmlOutput('${t.id}')">View HTML Output &#8599;</button>
-    <button class="btn btn-sm" onclick="downloadWordFile('${t.id}')">View Word File &#8681;</button>
-    <p class="export-hint">Both export the full title record — every section below, each under its own heading, whether or not it's currently expanded. HTML opens in a new tab as plain text source (select all &amp; copy into distributor systems); Word downloads a .rtf file that opens directly in Word or Google Docs.</p>
+    <button class="btn btn-export" onclick="openHtmlOutput('${t.id}')">View HTML Output &#8599;</button>
+    <button class="btn btn-export" onclick="downloadWordFile('${t.id}')">View Word File &#8681;</button>
   </div>`;
 }
 
@@ -2009,7 +2029,7 @@ function renderFutureEdition(t){const id=t.id;const f=t.futureEdition;
 // Item 31 — Files & Links box removed entirely (renderFilesLinks/addLink/
 // removeLink deleted along with it, 2026-07-26). That information is
 // already effectively available at the top of the page via
-// renderFolderLinksRow() (Cover Image URL / Images Folder / Working
+// renderLinksStrip() (Cover Image URL / Images Folder / Working
 // Folder), added 2026-07-15 — this box had become redundant with it.
 // t.filesLinks itself is left in the data model/Sheet column untouched
 // (same non-destructive approach as the Backup ISBN removal) in case any

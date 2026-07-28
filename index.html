@@ -414,14 +414,28 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
 
 /* Round 6, item 3 — HTML/Word export buttons, moved here from inside
    Content & Marketing now that the export covers the whole title record,
-   not just that one box (see renderExportButtons() in app.js). */
+   not just that one box (see renderExportButtons() in app.js).
+   Round 10, item 7 — the explanatory paragraph that used to sit here
+   (.export-hint) is deleted outright per the brief; buttons made a little
+   bigger (.btn-export, replacing .btn-sm — see below). */
 .export-actions-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}
-.export-hint{flex-basis:100%;font-size:.72rem;color:var(--text3);margin:2px 0 0}
+.btn-export{padding:8px 18px;font-size:.9rem}
 
-/* ── FOLDER LINKS ROW (new fields) ── */
-.folder-links-row{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
+/* ── COVER & FOLDER LINKS STRIP (Round 10, item 6) — new standalone box,
+   same visual pattern as .key-contacts-box just above: its own bordered/
+   backgrounded mini-section sitting directly under the title block, rather
+   than three loose fields inside detail-info. Pulls in Cover Image URL /
+   Images Folder / Working Folder, previously rendered inline there (see
+   renderLinksStrip() in app.js, renamed from renderFolderLinksRow()). ── */
+.links-strip-box{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);padding:16px;margin-bottom:16px}
+.links-strip-label{font-family:var(--serif);font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:10px}
+.folder-links-row{display:flex;gap:16px;flex-wrap:wrap}
 .folder-link-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}
 .folder-link-group label.field-label{font-size:.72rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+/* Round 10, item 9 — short inline help note under Cover Image URL,
+   documenting the GitHub-upload workflow David now uses himself. */
+.field-help{font-size:.7rem;color:var(--text3);line-height:1.4;margin-top:1px}
+.field-help code{font-size:.95em;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:0 3px}
 /* Round 6, item 1 — real visible feedback when the Cover Image URL fails to
    load (was completely silent before — the <img> just quietly swapped to
    the generic placeholder). onCoverImgError() in app.js picks between the
