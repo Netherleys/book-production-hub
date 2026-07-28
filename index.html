@@ -487,6 +487,12 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .isbn-row input{flex:1;min-width:0}
 /* Live-ISBN lock mechanism (item 18 design decision — see build report) */
 .isbn-row input[readonly]{background:var(--bg);color:var(--text3)}
+/* Round 7, item 3a — inline duplicate-ISBN warning under each Commercial
+   box ISBN field (see findIsbnConflict()/onIsbnFieldInput() in app.js);
+   reuses the same .cover-url-warn amber tone as the Cover Image URL
+   warnings for a consistent "heads up" visual language across the app. */
+.isbn-dup-warn{font-size:.74rem;line-height:1.4;margin-top:2px}
+.isbn-dup-warn:empty{display:none}
 .lock-btn{background:none;border:1px solid var(--border2);border-radius:var(--r4);cursor:pointer;padding:4px 8px;font-size:.85rem;flex-shrink:0;line-height:1}
 .lock-btn.locked{color:var(--text3)}
 .lock-btn.unlocked{color:var(--terra-border);border-color:var(--terra-border);background:var(--terra-bg)}

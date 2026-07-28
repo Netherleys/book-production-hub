@@ -1475,11 +1475,23 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
   const isbnField=(field,label)=>{
     const locked = isbnLockRow(id,field);
     const val = c[field];
+    // Round 7, item 3a — the pool-picker (openPool()/pickISBN() above)
+    // already keeps its own list to unassigned-only ISBNs, but these three
+    // free-text fields write straight to the title via fc() with zero
+    // validation against data.isbns, completely bypassing that protection.
+    // findIsbnConflict() checks whether the typed value already matches an
+    // ISBN assigned to a *different* title; conflicts show inline instantly
+    // (onIsbnFieldInput) and are confirm()-gated on blur (onIsbnFieldBlur)
+    // so a duplicate needs a deliberate "yes, really" rather than a stray
+    // keystroke — same "warn, don't silently allow" posture as the
+    // OneDrive/local-path cover-URL detection above.
+    const conflict = findIsbnConflict(id, val);
     return frow(label, `<div class="isbn-row">
-      <input type="text" id="f-${id}-${field}" value="${esc(val)}" ${locked?'readonly':''} oninput="fc('${id}','commercial.${field}',this.value)">
+      <input type="text" id="f-${id}-${field}" value="${esc(val)}" ${locked?'readonly':''} oninput="onIsbnFieldInput('${id}','${field}',this.value)" onblur="onIsbnFieldBlur('${id}','${field}',this)">
       <button class="lock-btn ${locked?'locked':'unlocked'}" title="${locked?'Locked — click to unlock and edit':'Unlocked — click to lock again'}" onclick="toggleIsbnLock('${id}','${field}')">${locked?'&#128274;':'&#128275;'}</button>
       <button class="btn btn-sm" onclick="openPool('${id}','commercial.${field}','${esc(label)}')">Assign</button>
-    </div>`);
+    </div>
+    <div class="isbn-dup-warn" id="isbn-dup-warn-${id}-${field}">${conflict?'<span class="cover-url-warn">&#9888; Already assigned to “'+esc(conflict.assignedToTitleName||conflict.assignedToTitleId)+'” — check this isn\'t a duplicate.</span>':''}</div>`);
   };
   return `<div class="field-tint"><div class="field-grid-3">
     ${isbnField('isbnPbk','ISBN (PBK)')}
@@ -1869,6 +1881,47 @@ function renderQuickNotesList(){
     </div>`;
   }).join('');
   main.innerHTML=headingHtml+toggleHtml+groupsHtml;
+}
+
+// ─── ISBN DUPLICATE-PREVENTION (Round 7, item 3a) ───
+// Normalises an ISBN for comparison — strips hyphens/spaces so
+// "978-1-915316-62-2" and "9781915316622" are recognised as the same
+// number (typed formatting shouldn't be able to sneak a real duplicate
+// past the check).
+function isbnNormalize(s){ return String(s||'').toUpperCase().replace(/[^0-9X]/g,''); }
+// Returns the conflicting data.isbns record if `value` is already assigned
+// to a title OTHER than titleId, or null if there's no conflict (blank
+// value, no match, or the match is this same title — e.g. re-saving its
+// own already-assigned ISBN shouldn't trip a false warning).
+function findIsbnConflict(titleId, value){
+  const norm=isbnNormalize(value);
+  if(!norm) return null;
+  return (data.isbns||[]).find(r=>r.assignedToTitleId && r.assignedToTitleId!==titleId && isbnNormalize(r.isbn)===norm) || null;
+}
+function onIsbnFieldInput(titleId,field,value){
+  fc(titleId,'commercial.'+field,value);
+  const warnEl=document.getElementById('isbn-dup-warn-'+titleId+'-'+field);
+  if(!warnEl) return;
+  const conflict=findIsbnConflict(titleId,value);
+  warnEl.innerHTML = conflict
+    ? '<span class="cover-url-warn">&#9888; Already assigned to “'+esc(conflict.assignedToTitleName||conflict.assignedToTitleId)+'” — check this isn\'t a duplicate.</span>'
+    : '';
+}
+// On leaving the field with a conflict still present, require an explicit
+// "yes, really" via confirm() rather than silently letting a duplicate
+// through — reverts the field back to blank on Cancel. This is the
+// "block/require confirmation" half of the brief; the inline warning above
+// is the "warn" half, shown live as soon as a match appears.
+function onIsbnFieldBlur(titleId,field,inputEl){
+  const conflict=findIsbnConflict(titleId,inputEl.value);
+  if(!conflict) return;
+  const ok=confirm('The ISBN "'+inputEl.value.trim()+'" is already assigned to "'+(conflict.assignedToTitleName||conflict.assignedToTitleId)+'".\n\nUse it here too anyway, creating a duplicate?');
+  if(!ok){
+    inputEl.value='';
+    fc(titleId,'commercial.'+field,'');
+    const warnEl=document.getElementById('isbn-dup-warn-'+titleId+'-'+field);
+    if(warnEl) warnEl.innerHTML='';
+  }
 }
 
 // ─── ISBN ASSIGN FROM DETAIL ───
