@@ -469,8 +469,16 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    blank-line gap. Bumped again, .9em → 1.5em (within the brief's suggested
    ~1.4–1.6em range), which at this field's 1.55 line-height reads as close
    to a full extra blank line between paragraphs rather than incremental
-   spacing. */
-.richtext p,.richtext div{margin-bottom:1.5em}
+   spacing.
+   Item 2 (Round 7) — still read as generous spacing rather than an
+   unambiguous skipped line, per David. 1.5em is actually *less* than one
+   full line-height (1.55em) once you account for the fact that
+   line-height's own leading already sits above/below each text line inside
+   the box — so a 1.5em margin under-shoots a true blank line visually. Gone
+   bigger deliberately this time (not incremental): 1.5em → 2.2em, the top
+   of the brief's suggested 2–2.2em range, comfortably past one full
+   line-height so it can't be read as anything other than a skipped line. */
+.richtext p,.richtext div{margin-bottom:2.2em}
 .richtext p:last-child,.richtext div:last-child{margin-bottom:0}
 .richtext[data-empty="1"]:not(:focus)::before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none}
 .field-row{display:flex;align-items:center;gap:8px}

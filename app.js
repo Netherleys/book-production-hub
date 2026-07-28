@@ -2374,6 +2374,28 @@ function exportFieldToRtfParagraphs(kind,value){
   if(kind==='quote') return (value||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>'\u201c'+rtfEscapeText(s)+'\u201d');
   return plainTextToRtfParagraphs(value);
 }
+// Round 7, item 1 — running footer for the Word export. RTF footers are
+// declared with a {\footer ...} group; placed here, right after the font
+// table and before any body content, it applies to every page of the
+// document (no per-section overrides are used elsewhere in this file, so
+// there's only ever the one section to apply it to). \chpgn is the RTF
+// control word that inserts the actual current page number at render/print
+// time in Word — simpler and more universally supported across RTF readers
+// than a {\field{\*\fldinst PAGE}} field code, and gives the same result.
+// Creation date is computed once, at export time (i.e. "the date the file
+// was created" per the brief) — not tied to any field on the title itself.
+function rtfFooterGroup(){
+  const year=new Date().getFullYear();
+  const created=new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+  // Only the human-readable text pieces go through rtfEscapeText — the
+  // control words (\tab, \chpgn, \pard etc.) must stay as literal,
+  // unescaped RTF or rtfEscapeText's backslash-doubling would corrupt them
+  // (e.g. \chpgn becoming the literal text "\chpgn" instead of a real page
+  // number field).
+  const copyrightText=rtfEscapeText('\u00a9 Headpress '+year+'. All rights reserved.');
+  const createdText=rtfEscapeText('Created '+created);
+  return '{\\footer\\pard\\qc\\fs16 '+copyrightText+'\\tab\\tab Page \\chpgn\\tab\\tab '+createdText+'\\par}\n';
+}
 function buildTitleRtf(t){
   const blockNameById={}; (data.blocks||[]).forEach(b=>{ blockNameById[b.block_id]=b.block_name; });
   const h1=s=>'{\\pard\\sa240\\b\\fs36 '+rtfEscapeText(s)+'\\par}\n';
@@ -2385,6 +2407,7 @@ function buildTitleRtf(t){
     return paras.map(p=>'{\\pard\\sa200\\fs22 '+p+'\\par}\n').join('');
   };
   let out='{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0\\fswiss Calibri;}}\\viewkind4\\uc1\\fs22\\f0\n';
+  out+=rtfFooterGroup();
   out+=h1(t.title+(t.subtitle?' \u2014 '+t.subtitle:''));
   out+=bodyOf('text', contributorLabel(t)||'—');
   out+=bodyOf('text','Imprint: '+imprintName(t.imprint)+'   |   Status: '+t.status);
