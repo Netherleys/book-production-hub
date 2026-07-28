@@ -1803,6 +1803,7 @@ function renderISBNs(){
       <label style="font-size:.85rem"><input type="radio" name="isbn-view-filter" value="all" ${isbnFilter==='all'?'checked':''} onchange="isbnFilter='all';renderISBNs()"> All ISBNs</label>
       <label style="font-size:.85rem"><input type="radio" name="isbn-view-filter" value="unassigned" ${isbnFilter==='unassigned'?'checked':''} onchange="isbnFilter='unassigned';renderISBNs()"> Unassigned Only</label>
       <button class="btn btn-sm" onclick="openAddISBN()">+ Add ISBN</button>
+      <button class="btn btn-sm" onclick="openBulkAddISBN()">+ Bulk Add</button>
     </div>
   </div>
   ${!data.isbns.length?'<p style="color:var(--text3);margin-bottom:14px">The ISBNs tab is empty — per Marcus\'s delivery report, pool migration wasn\'t in his scope for this build. Whoever owns this needs to confirm where the live pool currently lives (e.g. the old ISBN Headpress.xlsx / Headpress Hub\'s local data) and import it here.</p>':''}
@@ -1812,6 +1813,14 @@ function renderISBNs(){
     <div class="field-grid"><div class="field-group"><label class="field-label">ISBN</label><input type="text" id="new-isbn-val" placeholder="978-1-..."></div>
     <div class="field-group"><label class="field-label">Format</label><select id="new-isbn-fmt"><option value="">—</option><option value="PBK">PBK</option><option value="EBK">EBK</option><option value="HBK">HBK</option></select></div></div>
     <div style="margin-top:10px;display:flex;gap:8px"><button class="btn btn-primary btn-sm" onclick="confirmAddISBN()">Add</button><button class="btn btn-sm" onclick="document.getElementById('add-isbn-form').classList.add('hidden')">Cancel</button></div>
+  </div>
+  <div id="bulk-isbn-form" class="hidden" style="margin-top:14px;background:var(--surface);border-radius:var(--r8);padding:16px;box-shadow:var(--shadow-sm)">
+    <div class="field-group"><label class="field-label">Format (applies to the whole batch)</label><select id="bulk-isbn-fmt"><option value="">—</option><option value="PBK">PBK</option><option value="EBK">EBK</option><option value="HBK">HBK</option></select></div>
+    <div class="field-group" style="margin-top:10px"><label class="field-label">ISBNs — one per line (paste a batch of 25/50 at once)</label>
+      <textarea id="bulk-isbn-vals" rows="10" placeholder="978-1-...&#10;978-1-...&#10;978-1-..." style="width:100%;font-family:monospace;font-size:.85rem"></textarea>
+    </div>
+    <div id="bulk-isbn-result" style="font-size:.8rem;color:var(--text3);margin-top:6px"></div>
+    <div style="margin-top:10px;display:flex;gap:8px"><button class="btn btn-primary btn-sm" onclick="confirmBulkAddISBN()">Add All</button><button class="btn btn-sm" onclick="closeBulkAddISBN()">Cancel</button></div>
   </div>`;}
 
 // ─── QUICK NOTES — LIST/INDEX VIEW (item 5, Round 2; reworked item 6,
@@ -1973,12 +1982,63 @@ function confirmISBNAssign(isbn){
 function isbnNielsen(isbn,checked){
   const rec=data.isbns.find(r=>r.isbn===isbn);if(rec){rec.nielsenNotified=checked;saveIsbn(rec);}
 }
-function openAddISBN(){document.getElementById('add-isbn-form').classList.remove('hidden');}
+function openAddISBN(){
+  document.getElementById('bulk-isbn-form').classList.add('hidden');
+  document.getElementById('add-isbn-form').classList.remove('hidden');
+}
 function confirmAddISBN(){
   const v=document.getElementById('new-isbn-val').value.trim();if(!v)return;
   const fmt=document.getElementById('new-isbn-fmt').value;
   const rec={isbn:v,format:fmt,assignedToTitleId:'',assignedToTitleName:'',nielsenNotified:false,legacyArchived:false,_row:null};
   data.isbns.push(rec);saveIsbn(rec);renderISBNs();
+}
+
+// ─── ISBN BULK ADD (Round 7, item 3b) ───
+// confirmAddISBN() above only ever handled one ISBN at a time — no way to
+// load a fresh batch of 25/50 newly-purchased ISBNs in one go. This feeds
+// the exact same data.isbns / saveIsbn() path as the single-add flow above,
+// just looped over a pasted textarea (one ISBN per line) with one format
+// selector shared across the whole batch, per the brief.
+function openBulkAddISBN(){
+  document.getElementById('add-isbn-form').classList.add('hidden');
+  document.getElementById('bulk-isbn-form').classList.remove('hidden');
+  const r=document.getElementById('bulk-isbn-result');if(r)r.textContent='';
+}
+function closeBulkAddISBN(){
+  document.getElementById('bulk-isbn-form').classList.add('hidden');
+  const ta=document.getElementById('bulk-isbn-vals');if(ta)ta.value='';
+  const r=document.getElementById('bulk-isbn-result');if(r)r.textContent='';
+}
+function confirmBulkAddISBN(){
+  const ta=document.getElementById('bulk-isbn-vals');
+  const fmt=document.getElementById('bulk-isbn-fmt').value;
+  const lines=(ta.value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!lines.length)return;
+  // De-dupe against both the existing pool and other lines in this same
+  // pasted batch (a normalised-ISBN comparison, same as findIsbnConflict())
+  // — pasting a batch of 25/50 is exactly the situation where an accidental
+  // repeat is easy to miss by eye.
+  const existing=new Set((data.isbns||[]).map(r=>isbnNormalize(r.isbn)));
+  const seenInBatch=new Set();
+  let added=0, skipped=0;
+  lines.forEach(v=>{
+    const norm=isbnNormalize(v);
+    if(!norm || existing.has(norm) || seenInBatch.has(norm)){ skipped++; return; }
+    seenInBatch.add(norm);
+    const rec={isbn:v,format:fmt,assignedToTitleId:'',assignedToTitleName:'',nielsenNotified:false,legacyArchived:false,_row:null};
+    data.isbns.push(rec);saveIsbn(rec);
+    added++;
+  });
+  // renderISBNs() rebuilds the whole ISBN Manager view (needed so the
+  // newly-added rows show up in the table), which wipes/re-hides the bulk
+  // form along with everything else — so the result message has to be
+  // written AFTER the re-render, into the freshly-built DOM, with the form
+  // reopened so the confirmation is actually visible rather than flashing
+  // and vanishing.
+  renderISBNs();
+  document.getElementById('bulk-isbn-form').classList.remove('hidden');
+  const resultEl=document.getElementById('bulk-isbn-result');
+  if(resultEl) resultEl.textContent=added+' ISBN'+(added===1?'':'s')+' added'+(skipped?', '+skipped+' skipped (blank or already in the pool)':'')+'.';
 }
 
 // ─── FIELD CHANGE ───
