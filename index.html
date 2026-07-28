@@ -337,7 +337,12 @@ input[type=text].detail-author-input:focus{border-color:var(--sage);background:v
    longest option in full at this font-size/weight; overflow/ellipsis
    kept as a defensive fallback only, same as the imprint select — none
    of these three options should actually need truncating. */
-.contrib-role-select{font-size:.78rem;padding:2px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;flex-shrink:0;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Round 10, item 5 — pill → square (var(--r4), matching the app's other
+   small-radius controls rather than fully sharp corners), and background
+   swapped from plain white to --surface2 (the same cream tint the box
+   around it uses) so the control reads as part of the surrounding field
+   area instead of a stray white pill dropped onto it. */
+.contrib-role-select{font-size:.78rem;padding:2px 10px;border-radius:var(--r4);border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;flex-shrink:0;max-width:210px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .contrib-role-select:focus{outline:none;border-color:var(--sage)}
 .detail-author-preview{font-size:.72rem;color:var(--text3);font-style:italic;margin-top:-2px}
 .detail-meta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--text3)}
@@ -357,7 +362,17 @@ input[type=text].detail-author-input:focus{border-color:var(--sage);background:v
    fits in full, "Oil and Water Press" truncates to "Oil and Water P…" —
    the full value is still visible on focus/open (native <select> dropdown
    list isn't affected by these rules, only the closed control's box). */
-.imprint-edit-select{font-size:.82rem;padding:3px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* Round 10, item 5 — pill → square (var(--r4)), plus a distinct colour per
+   imprint via data-imprint (set in imprintEditSelect(), app.js), reusing
+   --imprint-headpress/--imprint-oowp — the exact tokens the card-grid's
+   border-accent/dot already use for the same distinction. Applied as a
+   left-edge accent border rather than a solid fill: this app's own imprint
+   colour-code is explicitly documented above (":root", item 6 comment) as
+   "deliberately subtle... a thin accent + small dot, never a label" — a
+   heavy filled background here would break that established language. */
+.imprint-edit-select{font-size:.82rem;padding:3px 10px 3px 8px;border-radius:var(--r4);border:1px solid var(--border2);border-left-width:4px;background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imprint-edit-select[data-imprint="headpress"]{border-left-color:var(--imprint-headpress)}
+.imprint-edit-select[data-imprint="oowp"]{border-left-color:var(--imprint-oowp)}
 .imprint-edit-select:focus{outline:none;border-color:var(--sage)}
 .status-badge{padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .badge-inprogress{background:var(--amber-bg);color:var(--amber-border)}

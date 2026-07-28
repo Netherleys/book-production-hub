@@ -1143,7 +1143,10 @@ function imprintName(imprint){ return imprintKey(imprint)==='oowp' ? 'Oil On Wat
 // the Sheet's imprint column is unaffected.
 function imprintEditSelect(t){
   const ik=imprintKey(t.imprint);
-  return `<select class="imprint-edit-select" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
+  // Round 10, item 5 — data-imprint drives the per-imprint accent-colour CSS
+  // (see .imprint-edit-select[data-imprint=...] in index.html), same
+  // attribute/pattern .book-card already uses for its own imprint accent.
+  return `<select class="imprint-edit-select" data-imprint="${ik}" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
     <option value="Headpress" ${ik==='headpress'?'selected':''}>Headpress</option>
     <option value="Oil and Water Press" ${ik==='oowp'?'selected':''}>Oil and Water Press</option>
   </select>`;
