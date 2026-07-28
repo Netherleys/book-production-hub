@@ -1290,11 +1290,19 @@ function renderCard(t){
   const info=computeDayInfo(t);
   const deadlineHtml=`<div class="card-deadline ${info.colorClass}">${esc(info.label)}</div>`;
   const ik=imprintKey(t.imprint);
+  // Round 10, item 3 — Street Date / Soft Date, added to the card when they
+  // exist (omitted entirely, not shown as an empty placeholder, when blank —
+  // most titles this early only have one or neither set).
+  const cardDateParts=[];
+  if(t.dates.streetDate) cardDateParts.push(`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`);
+  if(t.dates.softDate) cardDateParts.push(`<span>Soft: ${esc(formatDate(t.dates.softDate))}</span>`);
+  const cardDatesHtml = cardDateParts.length ? `<div class="card-dates">${cardDateParts.join('')}</div>` : '';
   return `<div class="book-card" data-imprint="${ik}" onclick="gotoDetail('${t.id}')">${attn}
     <div class="book-cover">${cover}</div>
     <div class="card-info">
       <div class="card-title-row"><span class="imprint-dot" title="${esc(imprintName(t.imprint))}"></span><span class="card-title">${esc(t.title)}</span></div>
       ${t.authors?`<div class="card-author">${esc(contributorLabel(t))}</div>`:''}
+      ${cardDatesHtml}
       ${deadlineHtml}
     </div>
     <div class="card-footer">${progressHtml}</div>
@@ -1308,7 +1316,16 @@ function renderDetail(){
   const main=document.getElementById('main');
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   const info=computeDayInfo(t);
-  const daysHtml=`<span class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
+  // Round 10, item 4 — computeDayInfo()'s generic no-date fallback (kind
+  // 'nodate' with no hasStreet flag, literal label 'Not scheduled') is
+  // suppressed here specifically: statusEditSelect() just above already
+  // shows the same thing via the Status badge, so on a title with neither
+  // dates nor pipeline activity the two used to say essentially the same
+  // thing side by side. The 'Street: [date]' variant (hasStreet:true) and
+  // the real day-count/overdue variants aren't duplicated by the badge, so
+  // those still render exactly as before.
+  const suppressGenericNoDate = info.kind==='nodate' && !info.hasStreet;
+  const daysHtml = suppressGenericNoDate ? '' : `<span class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
   // Badge: 'Completed' (the literal live-data string, see isPublished()) now
   // maps onto the same badge-complete style as 'Complete' — item 15's
   // underlying status-string mismatch fix. (Round 9: factored into

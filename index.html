@@ -245,6 +245,10 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .card-title{font-family:var(--serif);font-size:.88rem;font-weight:600;color:var(--text);line-height:1.3}
 .card-author{font-size:.76rem;color:var(--text2)}
 .card-meta{font-size:.73rem;color:var(--text3)}
+/* Round 10, item 3 — Street Date / Soft Date, shown only when set (see
+   renderCard() in app.js). Styled like .card-author: small, muted, sits
+   between the author line and the deadline colour-line below it. */
+.card-dates{font-size:.72rem;color:var(--text3);display:flex;gap:10px;flex-wrap:wrap}
 .card-deadline{font-size:.73rem;font-weight:600;margin-top:1px}
 .card-deadline.published{color:var(--sage)}
 .card-deadline.ok{color:var(--sage)}
