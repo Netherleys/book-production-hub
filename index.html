@@ -273,9 +273,35 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .detail-cover img{width:100%;height:auto;max-height:280px;object-fit:contain;display:block;background:var(--surface2)}
 .detail-info{display:flex;flex-direction:column;gap:8px;min-width:0}
 .detail-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.detail-title-text{font-family:var(--serif);font-size:1.4rem;font-weight:600;color:var(--text);line-height:1.2}
-.detail-subtitle-text{font-family:var(--serif);font-size:1rem;color:var(--text2);font-style:italic}
-.detail-author-text{font-size:.9rem;color:var(--text2)}
+/* Round 5, item 1 — Title/Subtitle/Author(s) turned from plain read-only
+   text into genuinely editable fields (see onDetailFieldChange() in app.js)
+   — the old .detail-title-text/.detail-subtitle-text/.detail-author-text
+   spans are gone. Styled to read as plain text until hovered/focused
+   (transparent border/background) rather than looking like a stray form
+   control dropped onto the title — a deliberate departure from this app's
+   usual visible-bordered-input convention, because this is the single most
+   prominent piece of text on the page and a permanently-boxed input here
+   would look like a mistake, not an editable title. input[type=text]'s
+   global rule (below, in FORM FIELDS) is more specific (element+attribute)
+   than a lone class, so these need the extra `input[type=text]` prefix to
+   actually win the cascade. */
+input[type=text].detail-title-input{font-family:var(--serif);font-size:1.4rem;font-weight:600;color:var(--text);line-height:1.2;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:var(--r4);width:auto;flex:1;min-width:160px}
+input[type=text].detail-title-input:hover{border-color:var(--border)}
+input[type=text].detail-title-input:focus{border-color:var(--sage);background:var(--surface);outline:none}
+input[type=text].detail-subtitle-input{font-family:var(--serif);font-size:1rem;color:var(--text2);font-style:italic;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:var(--r4);width:100%;margin-top:2px}
+input[type=text].detail-subtitle-input:hover{border-color:var(--border)}
+input[type=text].detail-subtitle-input:focus{border-color:var(--sage);background:var(--surface);outline:none;font-style:normal}
+.detail-author-row{display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap}
+input[type=text].detail-author-input{font-size:.9rem;color:var(--text2);border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:var(--r4);flex:1;min-width:140px}
+input[type=text].detail-author-input:hover{border-color:var(--border)}
+input[type=text].detail-author-input:focus{border-color:var(--sage);background:var(--surface);outline:none}
+/* Round 5, item 2 — contributor-role selector (Author(s)/Editor(s)/
+   Author(s) & Editor(s)), styled as a small pill matching .imprint-edit-
+   select's language so the two read as the same family of "small inline
+   control next to a bigger field" rather than two different UI idioms. */
+.contrib-role-select{font-size:.78rem;padding:2px 10px;border-radius:20px;border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;flex-shrink:0}
+.contrib-role-select:focus{outline:none;border-color:var(--sage)}
+.detail-author-preview{font-size:.72rem;color:var(--text3);font-style:italic;margin-top:-2px}
 .detail-meta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--text3)}
 /* Item 3 (Round 3) — real editable imprint control, replacing the plain
    read-only <span> that used to sit here (imprint could only ever be set
@@ -322,10 +348,26 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .key-contacts-box{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);padding:16px;margin-bottom:16px}
 .key-contacts-label{font-family:var(--serif);font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:10px}
 
+/* Round 6, item 3 — HTML/Word export buttons, moved here from inside
+   Content & Marketing now that the export covers the whole title record,
+   not just that one box (see renderExportButtons() in app.js). */
+.export-actions-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}
+.export-hint{flex-basis:100%;font-size:.72rem;color:var(--text3);margin:2px 0 0}
+
 /* ── FOLDER LINKS ROW (new fields) ── */
 .folder-links-row{display:flex;gap:16px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px dashed var(--border)}
 .folder-link-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}
 .folder-link-group label.field-label{font-size:.72rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+/* Round 6, item 1 — real visible feedback when the Cover Image URL fails to
+   load (was completely silent before — the <img> just quietly swapped to
+   the generic placeholder). onCoverImgError() in app.js picks between the
+   two messages below depending on whether the URL matches the known
+   1drv.ms/onedrive.live.com share-link pattern (the near-certain actual
+   cause, per the field's own placeholder warning) or something else. */
+.cover-url-msg{font-size:.74rem;line-height:1.4}
+.cover-url-msg:empty{display:none}
+.cover-url-warn{color:var(--amber-border)}
+.cover-url-fail{color:var(--terra)}
 .folder-link-row{display:flex;gap:6px;align-items:center}
 .folder-link-row input{flex:1;min-width:0}
 

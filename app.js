@@ -135,7 +135,11 @@ function calcAutoPrint(sd){ if(!sd) return ''; const d=new Date(sd); if(isNaN(d)
 // neutral grey to white per the brief (dots are now squares too, see
 // index.html .detail-p-dot — a border was added there since a plain white
 // square needs one to stay visible against the box's own background).
-function dotColor(status){ if(status==='Complete') return 'var(--sage)'; if(status==='In Progress') return 'var(--amber)'; return '#fff'; }
+// Round 6, item 6 — reverted back to grey (#9AA5B1, the --neutral-dot token)
+// so these summary dots match the actual Production Pipeline box's own
+// "Not Started" stage colour (.stage-not-started, index.html) — David's ask
+// was specifically for the two to be consistent with each other.
+function dotColor(status){ if(status==='Complete') return 'var(--sage)'; if(status==='In Progress') return 'var(--amber)'; return '#9AA5B1'; }
 // 2026-07-26 bug fix (item 15): live Sheet data uses the literal string
 // "Completed" for status (confirmed live — 5 titles), not "Complete" as the
 // Add-Title dropdown writes — a pre-existing mismatch that meant already-
@@ -438,7 +442,12 @@ function rowToTitle(row){
   const price = Object.assign({pbkGBP:'',pbkUSD:'',ebkUSD:'',hbkGBP:''}, safeJson(c.price_json, {}));
   const editorial = Object.assign({fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',toc:'',excerpt:'',authorInsight:'',competingTitles:''}, safeJson(c.editorial_json, {}));
   const publicity = Object.assign({publicityStatement:'',prContact:'',marketing:'',targetAudience:'',quotes:[],sellingPoints:[]}, safeJson(c.publicity_json, {}));
-  const authorInfo = Object.assign({bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:''}, safeJson(c.authorInfo_json, {}));
+  // Round 5, item 2 — contributorRole added to the existing authorInfo_json
+  // blob (no new Sheet column — same "add a key to an existing JSON blob"
+  // approach already used for illustrationsText/poManualNotes etc.). Default
+  // 'Author(s)' matches every title's existing behaviour before this field
+  // existed (name shown plain, no role prefix).
+  const authorInfo = Object.assign({bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:'',contributorRole:'Author(s)'}, safeJson(c.authorInfo_json, {}));
   // 2026-07-26 (item 19): illustrations is now one free-text field instead
   // of a bool+count pair — e.g. "black and white images: 10, colour images:
   // 20, posters and photographs". Migrated automatically from the old
@@ -564,7 +573,7 @@ function defTitle(o={}){
     commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:''},
     price:{pbkGBP:'',pbkUSD:'',ebkUSD:'',hbkGBP:''},
     content:{keywords:'',fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',sellingPoints:'',quotes:'',targetAudience:''},
-    authorInfo:{bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:''},
+    authorInfo:{bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:'',contributorRole:'Author(s)'},
     pipeline:{stages:PIPELINE_STAGES.map(n=>({name:n,status:'Not Started',expectedDate:'',notes:''}))},
     print:{printEstimate:'',scbEbookCoverSpec:'1400px on shortest side / RGB',forLsiNotes:'',printerContacts:PRINTER_DEF.map(p=>Object.assign({},p))},
     publicity:{publicityStatement:'',prContact:'',marketing:''},
@@ -830,11 +839,23 @@ const SECTION_KEYS = ['dates','commercial','content','author','pipeline','print'
 const SECTION_LABEL_TEXT = {commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content & Marketing',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Production Notes',futureEdition:'Info & Future Edition'};
 const SECTION_LABELS = {};
 SECTION_KEYS.forEach((k,i)=>{ SECTION_LABELS[k] = (i+1)+'. '+SECTION_LABEL_TEXT[k]; });
+// Round 6, item 4 — REVERSES the rounds 1/2 instruction that Pipeline/PO
+// Tracker stay pinned open, and drops the old "open unless this section's
+// own data looks complete" default for every other section too. David's
+// current, plainer wording ("some menus appear to have difficulty opening
+// and closing," "default to all collapsed") is being taken at face value:
+// every section, no exceptions, collapsible, closed by default the moment a
+// title is opened. Thomas has already flagged the Pipeline/PO Tracker
+// reversal to David directly — not re-flagging here, just building it.
+// accordionOpen is still keyed per titleId-key and still only ever set by an
+// explicit user click (toggleAccord below) — so once David actually opens a
+// section this session, it stays open/closed exactly as he left it if he
+// navigates away and back, same persistence as before. It just no longer
+// starts pre-opened on a fresh view.
 function isOpen(titleId,key){
-  if(key==='pipeline'||key==='poTracker')return true;
   const k=`${titleId}-${key}`;
   if(accordionOpen.hasOwnProperty(k))return accordionOpen[k];
-  const t=getTitle(titleId);return t?getSectionStatus(t,key)!=='complete':true;
+  return false;
 }
 
 // ─── RENDER ROUTING ───
@@ -966,6 +987,63 @@ function onImprintChange(titleId,value){
   // not per-keystroke typing, so losing focus on re-render is a non-issue.
   renderDetail();
 }
+
+// ─── ROUND 5: Title/Subtitle/Author real edit controls + contributor-role
+// selector ───
+// Item 1 — Title, Subtitle and Author(s) had no edit path anywhere except
+// the once-only Add Title modal (same bug class as the imprint gap round 3
+// fixed). Rendered now as genuinely editable fields in the detail view
+// (see the detail-title-row/detail-author-row markup in renderDetail()),
+// styled to read as plain text until focused/hovered (see .detail-title-
+// input etc. in index.html) rather than looking like a form field bolted
+// onto a title, since this is prime, above-the-fold real estate.
+// Item 2 — contributor-role selector (Author(s)/Editor(s)/Author(s) &
+// Editor(s)), approved by David as: keep the single free-text name field
+// as-is, add a small selector next to it that changes the LABEL wherever
+// the name displays elsewhere (card grid, HTML/Word export) — see
+// contributorLabel() below. The role itself lives in authorInfo.
+// contributorRole (see rowToTitle/defTitle above) — an existing JSON blob
+// column, no new Sheet column needed.
+function contributorLabel(t){
+  const name=(t.authors||'').trim();
+  if(!name) return '';
+  const role=(t.authorInfo&&t.authorInfo.contributorRole)||'Author(s)';
+  if(role==='Editor(s)') return 'Edited by '+name;
+  if(role==='Author(s) & Editor(s)') return name+' (Author & Editor)';
+  return name; // 'Author(s)' (default) — unchanged from before this round
+}
+function contribRoleSelectHtml(fieldId,titleId,role){
+  const r=role||'Author(s)';
+  const opt=(v,label)=>`<option value="${esc(v)}" ${r===v?'selected':''}>${esc(label)}</option>`;
+  return `<select id="${fieldId}" class="contrib-role-select" title="Contributor role — changes how the name below is labelled elsewhere (card, exports)" onchange="onContribRoleChange('${titleId}',this.value)">
+    ${opt('Author(s)','Author(s)')}${opt('Editor(s)','Editor(s)')}${opt('Author(s) & Editor(s)','Author(s) & Editor(s)')}
+  </select>`;
+}
+function onContribRoleChange(titleId,value){
+  fc(titleId,'authorInfo.contributorRole',value);
+  // Full re-render, same reasoning as onImprintChange — a rare, deliberate
+  // choice, not per-keystroke, and the "Displays as" preview line + card
+  // label both need to reflect it immediately.
+  renderDetail();
+}
+// Live-save handler for the new Title/Subtitle/Author(s) inputs. Saves on
+// every keystroke via fc() (debounced, same as every other text field in
+// this app) WITHOUT a full renderDetail() — that would reset cursor
+// position mid-typing. Anywhere else these values are mirrored on the same
+// page (the cover placeholder's title text, the author "Displays as"
+// preview) is patched directly here instead.
+function onDetailFieldChange(titleId,field,value){
+  fc(titleId,field,value);
+  const t=getTitle(titleId);if(!t)return;
+  if(field==='title'){
+    const ph=document.querySelector('.detail-cover .cover-ph-title');
+    if(ph) ph.textContent=t.title;
+  }
+  if(field==='authors'){
+    const prev=document.getElementById('detail-author-preview-'+titleId);
+    if(prev) prev.textContent = t.authors ? 'Displays as: “'+contributorLabel(t)+'”' : '';
+  }
+}
 function renderCard(t){
   const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention"></div>':'';
   // Real thumbnails, 2026-07-15 — investigated three options (see build
@@ -1002,7 +1080,7 @@ function renderCard(t){
     <div class="book-cover">${cover}</div>
     <div class="card-info">
       <div class="card-title-row"><span class="imprint-dot" title="${esc(imprintName(t.imprint))}"></span><span class="card-title">${esc(t.title)}</span></div>
-      ${t.authors?`<div class="card-author">${esc(t.authors)}</div>`:''}
+      ${t.authors?`<div class="card-author">${esc(contributorLabel(t))}</div>`:''}
       ${deadlineHtml}
     </div>
     <div class="card-footer">${progressHtml}</div>
@@ -1025,8 +1103,11 @@ function renderDetail(){
   // for why this is a pasted direct URL rather than a Graph API fetch),
   // same onerror fallback pattern as the card grid.
   const coverPlaceholder=`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`;
+  // Round 6, item 1 — onerror/onload now point at onCoverImgError()/
+  // onCoverImgLoad() (see those for the OneDrive-vs-generic-failure
+  // distinction) instead of the old silent outerHTML swap.
   const coverHtml=t.coverThumbnailFile
-    ? `<img src="${esc(t.coverThumbnailFile)}" alt="${esc(t.title)} cover" onerror="this.outerHTML=${escAttrJson(coverPlaceholder)}">`
+    ? `<img src="${esc(t.coverThumbnailFile)}" alt="${esc(t.title)} cover" onerror="onCoverImgError('${t.id}',this)" onload="onCoverImgLoad('${t.id}')">`
     : coverPlaceholder;
   const detailStrip=t.pipeline.stages.map((s,i)=>`<div class="detail-p-dot" style="background:${dotColor(s.status)}" title="${esc(s.name)}: ${esc(s.status)}" onclick="cycleStage('${t.id}',${i})"></div>`).join('');
   const accordionHtml=SECTION_KEYS.map(k=>renderAccordionSection(t,k)).join('');
@@ -1047,9 +1128,13 @@ function renderDetail(){
         <div class="detail-top">
           <div class="detail-cover" title="Set the Cover Image URL below to show a real thumbnail here">${coverHtml}</div>
           <div class="detail-info">
-            <div class="detail-title-row"><span class="imprint-dot" data-imprint="${imprintKey(t.imprint)}" style="background:var(--imprint-${imprintKey(t.imprint)==='oowp'?'oowp':'headpress'})" title="${esc(imprintName(t.imprint))}"></span><span class="detail-title-text">${esc(t.title)}</span></div>
-            ${t.subtitle?`<div class="detail-subtitle-text">${esc(t.subtitle)}</div>`:''}
-            ${t.authors?`<div class="detail-author-text">${esc(t.authors)}</div>`:''}
+            <div class="detail-title-row"><span class="imprint-dot" data-imprint="${imprintKey(t.imprint)}" style="background:var(--imprint-${imprintKey(t.imprint)==='oowp'?'oowp':'headpress'})" title="${esc(imprintName(t.imprint))}"></span><input type="text" class="detail-title-input" id="f-${t.id}-title" value="${esc(t.title)}" placeholder="Title" oninput="onDetailFieldChange('${t.id}','title',this.value)"></div>
+            <input type="text" class="detail-subtitle-input" id="f-${t.id}-subtitle" value="${esc(t.subtitle)}" placeholder="Subtitle (optional)" oninput="onDetailFieldChange('${t.id}','subtitle',this.value)">
+            <div class="detail-author-row">
+              ${contribRoleSelectHtml(`f-${t.id}-contribRole`,t.id,t.authorInfo.contributorRole)}
+              <input type="text" class="detail-author-input" id="f-${t.id}-authors" value="${esc(t.authors)}" placeholder="Author/Editor name(s)" oninput="onDetailFieldChange('${t.id}','authors',this.value)">
+            </div>
+            ${t.authors?`<div class="detail-author-preview" id="detail-author-preview-${t.id}">Displays as: “${esc(contributorLabel(t))}”</div>`:''}
             <div class="detail-meta-row">
               <span class="status-badge ${badgeClass}">${esc(t.status)}</span>
               ${imprintEditSelect(t)}
@@ -1065,16 +1150,18 @@ function renderDetail(){
           </div>
         </div>
         ${renderKeyContacts(t)}
+        ${renderExportButtons(t)}
         <div class="accordion" id="accordion-${t.id}">${accordionHtml}</div>
       </div>
     </div>`;
   autoGrowAll(main);
   // PO Tracker data isn't in the row payload (it lives in a different
-  // spreadsheet, fetched on demand) — if that section is already open on
-  // this render (e.g. its default-open-when-incomplete rule fired, not
-  // just a manual click), kick off the fetch now rather than leaving the
-  // "Loading…" placeholder stuck.
-  if(isOpen(t.id,'poTracker')) loadPoTrackerFor(t.id);
+  // spreadsheet, fetched on demand). Round 6 — PO Tracker no longer defaults
+  // open (item 4), so this only fires here if the section happens to
+  // already be open (accordionOpen carried over from earlier this session,
+  // e.g. navigating away and back) and hasn't been fetched yet; the normal
+  // first-open case is handled by toggleAccord() itself.
+  if(isOpen(t.id,'poTracker') && !poTrackerLoadedFor[t.id]){ poTrackerLoadedFor[t.id]=true; loadPoTrackerFor(t.id); }
 }
 
 // New fields from brief §3: images folder link + working folder link
@@ -1115,6 +1202,7 @@ function renderFolderLinksRow(t){
       <div class="folder-link-row">
         <input type="text" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="covers/title-id.jpg, or a direct image URL (NOT a 1drv.ms/OneDrive share link — see code comment)" oninput="onCoverUrlChange('${id}',this.value)">
       </div>
+      <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
     </div>
     <div class="folder-link-group">
       <label class="field-label">Images Folder (OneDrive)</label>
@@ -1132,17 +1220,49 @@ function renderFolderLinksRow(t){
     </div>
   </div>`;
 }
+// Round 6, item 1 — the field used to fail completely silently: a bad URL
+// (almost always a pasted 1drv.ms/onedrive.live.com SHARE link, per the
+// field's own placeholder warning — those resolve to OneDrive's HTML viewer
+// page, not raw image bytes, so they can never load as a plain <img src>)
+// just quietly fell back to the generic placeholder with zero feedback
+// either way. onCoverImgError() below now distinguishes that specific,
+// very-likely cause from a genuine generic load failure (wrong URL, deleted
+// file, host down, etc.) and writes a real, visible message into the
+// cover-url-msg-${id} box added next to the field in renderFolderLinksRow().
+function looksLikeOneDriveShareLink(url){
+  return /(^|\/\/)(1drv\.ms|onedrive\.live\.com)(\/|$|\?)/i.test(String(url||'').trim());
+}
+function onCoverImgError(titleId,imgEl){
+  const t=getTitle(titleId);
+  const placeholder=t?`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`:'';
+  if(imgEl) imgEl.outerHTML=placeholder;
+  const msgEl=document.getElementById('cover-url-msg-'+titleId);
+  if(!msgEl||!t)return;
+  const url=t.coverThumbnailFile||'';
+  msgEl.innerHTML = looksLikeOneDriveShareLink(url)
+    ? '<span class="cover-url-warn">&#9888; This looks like a OneDrive share link (1drv.ms / onedrive.live.com) — those open a web viewer page, not raw image bytes, so it can\'t load here as a direct image. Use a direct-hosted image URL instead, or add the file to this repo\'s /covers/ folder and reference it as covers/&lt;title-id&gt;.jpg.</span>'
+    : '<span class="cover-url-fail">&#9888; Couldn\'t load an image from this URL — check it\'s a direct, publicly-accessible image link (not a viewer page, share link, or something requiring sign-in).</span>';
+}
+function onCoverImgLoad(titleId){
+  const msgEl=document.getElementById('cover-url-msg-'+titleId);
+  if(msgEl) msgEl.innerHTML='';
+}
 // Updates the field, saves, and refreshes the visible detail-cover thumbnail
 // immediately (rather than waiting on the next full renderDetail()) so
-// David gets instant feedback that the URL he pasted actually renders.
+// David gets instant feedback that the URL he pasted actually renders — and
+// now (round 6) clears/resets the feedback message for the new attempt, with
+// onCoverImgError/onCoverImgLoad above populating it for real as the browser
+// actually tries (and fails or succeeds) to load the new URL.
 function onCoverUrlChange(titleId,value){
   fc(titleId,'coverThumbnailFile',value);
   const t=getTitle(titleId);if(!t)return;
+  const msgEl=document.getElementById('cover-url-msg-'+titleId);
+  if(msgEl) msgEl.innerHTML='';
   const coverEl=document.querySelector('.detail-cover');
   if(!coverEl)return;
   const placeholder=`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`;
   coverEl.innerHTML = value
-    ? `<img src="${esc(value)}" alt="${esc(t.title)} cover" onerror="this.outerHTML=${escAttrJson(placeholder)}">`
+    ? `<img src="${esc(value)}" alt="${esc(t.title)} cover" onerror="onCoverImgError('${titleId}',this)" onload="onCoverImgLoad('${titleId}')">`
     : placeholder;
 }
 function openImagesFolder(titleId){
@@ -1200,6 +1320,21 @@ function renderKeyContacts(t){const id=t.id;
     </div>
   </div>`;}
 
+// Round 6, item 3 — the HTML/Word export buttons used to sit inside the
+// Content & Marketing box (position 3 in the accordion), which only made
+// sense back when the export only covered Content & Marketing's 6 fields
+// (round 2/4). Now that the export covers the entire title record (item 2),
+// it no longer belongs tucked inside one specific section — moved up here,
+// next to Key Contacts, which is the one block that always renders above
+// the numbered accordion regardless of which sections are open/closed.
+function renderExportButtons(t){
+  return `<div class="export-actions-row">
+    <button class="btn btn-sm" onclick="openHtmlOutput('${t.id}')">View HTML Output &#8599;</button>
+    <button class="btn btn-sm" onclick="downloadWordFile('${t.id}')">View Word File &#8681;</button>
+    <p class="export-hint">Both export the full title record — every section below, each under its own heading, whether or not it's currently expanded. HTML opens in a new tab as plain text source (select all &amp; copy into distributor systems); Word downloads a .rtf file that opens directly in Word or Google Docs.</p>
+  </div>`;
+}
+
 function renderAccordionSection(t,key){
   const st=getSectionStatus(t,key);
   const open=isOpen(t.id,key);
@@ -1236,12 +1371,25 @@ function renderSectionBody(t,key){
     default:return '';
   }
 }
+// Round 6, item 4 — Pipeline/PO Tracker's early-return (which made them
+// permanently un-collapsible) is removed; every section, including these
+// two, now toggles the same way.
+let poTrackerLoadedFor = {}; // titleId -> true once its live data has been fetched this session
 function toggleAccord(tid,key){
-  if(key==='pipeline'||key==='poTracker')return; // always-open, prominent sections (items 25/30) — not collapsible
   const k=`${tid}-${key}`;
   const cur=isOpen(tid,key);accordionOpen[k]=!cur;
   const body=document.querySelector(`[data-accord="${k}"]`);if(body)body.classList.toggle('open',accordionOpen[k]);
   const hdr=document.querySelector(`[data-accord-header="${k}"]`);if(hdr){const arr=hdr.querySelector('.accord-arrow');if(arr)arr.classList.toggle('open',accordionOpen[k]);}
+  // PO Tracker's live-fetched tables (print estimates / PO & Invoice pulls)
+  // used to load automatically because the section was always open on
+  // render — now that it starts closed like everything else, kick the fetch
+  // off the first time it's actually opened instead (once per title per
+  // session; the "Loading…" placeholder in renderPoTracker() is what's
+  // sitting there until this fires).
+  if(key==='poTracker' && accordionOpen[k] && !poTrackerLoadedFor[tid]){
+    poTrackerLoadedFor[tid]=true;
+    loadPoTrackerFor(tid);
+  }
 }
 
 // ─── SECTION RENDERS ───
@@ -1324,11 +1472,11 @@ function renderContent(t){const id=t.id;const c=t.content;
     ${frow('Quotes (one per line)',taAuto(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`),'full')}
     ${frow('Target Audience',inp(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`))}
     ${frow('Keywords / Metadata',inp(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`))}
-    <div class="field-group full">
-      <button class="btn btn-sm" onclick="openHtmlOutput('${id}')">View HTML Output &#8599;</button>
-      <p style="font-size:.72rem;color:var(--text3);margin-top:4px">Opens the literal HTML source of the fields above as plain text (e.g. an italicised word shows as the actual characters &lt;i&gt;word&lt;/i&gt;, not styled italics) — select all and copy (item 11, Round 2).</p>
-    </div>
   </div>`;}
+  // Round 6, item 3 — the "View HTML Output"/"View Word File" buttons that
+  // used to live in this box (item 11, Round 2) moved up to
+  // renderExportButtons(), next to Key Contacts — see that function's
+  // comment for why.
 
 function renderAuthor(t){const id=t.id;const a=t.authorInfo;
   // Item 24 (7/26) — "Other contributors" sits BELOW "Previous publications"
@@ -1959,70 +2107,313 @@ function restoreQuickNote(titleId,noteId){
   renderQuickNoteRecent();
 }
 
-// Item 21 — HTML output view for Content & Marketing. Generates a simple,
-// copy-pasteable HTML rendering of the marketing fields (paragraphs from
-// each textarea, one <p> per non-blank line) so David can paste into
-// distributor portals or email without losing structure. Opened in a new
-// tab as a self-contained HTML document rather than a modal, since the
-// whole point is to copy it out to somewhere else.
+// ─── ROUND 6, ITEMS 2/3 — FULL-RECORD EXPORT (HTML + Word/RTF) ───
+// Round 4 built "View HTML Output" for Content & Marketing's 6 fields only.
+// David wants everything in the sheet viewable this way, one file, each
+// box's own heading/subheading structure preserved (matching the
+// accordion's own section labels) — so this is expanded to the entire
+// title record, plus a new Word (.rtf) export alongside it.
+//
+// getSectionExportFields() is the single shared source of what goes into
+// BOTH exports — one field list per accordion section (SECTION_KEYS order,
+// same labels as SECTION_LABELS), each entry tagged with a `kind` so each
+// exporter knows how to render it:
+//   'html'  — already-stored real HTML (the three rich-text fields from
+//             richTa()) — passed through as-is for the HTML export (source
+//             preserved exactly, same as round 4); converted tag-by-tag to
+//             RTF bold/italic/paragraph runs for the Word export (see
+//             htmlFragmentToRtfParagraphs() — a deliberately small
+//             converter that handles the actual tags richTa's toolbar can
+//             produce: <b>/<strong>, <i>/<em>, <p>/<div>, <br> — not a
+//             general-purpose HTML-to-RTF library, since nothing here needs
+//             more than that).
+//   'text'  — a single plain value (ISBN, a date, a checkbox as Yes/No,
+//             multi-line notes) — shown as-is, escaped, no synthetic markup.
+//   'list'  — newline-separated items (Selling Points) — rendered as a real
+//             <ul>/<li> for the HTML export (matching round 4's exact
+//             treatment), bullet-prefixed lines for Word.
+//   'quote' — newline-separated items (Quotes) — <blockquote> per line for
+//             HTML (matching round 4), curly-quoted lines for Word.
+function getSectionExportFields(t,key,blockNameById){
+  switch(key){
+    case 'dates':{
+      const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
+      const info=computeDayInfo(t);
+      return [
+        ['Release Block','text', blockNameById[t.blockId]||t.blockId||''],
+        ['Soft Date','text', formatDate(t.dates.softDate)],
+        ['Street Date','text', formatDate(t.dates.streetDate)],
+        ['Print Date','text', formatDate(pd)+(t.dates.autoPrintDate&&pd?' (auto-calculated: street date minus 60 days)':'')],
+        ['Print Status','text', info.label]
+      ];
+    }
+    case 'commercial':{
+      const c=t.commercial,p=t.price;
+      return [
+        ['ISBN (PBK)','text', c.isbnPbk],['ISBN (HBK)','text', c.isbnHbk],['ISBN (EBK)','text', c.isbnEbk],
+        ['Cover Price PBK (£)','text', p.pbkGBP],['Cover Price HBK (£)','text', p.hbkGBP],
+        ['Cover Price PBK ($)','text', p.pbkUSD],['Cover Price EBK ($)','text', p.ebkUSD],
+        ['Trim Size','text', c.trimSize],['Pages','text', c.pages],
+        ['Category UK','text', c.categoryUK],['Category USA','text', c.categoryUSA],
+        ['Nielsen Notified','text', c.nielsenNotified?'Yes':'No'],
+        ['Illustrations','text', c.illustrationsText]
+      ];
+    }
+    case 'content':{
+      const c=t.content;
+      return [
+        ['Full Description','html', c.fullDescription],
+        ['Jacket Blurb','html', c.jacketBlurb],
+        ['Brief Description','html', c.briefDescription],
+        ['Sales Handle','text', c.salesHandle],
+        ['Selling Points','list', c.sellingPoints],
+        ['Quotes','quote', c.quotes],
+        ['Target Audience','text', c.targetAudience],
+        ['Keywords / Metadata','text', c.keywords]
+      ];
+    }
+    case 'author':{
+      const a=t.authorInfo;
+      return [
+        ['Contributor Role','text', a.contributorRole||'Author(s)'],
+        ['Author Bio','text', a.bio],
+        ['Author Hometown','text', a.hometown],
+        ['Socials & Societies','text', a.socials],
+        ['Previous Publications','text', a.previousPublications],
+        ['Other Contributors','text', a.otherContributors]
+      ];
+    }
+    case 'pipeline':{
+      const byName={}; t.pipeline.stages.forEach(s=>byName[s.name]=s);
+      return PIPELINE_GROUPS.map(g=>[g.label,'text', g.stages.map(name=>{
+        const s=byName[name]; if(!s) return name+': —';
+        let line=name+': '+s.status;
+        if(s.expectedDate) line+=' (Expected: '+formatDate(s.expectedDate)+')';
+        if(s.notes) line+=' — '+s.notes;
+        return line;
+      }).join('\n')]);
+    }
+    case 'print':{
+      const p=t.print;
+      const contacts=(p.printerContacts||[]).filter(pc=>pc.name||pc.email).map(pc=>pc.name+(pc.email?' — '+pc.email:'')).join('\n');
+      return [
+        ['Print Estimate / Quotes','text', p.printEstimate],
+        ['SCB eBook Cover Spec','text', p.scbEbookCoverSpec],
+        ['For LSI Notes','text', p.forLsiNotes],
+        ['Printer Contacts','text', contacts]
+      ];
+    }
+    case 'poTracker':{
+      // Deliberately excludes the two live-fetched tables (print-estimate /
+      // PO & Invoice Tracker matches) — those come from separate Sheets on
+      // demand and would need fresh network calls at export time; this
+      // export is a snapshot of what's actually stored against the title
+      // itself. Manual fields (which ARE this title's own stored data) are
+      // included in full.
+      const key=t.commercial.isbnPbk||t.commercial.isbnHbk||'';
+      return [
+        ['PO Tracker ISBN Key (auto)','text', key],
+        ['Manual Override (title/tab name)','text', t.poTrackerTitleOverride],
+        ['Manual PO/Invoice Notes','text', t.poManualNotes]
+      ];
+    }
+    case 'publicity': return [
+      ['Publicity Statement','text', t.publicity.publicityStatement],
+      ['Marketing Notes','text', t.publicity.marketing]
+    ];
+    case 'toc': return [
+      ['Table of Contents','text', t.toc.tableOfContents],
+      ['How I Came to Write This Book','text', t.toc.howICameToWriteThis],
+      ['Excerpt','text', t.toc.excerpt],
+      ['Competing Titles','text', t.toc.competingTitles]
+    ];
+    case 'productionNotes':{
+      const checklistText=(t.productionNotes.checklist||[]).map(c=>'['+(c.checked?'x':' ')+'] '+c.text).join('\n');
+      return [
+        ['Checklist','text', checklistText],
+        ['Proofing Notes','text', t.productionNotes.proofingNotes],
+        ['Typesetting Notes','text', t.productionNotes.typesettingNotes]
+      ];
+    }
+    case 'futureEdition': return [
+      ['Info & Changes for Future Edition','text', t.futureEdition.infoAndChanges],
+      ['Print-Ready Files','text', t.futureEdition.printReadyFilesStatus]
+    ];
+    default: return [];
+  }
+}
+
+// ── HTML export ──
+function exportFieldToHtmlFragment(kind,value){
+  const esc2=s=>esc(s||'');
+  if(kind==='html') return value||'';
+  if(kind==='list'){
+    const items=(value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+    return items.length ? `<ul>${items.map(s=>`<li>${esc2(s)}</li>`).join('')}</ul>` : ''; // empty → falls through to fieldBlock's "—" placeholder, not a bare <ul></ul>
+  }
+  if(kind==='quote'){
+    const items=(value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+    return items.length ? items.map(s=>`<blockquote>${esc2(s)}</blockquote>`).join('\n') : '';
+  }
+  return value||'';
+}
+function buildFullTitleSectionsHtml(t){
+  const blockNameById={}; (data.blocks||[]).forEach(b=>{ blockNameById[b.block_id]=b.block_name; });
+  const esc2=s=>esc(s||'');
+  const fieldBlock=(label,fragment)=>`<div class="src-field">
+<h3>${esc2(label)}</h3>
+<pre>${fragment?esc(fragment):'<span class="empty-field">—</span>'}</pre>
+</div>`;
+  const headerSection=`<section class="src-section">
+<h2 class="src-section-title">Title Record</h2>
+${fieldBlock('Title', t.title)}
+${fieldBlock('Subtitle', t.subtitle)}
+${fieldBlock((t.authorInfo.contributorRole||'Author(s)'), t.authors)}
+${fieldBlock('Displays As', contributorLabel(t))}
+${fieldBlock('Imprint', imprintName(t.imprint))}
+${fieldBlock('Status', t.status)}
+</section>`;
+  const keyContactsSection=`<section class="src-section">
+<h2 class="src-section-title">Key Contacts</h2>
+${fieldBlock('Author Liaison', t.authorLiaison)}
+${fieldBlock('PR Contact', t.publicity.prContact)}
+</section>`;
+  const sectionsHtml=SECTION_KEYS.map(key=>{
+    const fields=getSectionExportFields(t,key,blockNameById);
+    const fieldsHtml=fields.map(([label,kind,value])=>fieldBlock(label,exportFieldToHtmlFragment(kind,value))).join('\n');
+    return `<section class="src-section">
+<h2 class="src-section-title">${esc2(SECTION_LABELS[key])}</h2>
+${fieldsHtml}
+</section>`;
+  }).join('\n');
+  return headerSection+'\n'+keyContactsSection+'\n'+sectionsHtml;
+}
+// Item 21/Round 2, expanded Round 6 — full-record HTML output view. Opened
+// in a new tab as a self-contained document rather than a modal, since the
+// whole point is to copy it out to somewhere else. Items 4/5 (Round 4)'s
+// escaped-source-under-a-real-heading pattern (light cream background,
+// each field's own <h3>/<pre>, tags visible as literal text so copy-paste
+// preserves exact markup) is unchanged — just applied to every section
+// (SECTION_KEYS order, matching the accordion) instead of only Content &
+// Marketing's 6 fields, with an outer <h2> per accordion box on top of the
+// existing per-field <h3>.
 function openHtmlOutput(titleId){
   const t=getTitle(titleId);if(!t)return;
   const esc2=s=>esc(s||'');
-  const para=s=>(s||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>`<p>${esc2(l)}</p>`).join('\n');
-  // Full/Jacket/Brief now come from the rich-text fields (richTa()) and are
-  // stored as real HTML (bold/italic/paragraphs) — passed through as-is
-  // here rather than re-escaped, so formatting actually survives into the
-  // output. Falls back gracefully for older plain-text values too, since
-  // plain text has no tags to preserve or break.
-  const rich=s=>s||'';
-  // Items 4 & 5 (Round 4) — this used to be one big `html` document string
-  // (doctype/head/h1/all six field h2s) that got esc()'d in its ENTIRETY
-  // and dumped into a single <pre>, so the h2 headings just showed up as
-  // literal "&lt;h2&gt;Full Description&lt;/h2&gt;" text buried inside the
-  // wall of escaped source — no real navigation/scanning, and dark-on-black
-  // besides. Fixed by keeping each field's generated HTML fragment SEPARATE
-  // (never assembled into one big string), so the source-view page below
-  // can give each one its own real, rendered <h2> — actual page structure
-  // David can scan/jump around — with only that field's own fragment
-  // escaped underneath it as literal text. Copy-paste of an individual
-  // field's <pre> block still gets exact markup, tags included, same as
-  // before — just scoped per-field instead of the whole document at once.
-  const fields = [
-    ['Full Description', rich(t.content.fullDescription)],
-    ['Jacket Blurb', rich(t.content.jacketBlurb)],
-    ['Brief Description', rich(t.content.briefDescription)],
-    ['Sales Handle', `<p>${esc2(t.content.salesHandle)}</p>`],
-    ['Selling Points', `<ul>${(t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<li>${esc2(s)}</li>`).join('')}</ul>`],
-    ['Quotes', (t.content.quotes||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>`<blockquote>${esc2(s)}</blockquote>`).join('\n')]
-  ];
-  const sections = fields.map(([label,fragment])=>
-`<section class="src-field">
-<h2>${esc2(label)}</h2>
-<pre>${esc(fragment)}</pre>
-</section>`).join('\n');
-  // Item 4 (Round 4) — inverted from dark (#1c1c1c bg / #d9d5c9 text) to a
-  // light cream background with near-black text, per the brief: this view
-  // is meant for reading/copying into distributor systems, not a code-editor
-  // aesthetic. Headings/hint copy use the same serif as the rest of the app
-  // for a real page feel; the escaped-source <pre> blocks stay monospace.
-  const sourceViewHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc2(t.title)} — HTML Source</title>
+  const sections=buildFullTitleSectionsHtml(t);
+  const sourceViewHtml = `<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${esc2(t.title)} — Full Record (HTML Source)</title>
 <style>
 body{font-family:Georgia,serif;background:#FAF7EF;color:#1c1c1c;margin:0;padding:32px 24px 60px}
-h1{font-size:1.35rem;margin:0 0 6px;color:#1c1c1c}
-p.hint{color:#555;margin:0 0 28px;font-size:.9rem;max-width:720px}
-.src-field{max-width:720px;margin:0 0 30px;padding-bottom:22px;border-bottom:1px solid #ddd7c6}
+h1.doc-title{font-size:1.5rem;margin:0 0 6px;color:#1c1c1c}
+p.hint{color:#555;margin:0 0 32px;font-size:.9rem;max-width:720px}
+.src-section{max-width:760px;margin:0 0 40px}
+h2.src-section-title{font-size:1.05rem;color:#1c1c1c;font-weight:700;border-bottom:2px solid #1c1c1c;padding-bottom:6px;margin:0 0 18px}
+.src-field{max-width:720px;margin:0 0 24px;padding-bottom:20px;border-bottom:1px solid #ddd7c6}
 .src-field:last-child{border-bottom:none}
-h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.05em;color:#7a7362;margin:0 0 10px;font-weight:700}
+h3{font-size:.82rem;text-transform:uppercase;letter-spacing:.05em;color:#7a7362;margin:0 0 10px;font-weight:700}
 pre{white-space:pre-wrap;word-break:break-word;font-family:'SFMono-Regular',Consolas,'Courier New',monospace;font-size:13px;line-height:1.6;margin:0;color:#1c1c1c;background:#fff;border:1px solid #e4dfd0;border-radius:4px;padding:10px 12px}
+.empty-field{color:#aaa;font-style:italic;font-family:Georgia,serif}
 </style>
 </head><body>
-<h1>${esc2(t.title)}${t.subtitle?' — '+esc2(t.subtitle):''}</h1>
-<p class="hint">Literal HTML source for "${esc2(t.title)}", split per field below — jump to the section you need and select/copy exactly as shown (tags included).</p>
+<h1 class="doc-title">${esc2(t.title)}${t.subtitle?' — '+esc2(t.subtitle):''}</h1>
+<p class="hint">Full title record — literal HTML source under each rich-text field (tags included, select/copy exactly as shown), plain values everywhere else — one section per box, in the same order as the app (Round 6, item 2).</p>
 ${sections}
 </body></html>`;
   const blob=new Blob([sourceViewHtml],{type:'text/html'});
   const url=URL.createObjectURL(blob);
   window.open(url,'_blank','noopener');
+}
+
+// ── Word (.rtf) export ──
+// .rtf chosen over .docx (brief left the choice to judgement): a .docx is a
+// zip of several XML parts, which needs either a zip library or hand-rolled
+// zip encoding — a real dependency this build-step-free, no-library app
+// doesn't have. RTF is a plain text format Word/Google Docs/LibreOffice all
+// open natively, and is simple enough to generate by hand with just string
+// concatenation, so it's the one that actually fits "simplest to generate
+// client-side without a build step/library".
+function rtfEscapeText(s){
+  return String(s||'').replace(/\\/g,'\\\\').replace(/\{/g,'\\{').replace(/\}/g,'\\}')
+    .replace(/[\u0080-\uffff]/g, ch=>{ let code=ch.charCodeAt(0); if(code>32767) code-=65536; return '\\u'+code+'?'; });
+}
+function decodeEntities(s){
+  return String(s||'').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+    .replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
+}
+// Small, deliberately-scoped HTML→RTF converter for richTa()'s output —
+// only handles the tags its Bold/Italic/¶ toolbar (document.execCommand)
+// actually produces: <p>/<div> (paragraphs), <b>/<strong>, <i>/<em>, <br>.
+// Anything else gets its tags stripped and the text kept, rather than
+// erroring — a safety net for older plain-text data with no tags at all.
+function inlineHtmlToRtf(raw){
+  const L='\x01',BO='\x02',BC='\x03',IO='\x04',IC='\x05';
+  let s=String(raw||'');
+  s=s.replace(/<br\s*\/?>/gi,L);
+  s=s.replace(/<(?:b|strong)[^>]*>([\s\S]*?)<\/(?:b|strong)>/gi,(_,inner)=>BO+inner+BC);
+  s=s.replace(/<(?:i|em)[^>]*>([\s\S]*?)<\/(?:i|em)>/gi,(_,inner)=>IO+inner+IC);
+  s=s.replace(/<[^>]+>/g,'');
+  s=decodeEntities(s);
+  s=rtfEscapeText(s);
+  s=s.split(L).join('\\line ').split(BO).join('{\\b ').split(BC).join('}').split(IO).join('{\\i ').split(IC).join('}');
+  return s;
+}
+function htmlFragmentToRtfParagraphs(html){
+  if(!html || !String(html).replace(/<[^>]+>/g,'').trim()) return [];
+  let s=String(html).replace(/<div[^>]*>/gi,'<p>').replace(/<\/div>/gi,'</p>');
+  const paras=[]; const re=/<p[^>]*>([\s\S]*?)<\/p>/gi; let m,any=false;
+  while((m=re.exec(s))){ any=true; paras.push(m[1]); }
+  if(!any) paras.push(s);
+  return paras.map(inlineHtmlToRtf).filter(p=>p.trim()!=='');
+}
+function plainTextToRtfParagraphs(text){
+  return String(text||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>rtfEscapeText(l));
+}
+function exportFieldToRtfParagraphs(kind,value){
+  if(kind==='html') return htmlFragmentToRtfParagraphs(value);
+  if(kind==='list') return (value||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>'\u2022  '+rtfEscapeText(s));
+  if(kind==='quote') return (value||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>'\u201c'+rtfEscapeText(s)+'\u201d');
+  return plainTextToRtfParagraphs(value);
+}
+function buildTitleRtf(t){
+  const blockNameById={}; (data.blocks||[]).forEach(b=>{ blockNameById[b.block_id]=b.block_name; });
+  const h1=s=>'{\\pard\\sa240\\b\\fs36 '+rtfEscapeText(s)+'\\par}\n';
+  const h2=s=>'{\\pard\\sb320\\sa200\\b\\fs28\\ul '+rtfEscapeText(s)+'\\par}\n';
+  const h3=s=>'{\\pard\\sb160\\sa60\\b\\fs22 '+rtfEscapeText(s)+'\\par}\n';
+  const bodyOf=(kind,value)=>{
+    const paras=exportFieldToRtfParagraphs(kind,value);
+    if(!paras.length) return '{\\pard\\sa200\\fs22\\i - \\i0\\par}\n';
+    return paras.map(p=>'{\\pard\\sa200\\fs22 '+p+'\\par}\n').join('');
+  };
+  let out='{\\rtf1\\ansi\\ansicpg1252\\deff0{\\fonttbl{\\f0\\fswiss Calibri;}}\\viewkind4\\uc1\\fs22\\f0\n';
+  out+=h1(t.title+(t.subtitle?' \u2014 '+t.subtitle:''));
+  out+=bodyOf('text', contributorLabel(t)||'—');
+  out+=bodyOf('text','Imprint: '+imprintName(t.imprint)+'   |   Status: '+t.status);
+  out+=h2('Key Contacts');
+  out+=h3('Author Liaison'); out+=bodyOf('text', t.authorLiaison);
+  out+=h3('PR Contact'); out+=bodyOf('text', t.publicity.prContact);
+  SECTION_KEYS.forEach(key=>{
+    out+=h2(SECTION_LABELS[key]);
+    getSectionExportFields(t,key,blockNameById).forEach(([label,kind,value])=>{
+      out+=h3(label);
+      out+=bodyOf(kind,value);
+    });
+  });
+  out+='}';
+  return out;
+}
+// Downloads the .rtf directly (no new tab — a Word file isn't meant to be
+// read in-browser) named after the title, sanitised of characters Windows
+// filenames can't contain.
+function downloadWordFile(titleId){
+  const t=getTitle(titleId);if(!t)return;
+  const rtf=buildTitleRtf(t);
+  const blob=new Blob([rtf],{type:'application/rtf'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=(t.title||'title').trim().replace(/[\\/:*?"<>|]+/g,'_').slice(0,120)+'.rtf';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url), 4000);
 }
 
 // ─── TODOIST MODAL (unchanged from headpress.html — deliberately still a
