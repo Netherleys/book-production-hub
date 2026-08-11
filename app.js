@@ -105,6 +105,14 @@ let assignCtx = null;
 let devMode = false; // true when previewing with sample data, no network writes
 let poLogRowsCache = null; // lazy-loaded PO Log rows from the PO tracker sheet
 let poTabGidCache = null; // tabName(lowercase) -> {gid, title}
+// 2026-08-11 (Marcus Webb) — titleIds with an edit that hasn't been
+// confirmed saved to the Sheet yet (scheduled in debouncedSave(), cleared
+// only on a successful saveTitle()). Two jobs: (1) drives the automatic
+// retry-all the moment a reconnect succeeds after an auth failure, so
+// nothing typed during an expired-token window has to be re-typed; (2)
+// gates the beforeunload warning so a reload/close can't silently discard
+// unsaved edits without at least one confirmation prompt.
+let pendingSaveTitleIds = new Set();
 
 // ─── HELPERS (unchanged from headpress.html) ───
 function esc(s){ if(s==null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -345,7 +353,8 @@ async function addReleaseBlockName(name){
     try{
       await sheetsAppend(CFG.TITLES_SHEET_ID, 'Blocks', [block_id, name, sortOrder, '']);
     }catch(e){
-      showReconnect('Adding release block failed to save to the Sheet: '+e.message+' — the new block is visible locally this session but was NOT saved; a reload will lose it.');
+      const auth = isAuthFailure(e);
+      showReconnect('Adding release block failed to save to the Sheet: '+(auth?'signed out / token expired.':e.message)+' — the new block is visible locally this session but was NOT saved; a reload will lose it.'+(auth?' Click Reconnect, then re-pick it from the dropdown to save it.':''), auth);
       console.error(e);
     }
   }
@@ -376,42 +385,102 @@ function autoGrow(el){ if(!el) return; el.style.height='auto'; el.style.height=(
 function autoGrowAll(root){ (root||document).querySelectorAll('textarea.autoexpand').forEach(autoGrow); }
 
 // ─── SHEETS API ───
-function authHeaders(){
-  const tok = window.BookHubAuth ? window.BookHubAuth.getAccessToken() : null;
-  if(!tok) throw new Error('Not signed in / token expired.');
-  return { 'Authorization': 'Bearer '+tok };
+// 2026-08-11 (Marcus Webb) — token-expiry incident fix. Previously
+// authHeaders() synchronously pulled whatever token happened to be cached
+// and threw immediately if it had expired, with nothing upstream ever
+// refreshing it — a session left open past ~1hr would then fail every save
+// from that point on ("Save failed: Not signed in / token expired") until
+// David manually reloaded the page, which also discarded any unsaved edits
+// sitting only in the in-memory `data` object. See
+// book_production_hub_save_failed_token_expired_2026-08-11 memory.
+//
+// Fix, two layers:
+//  1. authHeaders() is now async and calls BookHubAuth.ensureFreshToken(),
+//     which silently refreshes the token in the background if it's close
+//     to expiry (google-auth.js also proactively keeps it warm on a timer,
+//     so this should almost always be an instant no-op).
+//  2. AuthExpiredError + withAuthRetry(): if a request still comes back
+//     needing auth (ensureFreshToken() couldn't get a silent token, or the
+//     API itself returns 401 — e.g. access was revoked externally),
+//     sheetsGet/Put/Append make ONE more attempt after an explicit
+//     BookHubAuth.reconnect() (still silent-first) before giving up. Only
+//     if that also fails does the caller see an AuthExpiredError — at which
+//     point saveTitle()/saveIsbn() show the reconnect banner, which now has
+//     a real "Reconnect" button (see onReconnectClick) instead of just a
+//     dismiss "x". Unsaved edits are never dropped by any of this — they
+//     stay in the in-memory `data` object regardless of save outcome, and
+//     pendingSaveTitleIds (below) drives an automatic retry-all the moment
+//     reconnect succeeds.
+class AuthExpiredError extends Error {}
+
+async function authHeaders(){
+  if(!window.BookHubAuth) throw new AuthExpiredError('Not signed in / token expired.');
+  try{
+    const tok = await window.BookHubAuth.ensureFreshToken();
+    return { 'Authorization': 'Bearer '+tok };
+  }catch(e){
+    throw new AuthExpiredError('Not signed in / token expired.');
+  }
+}
+function isAuthFailure(e){
+  return e instanceof AuthExpiredError || /^Sheets (GET|PUT|APPEND) 401\b/.test(e && e.message || '');
+}
+// Wraps a single Sheets API attempt with one automatic reconnect-and-retry
+// if it fails for an auth reason. Network/permission/other API errors
+// (403 not-shared-with-you, 5xx, etc.) pass straight through unchanged —
+// only auth failures get the retry, so this never masks a real problem.
+async function withAuthRetry(fn){
+  try{
+    return await fn();
+  }catch(e){
+    if(!isAuthFailure(e)) throw e;
+    await new Promise((resolve,reject)=>{
+      if(!window.BookHubAuth) { reject(e); return; }
+      window.BookHubAuth.reconnect(()=>resolve(), (err)=>reject(err||e));
+    });
+    return await fn(); // one retry only — a second failure bubbles up for real
+  }
 }
 async function sheetsGet(spreadsheetId, range){
-  const url = SHEETS_API+spreadsheetId+'/values/'+encodeURIComponent(range);
-  const resp = await fetch(url, { headers: authHeaders() });
-  if(!resp.ok){
-    const body = await resp.text().catch(()=>'');
-    throw new Error('Sheets GET '+resp.status+' on '+range+': '+body.slice(0,300));
-  }
-  const j = await resp.json();
-  return j.values || [];
+  return withAuthRetry(async ()=>{
+    const url = SHEETS_API+spreadsheetId+'/values/'+encodeURIComponent(range);
+    const resp = await fetch(url, { headers: await authHeaders() });
+    if(resp.status===401) throw new AuthExpiredError('Sheets GET 401 on '+range);
+    if(!resp.ok){
+      const body = await resp.text().catch(()=>'');
+      throw new Error('Sheets GET '+resp.status+' on '+range+': '+body.slice(0,300));
+    }
+    const j = await resp.json();
+    return j.values || [];
+  });
 }
 async function sheetsPut(spreadsheetId, range, rowValues){
-  const url = SHEETS_API+spreadsheetId+'/values/'+encodeURIComponent(range)+'?valueInputOption=USER_ENTERED';
-  const resp = await fetch(url, { method:'PUT', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ values:[rowValues] }) });
-  if(!resp.ok){
-    const body = await resp.text().catch(()=>'');
-    throw new Error('Sheets PUT '+resp.status+' on '+range+': '+body.slice(0,300));
-  }
-  return resp.json();
+  return withAuthRetry(async ()=>{
+    const url = SHEETS_API+spreadsheetId+'/values/'+encodeURIComponent(range)+'?valueInputOption=USER_ENTERED';
+    const resp = await fetch(url, { method:'PUT', headers: Object.assign({'Content-Type':'application/json'}, await authHeaders()), body: JSON.stringify({ values:[rowValues] }) });
+    if(resp.status===401) throw new AuthExpiredError('Sheets PUT 401 on '+range);
+    if(!resp.ok){
+      const body = await resp.text().catch(()=>'');
+      throw new Error('Sheets PUT '+resp.status+' on '+range+': '+body.slice(0,300));
+    }
+    return resp.json();
+  });
 }
 async function sheetsAppend(spreadsheetId, sheetName, rowValues){
-  const range = sheetName+'!A1';
-  const url = SHEETS_API+spreadsheetId+'/values/'+encodeURIComponent(range)+':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
-  const resp = await fetch(url, { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify({ values:[rowValues] }) });
-  if(!resp.ok){
-    const body = await resp.text().catch(()=>'');
-    throw new Error('Sheets APPEND '+resp.status+' on '+sheetName+': '+body.slice(0,300));
-  }
-  const j = await resp.json();
-  // updatedRange looks like "Titles!A17:AN17" — pull the row number out.
-  const m = /![A-Z]+(\d+):/.exec((j.updates||{}).updatedRange||'');
-  return m ? parseInt(m[1],10) : null;
+  return withAuthRetry(async ()=>{
+    const range = sheetName+'!A1';
+    const url = SHEETS_API+spreadsheetId+'/values/'+encodeURIComponent(range)+':append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS';
+    const resp = await fetch(url, { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, await authHeaders()), body: JSON.stringify({ values:[rowValues] }) });
+    if(resp.status===401) throw new AuthExpiredError('Sheets APPEND 401 on '+sheetName);
+    if(!resp.ok){
+      const body = await resp.text().catch(()=>'');
+      throw new Error('Sheets APPEND '+resp.status+' on '+sheetName+': '+body.slice(0,300));
+    }
+    const j = await resp.json();
+    // updatedRange looks like "Titles!A17:AN17" — pull the row number out.
+    const m = /![A-Z]+(\d+):/.exec((j.updates||{}).updatedRange||'');
+    return m ? parseInt(m[1],10) : null;
+  });
 }
 
 // ─── TITLE ROW <-> OBJECT MAPPING ───
@@ -696,8 +765,14 @@ async function loadAllData(){
 }
 function findRowIndex(arr, item){ return arr.indexOf(item); }
 
-function showReconnect(msg){
+// `authFailure` (default true) controls whether the banner's Reconnect
+// button is shown — no point offering it for a non-auth error (e.g. a 403
+// "not shared with you" or a genuine network outage) where retrying the
+// same request will just fail the same way again.
+function showReconnect(msg, authFailure){
   document.getElementById('reconnect-msg').textContent = msg;
+  const btn = document.getElementById('reconnect-retry-btn');
+  if(btn) btn.style.display = (authFailure===false) ? 'none' : '';
   document.getElementById('reconnect-banner').classList.remove('hidden');
 }
 function setSyncStatus(s){
@@ -708,6 +783,7 @@ function setSyncStatus(s){
 // ─── SAVE (debounced full-row rewrite, mirrors headpress.html's debounced-save pattern) ───
 function debouncedSave(titleId){
   if(devMode) return; // preview only, never writes
+  pendingSaveTitleIds.add(titleId);
   clearTimeout(saveTimer);
   saveTimer = setTimeout(()=>saveTitle(titleId), 1000);
 }
@@ -725,11 +801,21 @@ async function saveTitle(titleId){
       const assignedRow = await sheetsAppend(CFG.TITLES_SHEET_ID, 'Titles', row);
       if(assignedRow) t._row = assignedRow;
     }
+    pendingSaveTitleIds.delete(titleId);
     setSyncStatus('saved');
     document.getElementById('footer-last-saved').textContent = 'Saved '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});
   }catch(e){
+    // NOTE: titleId deliberately stays in pendingSaveTitleIds here — the
+    // edit is safe in memory (t already holds it) and will be retried
+    // automatically the moment reconnect succeeds (see onReconnectClick).
     setSyncStatus('error');
-    showReconnect('Save failed: '+e.message);
+    const auth = isAuthFailure(e);
+    showReconnect(
+      auth
+        ? 'Save failed: signed out / token expired. Your edits are kept — click Reconnect to sign back in and save them.'
+        : 'Save failed: '+e.message,
+      auth
+    );
     console.error(e);
   }
 }
@@ -744,10 +830,65 @@ async function saveIsbn(rec){
       if(assignedRow) rec._row = assignedRow;
     }
   }catch(e){
-    showReconnect('ISBN save failed: '+e.message);
+    const auth = isAuthFailure(e);
+    showReconnect(auth ? 'ISBN save failed: signed out / token expired. Click Reconnect and try again.' : 'ISBN save failed: '+e.message, auth);
     console.error(e);
   }
 }
+
+// 2026-08-11 (Marcus Webb) — the reconnect banner's "Reconnect" button.
+// Tries a silent reconnect first (no popup, works as long as David's
+// underlying Google browser session is still alive — the common case);
+// only falls back to the interactive "Sign in with Google" overlay if that
+// genuinely fails. Either way, the moment we're signed in again, every
+// title with an unsaved edit (pendingSaveTitleIds) gets its save retried
+// automatically — David doesn't have to touch each field again.
+function onReconnectClick(){
+  const btn = document.getElementById('reconnect-retry-btn');
+  if(btn){ btn.disabled = true; btn.textContent = 'Reconnecting…'; }
+  window.BookHubAuth.reconnect(
+    async () => {
+      if(btn){ btn.disabled = false; btn.textContent = 'Reconnect'; }
+      document.getElementById('reconnect-banner').classList.add('hidden');
+      document.getElementById('whoami').textContent = 'Signed in';
+      if(!data.titles.length && !data.blocks.length){
+        await loadAllData(); // initial load itself failed — retry it now we're reconnected
+      } else {
+        await retryPendingSaves();
+      }
+    },
+    () => {
+      if(btn){ btn.disabled = false; btn.textContent = 'Reconnect'; }
+      // Silent reconnect failed (e.g. the Google session itself is gone) —
+      // surface the normal interactive sign-in overlay instead of forcing a
+      // page reload, so pendingSaveTitleIds / in-memory edits survive.
+      document.getElementById('reconnect-msg').textContent =
+        'Could not reconnect silently — please sign in again below. Your unsaved edits are kept and will save automatically once you do.';
+      const errEl = document.getElementById('auth-error');
+      if(errEl){ errEl.style.display = 'none'; }
+      document.getElementById('auth-overlay').classList.remove('hidden');
+    }
+  );
+}
+// Retries every title currently believed unsaved. Safe to call any time —
+// saveTitle() no-ops harmlessly if a title is already gone/renamed, and
+// re-saving a title that actually did succeed just writes the same row
+// again (idempotent, no duplicate rows: sheetsPut/Append key off t._row).
+async function retryPendingSaves(){
+  const ids = Array.from(pendingSaveTitleIds);
+  for(const id of ids){ await saveTitle(id); }
+}
+// Cheap last-resort safety net for the exact failure mode that caused the
+// 2026-08-11 incident (David reloading/closing the tab while a save was
+// still stuck failed, discarding in-memory-only edits): if anything is
+// still unsaved, the browser shows its native "leave site?" confirmation.
+window.addEventListener('beforeunload', function(e){
+  if(pendingSaveTitleIds.size > 0){
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
+  }
+});
 
 // ─── SECTION STATUS / ATTENTION ───
 function hasAttention(t){
