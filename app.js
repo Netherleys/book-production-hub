@@ -98,7 +98,10 @@ const PRINTER_DEF = [
 // loadAllData()/loadDevSampleData()) and read synchronously off this cache
 // from here on, same pattern as `isbns`.
 let data = { titles: [], isbns: [], blocks: [] };
-let view = 'titles', selectedId = null, saveTimer = null, syncStatus = 'none';
+// 2026-08-11: saveTimer (singular) removed — see saveTimers map + the
+// debouncedSave()/flushPendingSave() comment block further down for why a
+// single shared timer was the root cause of a real data-loss bug.
+let view = 'titles', selectedId = null, syncStatus = 'none';
 let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', printTiming:'' }, isbnFilter = 'all';
 let isbnLocked = {}; // titleId -> {isbnPbk:bool, isbnHbk:bool, isbnEbk:bool} — true = locked (default). Item 18 lock mechanism, session-only by design (see build report).
 let qnOpen = false;
@@ -638,7 +641,12 @@ function rowToTitle(row){
   // 20, posters and photographs". Migrated automatically from the old
   // illustrationCount on first load if illustrationsText was never set, so
   // existing data isn't silently blanked.
-  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:''}, safeJson(c.productionNotes_json, {}));
+  // Round 11, item 4c (2026-08-11) — pagesBreakdown added the same way
+  // illustrationsText was (item 19 above): a new key inside the existing
+  // productionNotes_json blob, no new Sheet column needed. Free text only,
+  // David's own reference notes (e.g. "front matter i-iv; body of book
+  // 1-172") — never parsed/computed against anywhere else.
+  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',printStatusOverride:''}, safeJson(c.productionNotes_json, {}));
   let illustrationsText = pn.illustrationsText;
   if(!illustrationsText && pn.illustrations && pn.illustrationCount) illustrationsText = String(pn.illustrationCount)+' illustrations';
   let checklist = pn.checklist && pn.checklist.length ? pn.checklist.map(x=>({text:x.item||x.text||'',checked:!!x.checked})) : PROD_CHECKLIST.map(t=>({text:t,checked:false}));
@@ -677,7 +685,7 @@ function rowToTitle(row){
     statusAuto: c.statusAuto==='' ? (c.status||'Not Scheduled')==='Not Scheduled' : toBool(c.statusAuto),
     planningSheet: c.planningSheet||'', bookBiblePresent: toBool(c.bookBiblePresent), lastUpdated: c.lastUpdated||'',
     blockId: c.blockId||'',
-    dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc) },
+    dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc), printStatusOverride: pn.printStatusOverride||'' },
     commercial: {
       isbnPbk: c.isbn_pbk||'', isbnHbk: c.isbn_hbk||'', isbnEbk: c.isbn_ebk||'',
       // Backup ISBN fields removed from the UI entirely (item 18 — see build
@@ -688,7 +696,8 @@ function rowToTitle(row){
       _backupIsbnPbkRaw: c.isbn_pbk_backup||'', _backupIsbnEbkRaw: c.isbn_ebk_backup||'',
       trimSize: c.trim||'', pages: c.pages||'', categoryUK: c.categoryUK||'', categoryUSA: c.categoryUSA||'',
       nielsenNotified: toBool(c.nielsenNotified),
-      illustrationsText: illustrationsText||''
+      illustrationsText: illustrationsText||'',
+      pagesBreakdown: pn.pagesBreakdown||''
     },
     price,
     content: { keywords: c.keywords||'', fullDescription: editorial.fullDescription, jacketBlurb: editorial.jacketBlurb, briefDescription: editorial.briefDescription, salesHandle: editorial.salesHandle, sellingPoints: (publicity.sellingPoints||[]).join('\n'), quotes: (publicity.quotes||[]).join('\n'), targetAudience: publicity.targetAudience },
@@ -726,7 +735,8 @@ function titleToRow(t){
     proofingNotes: t.productionNotes.proofingNotes||'', typesettingNotes: t.productionNotes.typesettingNotes||'',
     lsiNotes: t.print.forLsiNotes||'', scbEbookCover: t.print.scbEbookCoverSpec||'', printerEstimates: t.print.printEstimate||'',
     futureEditionNotes: t.futureEdition.infoAndChanges||'', printReadyFiles: t.futureEdition.printReadyFilesStatus||'Not Ready',
-    illustrationsText: t.commercial.illustrationsText||'', poManualNotes: t.poManualNotes||''
+    illustrationsText: t.commercial.illustrationsText||'', poManualNotes: t.poManualNotes||'',
+    pagesBreakdown: t.commercial.pagesBreakdown||'', printStatusOverride: t.dates.printStatusOverride||''
   });
   const printerContacts_json = JSON.stringify({ contacts: t.print.printerContacts||[] });
   const filesLinks_json = JSON.stringify({ links: t.filesLinks.links||[] });
@@ -787,8 +797,14 @@ function defTitle(o={}){
     // David picks a value himself via statusEditSelect/onStatusChange.
     statusAuto:true,
     planningSheet:'', bookBiblePresent:false, lastUpdated:'', blockId:'',
-    dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false},
-    commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:''},
+    dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false,printStatusOverride:''},
+    commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:'',pagesBreakdown:''},
+    // Round 11, item 4a (2026-08-11) — pbkUSD kept in the data model (still
+    // read/written round-trip) even though its UI field is gone — see the
+    // long comment above renderCommercial()'s price rows for why: 9 of 26
+    // live titles have real $-price data sitting in this exact key, so it's
+    // preserved rather than dropped, same non-destructive precedent as
+    // _backupIsbnPbkRaw/_backupIsbnEbkRaw just above.
     price:{pbkGBP:'',pbkUSD:'',ebkUSD:'',hbkGBP:''},
     content:{keywords:'',fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',sellingPoints:'',quotes:'',targetAudience:''},
     authorInfo:{bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:'',contributorRole:'Author(s)'},
@@ -946,11 +962,40 @@ function setSyncStatus(s){
 }
 
 // ─── SAVE (debounced full-row rewrite, mirrors headpress.html's debounced-save pattern) ───
+// 2026-08-11 (Marcus Webb, David's batch) — ROOT CAUSE FIX for the
+// data-loss bug flagged the same day as the token-refresh incident: this
+// used to key off ONE shared `saveTimer` variable for every title. Editing
+// title A, then switching to title B within the 1s debounce window,
+// cleared A's timer via clearTimeout(saveTimer) and replaced it with B's —
+// A's edit stayed correct in memory (and in pendingSaveTitleIds) but its
+// setTimeout callback had been silently cancelled, so saveTitle(A) would
+// never actually run unless David happened to reopen title A later or a
+// reconnect triggered retryPendingSaves(). That's a real, silent,
+// indefinite loss — not just a delay. Fixed at the root by giving every
+// title its OWN debounce timer (saveTimers, keyed by titleId) so switching
+// titles can never cancel a different title's pending save again.
+let saveTimers = {}; // titleId -> setTimeout id
 function debouncedSave(titleId){
   if(devMode) return; // preview only, never writes
   pendingSaveTitleIds.add(titleId);
-  clearTimeout(saveTimer);
-  saveTimer = setTimeout(()=>saveTitle(titleId), 1000);
+  clearTimeout(saveTimers[titleId]);
+  saveTimers[titleId] = setTimeout(()=>{ delete saveTimers[titleId]; saveTitle(titleId); }, 1000);
+}
+// Belt-and-braces on top of the per-title-timer fix above: if the title
+// David is actively navigating AWAY from still has a live, not-yet-fired
+// debounce timer (i.e. he edited a field in the last <1s and is now
+// switching titles/views before it would have fired on its own), save it
+// immediately instead of waiting — so there's never a live pending edit
+// sitting only in a timer that a stray reload/crash could still catch
+// between now and 1s from now. Called from every gotoX() navigation
+// function below. Safe to call on a title with nothing pending (no-op).
+function flushPendingSave(titleId){
+  if(!titleId) return;
+  if(saveTimers[titleId]){
+    clearTimeout(saveTimers[titleId]);
+    delete saveTimers[titleId];
+    saveTitle(titleId);
+  }
 }
 async function saveTitle(titleId){
   if(devMode) return; // preview only, never writes — guarded here too since
@@ -1059,6 +1104,14 @@ window.addEventListener('beforeunload', function(e){
 function hasAttention(t){
   const now=new Date();now.setHours(0,0,0,0);
   if(t.pipeline.stages.some(s=>s.status==='In Progress'&&s.expectedDate&&new Date(s.expectedDate)<now))return true;
+  // 2026-08-11 (item 3 follow-up) — same override-consistency fix as
+  // getSectionStatus's 'dates' case just above: a card's red "needs
+  // attention" dot is driven by this function, which used to compute the
+  // print-date proximity fresh every time, blind to printStatusOverride —
+  // so a title David explicitly marked "In Print" would still flash the
+  // attention dot from a Print Date that's since passed. "Delayed / On
+  // Hold" is the one override value that SHOULD still flag attention.
+  if(t.dates.printStatusOverride) return t.dates.printStatusOverride==='Delayed / On Hold';
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   if(pd){const d=daysUntil(pd);if(d!==null&&d<=60&&!isPublished(t))return true;}
   return false;
@@ -1070,7 +1123,36 @@ function hasAttention(t){
 //   colorClass: which of the 4 status colours to paint (published/overdue
 //   share their kind's colour; 'counting' has 3 shade tiers — ok/notice/
 //   due-soon — all deliberately short of the alarm red reserved for overdue)
+// Round 11, item 3 (2026-08-11) — Print Status manual-override lock.
+// INVESTIGATION FINDING (flagged in the build report, not guessed past):
+// before this change, "Print Status" was NOT a manually-set field at all —
+// there was no stored value for it anywhere; it was 100% computed fresh
+// every render, purely from Print Date vs today (via this exact function),
+// completely ignoring the overall Status field. That's the actual root
+// cause of "gets stuck on OVERDUE even after I try to change it" — David
+// was very likely changing the overall Status dropdown (expecting Print
+// Status to follow), which this function never looked at, so a passed
+// Print Date kept showing OVERDUE regardless of what Status said.
+// Fix: a genuine manual override, same design pattern as the existing
+// Status auto-derivation lock (statusAuto/applyStatusAutoRules above) —
+// once David explicitly sets one of PRINT_STATUS_OVERRIDES via the new
+// control in renderDates(), it sticks permanently (checked FIRST, ahead of
+// even the Published/overdue auto-logic below) until he explicitly sets it
+// back to "Auto (from Print Date)". Persisted as
+// productionNotes_json.printStatusOverride (existing JSON-blob pattern, no
+// new Sheet column — see illustrationsText/pagesBreakdown for precedent).
+// NOTE: this is the sensible-fix-first attempt the brief asked for, not a
+// confirmed exact match to David's mental model — flagged directly to him
+// in the build report to confirm this is the state model he actually wants.
+const PRINT_STATUS_OVERRIDES = {
+  'In Print': {colorClass:'ok'},
+  'Printed': {colorClass:'published'},
+  'Delayed / On Hold': {colorClass:'notice'}
+};
 function computeDayInfo(t){
+  if(t.dates.printStatusOverride && PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride]){
+    return {kind:'manual', label:t.dates.printStatusOverride, colorClass:PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride].colorClass};
+  }
   if(isPublished(t)) return {kind:'published', label:'Published', colorClass:'published'};
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   if(pd){
@@ -1101,6 +1183,15 @@ function getSectionStatus(t,key){
       return t.pipeline.stages.every(s=>s.status==='Complete')?'complete':'partial';
     }
     case 'dates':{
+      // 2026-08-11 (item 3 follow-up, caught in live testing) — this drives
+      // the accordion header's coloured left-border stripe, and used to be a
+      // second, separate "is the print date overdue" calculation living
+      // completely apart from computeDayInfo() — so setting a Print Status
+      // override (e.g. "In Print") updated the Print Status text itself but
+      // left this stripe showing red/overdue regardless, a visible
+      // contradiction confirmed live (dev-preview screenshot, same session).
+      // Checked first, same override-wins priority as computeDayInfo().
+      if(t.dates.printStatusOverride) return t.dates.printStatusOverride==='Delayed / On Hold' ? 'overdue' : 'complete';
       if(isPublished(t))return 'complete';
       if(!t.dates.streetDate)return 'partial';
       const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
@@ -1199,10 +1290,15 @@ function render(){
   // filter toolbar wraps to.
   syncHeaderHeight();
 }
-function gotoTitles(){view='titles';selectedId=null;render();}
-function gotoISBNs(){view='isbns';render();}
-function gotoDetail(id){view='detail';selectedId=id;render();}
-function gotoQuickNotesList(){view='quicknotes';render();}
+// 2026-08-11 — every navigation-away path flushes the CURRENTLY selected
+// title's pending debounce first (see flushPendingSave() above). selectedId
+// is only ever meaningfully "active" while view==='detail', so this is a
+// safe no-op the rest of the time (flushPendingSave() itself no-ops if
+// there's nothing pending or titleId is null).
+function gotoTitles(){flushPendingSave(selectedId);view='titles';selectedId=null;render();}
+function gotoISBNs(){flushPendingSave(selectedId);view='isbns';render();}
+function gotoDetail(id){if(selectedId&&selectedId!==id)flushPendingSave(selectedId);view='detail';selectedId=id;render();}
+function gotoQuickNotesList(){flushPendingSave(selectedId);view='quicknotes';render();}
 // Item 1 (Round 2) — see render()'s comment above for why this exists.
 // Measured on a rAF tick so it runs after the browser has actually laid
 // out the just-injected HTML (offsetHeight would still read the PREVIOUS
@@ -1494,7 +1590,14 @@ function renderDetail(){
   // via regex — SECTION_LABELS builds its own numbering dynamically now
   // (see the SECTION_KEYS/SECTION_LABELS block above), so the label text is
   // already just the plain name.
-  const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav">${SECTION_KEYS.map(k=>`<a class="toc-side-item" href="#asec-${t.id}-${k}">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`).join('')}</nav>`;
+  // Item 9b (2026-08-11) — href kept (right-click/open-in-new-tab/no-JS
+  // fallback still works, native anchor scroll still fires) but the actual
+  // click is intercepted by jumpToSection(), which forces the target
+  // section open (if collapsed) before scrolling to it — see that
+  // function's comment for why a plain href alone wasn't enough.
+  // data-section-key lets the scroll-spy (item 9a, setupSectionScrollSpy())
+  // find/mark the right sidebar item without re-deriving it from the DOM.
+  const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav">${SECTION_KEYS.map(k=>`<a class="toc-side-item" data-section-key="${k}" href="#asec-${t.id}-${k}" onclick="jumpToSection('${t.id}','${k}');return false;">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`).join('')}</nav>`;
   main.innerHTML=`
     <div class="detail-header-row">
       <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
@@ -1540,6 +1643,7 @@ function renderDetail(){
   // e.g. navigating away and back) and hasn't been fetched yet; the normal
   // first-open case is handled by toggleAccord() itself.
   if(isOpen(t.id,'poTracker') && !poTrackerLoadedFor[t.id]){ poTrackerLoadedFor[t.id]=true; loadPoTrackerFor(t.id); }
+  setActiveSideNavItem(SECTION_KEYS[0]); // sensible default until the first scroll tick fires
 }
 
 // New fields from brief §3: images folder link + working folder link
@@ -1584,32 +1688,39 @@ function renderDetail(){
 // Image URL field, documenting the GitHub-upload workflow David uses
 // himself (repo's covers/ folder → Add file → Upload files → commit → paste
 // the resulting covers/<filename> path back in here).
+// Round 11, items 2b/2c (2026-08-11) — restyled to lead with the same
+// pill-button aesthetic as .btn-export ("View HTML Output ↗" etc, David's
+// explicit reference point) instead of showing the raw bold path as the
+// primary visual — see the CSS comment above .link-action-row/.link-value-
+// edit in index.html for the full reasoning. Functionality unchanged: same
+// fc()/onCoverUrlChange() handlers, same openImagesFolder()/
+// revealWorkingFolder() actions, same field ids.
 function renderLinksStrip(t){
   const id=t.id;
+  const imgSet=!!(t.imagesFolderLink&&t.imagesFolderLink.trim());
+  const wfSet=!!(t.workingFolderLink&&t.workingFolderLink.trim());
   return `<div class="links-strip-box">
     <div class="links-strip-label">Cover &amp; Folder Links</div>
     <div class="folder-links-row">
       <div class="folder-link-group">
         <label class="field-label">Cover Image URL</label>
-        <div class="folder-link-row">
-          <input type="text" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="covers/title-id.jpg, or a direct image URL (NOT a 1drv.ms/OneDrive share link — see code comment)" oninput="onCoverUrlChange('${id}',this.value)">
-        </div>
+        <input type="text" class="link-value-edit" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="Not set — paste covers/title-id.jpg or a direct image URL" oninput="onCoverUrlChange('${id}',this.value)">
         <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
         <div class="field-help">To add a new cover: go to this repo's <code>covers</code> folder on github.com &rarr; "Add file" &rarr; "Upload files" &rarr; drag the image in &rarr; commit &rarr; paste the resulting <code>covers/&lt;filename&gt;</code> path in above.</div>
       </div>
       <div class="folder-link-group">
         <label class="field-label">Images Folder (OneDrive)</label>
-        <div class="folder-link-row">
-          <input type="url" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" placeholder="https://onedrive.live.com/…" oninput="fc('${id}','imagesFolderLink',this.value)">
-          <button class="btn btn-sm" onclick="openImagesFolder('${id}')">Open</button>
+        <div class="link-action-row">
+          <button class="btn btn-export ${imgSet?'':'is-empty'}" type="button" onclick="openImagesFolder('${id}')">${imgSet?'Open Images Folder':'No Images Folder Set'} &#8599;</button>
         </div>
+        <input type="url" class="link-value-edit" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" placeholder="Not set — paste a OneDrive folder link" oninput="fc('${id}','imagesFolderLink',this.value)">
       </div>
       <div class="folder-link-group">
         <label class="field-label">Working Folder (local)</label>
-        <div class="folder-link-row">
-          <input type="text" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" placeholder="D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
-          <button class="btn btn-sm" onclick="revealWorkingFolder('${id}')">Reveal in Explorer</button>
+        <div class="link-action-row">
+          <button class="btn btn-export ${wfSet?'':'is-empty'}" type="button" onclick="revealWorkingFolder('${id}')">${wfSet?'Reveal in Explorer':'No Working Folder Set'} &#128269;</button>
         </div>
+        <input type="text" class="link-value-edit" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" placeholder="Not set — paste D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
       </div>
     </div>
   </div>`;
@@ -1699,15 +1810,36 @@ function openImagesFolder(titleId){
 // gallery.js has — on failure this instead surfaces the raw path so David
 // can navigate to it by hand. Documented as a scoped-down fallback in the
 // build report, not a silent gap.
+// 2026-08-11 (Marcus Webb, David's batch, item 2a) — book_reveal_helper.py
+// now auto-starts silently at every Windows logon (a Startup-folder shortcut
+// launching it headless via pythonw.exe — see the .py file's own docstring
+// and the shortcut's own Description field for the full reasoning), so "is
+// it running?" should no longer be the live question most of the time.
+// What this function fixes on the JS side: it used to treat EVERY non-ok
+// response identically to "unreachable", even when the helper answered
+// perfectly fine with a specific reason (403 = path outside the allowed
+// D:\PROJECTS - BOOKS root, 404 = path doesn't exist on disk) — genuinely
+// misleading David toward "is the helper running?" when the real problem
+// was the PATH. (Confirmed live 2026-08-11 against David's own "Last Orgy
+// By The Cemetery" example: its Working Folder field currently holds a
+// C:\...\OneDrive\_IMAGES & COVERS & LOGOS\... path, NOT the real
+// D:\PROJECTS - BOOKS\Book_Last Orgy By The Cemetery working folder that
+// actually exists on disk — that's a second, independent reason this
+// specific title's reveal was failing, flagged separately in the build
+// report rather than silently corrected, since it's David's data, not a
+// code bug.) Now surfaces the helper's own JSON error message when it has
+// one, and only falls back to the generic "is it running" message for a
+// genuine network failure/timeout.
 async function revealWorkingFolder(titleId){
   const t=getTitle(titleId);if(!t)return;
   const path=t.workingFolderLink;
   if(!path){alert('No working folder path set for this title yet.');return;}
   const helperUrl=(CFG.BOOK_REVEAL_HELPER_URL||'http://127.0.0.1:8744')+'/reveal';
+  let resp=null;
   try{
     const controller=new AbortController();
     const timer=setTimeout(()=>controller.abort(),1200);
-    const resp=await fetch(helperUrl+'?path='+encodeURIComponent(path),{signal:controller.signal});
+    resp=await fetch(helperUrl+'?path='+encodeURIComponent(path),{signal:controller.signal});
     clearTimeout(timer);
     if(resp.ok)return; // Explorer opened by the helper — done.
     console.warn('Reveal helper responded but not OK (status '+resp.status+').');
@@ -1715,9 +1847,17 @@ async function revealWorkingFolder(titleId){
     console.warn('Reveal helper not reachable (is book_reveal_helper.py running?):',e);
   }
   // Fallback: no live-folder-handle mechanism in this app (see note above)
-  // — give David the path directly so he can navigate to it himself.
+  // — give David the path directly so he can navigate to it himself, plus
+  // the most specific reason available.
   try{ await navigator.clipboard.writeText(path); }catch(e){}
-  alert('Could not reach the local reveal helper (is book_reveal_helper.py running on port 8744?).\n\nPath copied to clipboard:\n'+path);
+  let reason='Could not reach the local reveal helper (is book_reveal_helper.py running on port 8744? — it should now auto-start at Windows logon; if it still isn\'t, double-click start_book_reveal_helper.bat in the Book Production Hub folder).';
+  if(resp){
+    try{
+      const body=await resp.json();
+      if(body&&body.error) reason='Reveal helper reached, but refused: '+body.error+(resp.status===403?' — check the Working Folder path for this title is really under D:\\PROJECTS - BOOKS\\.':'');
+    }catch(e2){ reason='Reveal helper responded with an error (status '+resp.status+').'; }
+  }
+  alert(reason+'\n\nPath copied to clipboard:\n'+path);
 }
 
 // Item 12 (Round 2) — new standalone "Key Contacts" block, sitting directly
@@ -1801,22 +1941,100 @@ function renderSectionBody(t,key){
 // permanently un-collapsible) is removed; every section, including these
 // two, now toggles the same way.
 let poTrackerLoadedFor = {}; // titleId -> true once its live data has been fetched this session
-function toggleAccord(tid,key){
+// 2026-08-11 — toggleAccord() and the new jumpToSection() (item 9b) both
+// need to "make a section open" (one toggles, one always-opens-never-
+// closes), so the actual open/close mechanics are factored out here once.
+// Item 6 fix included: autoexpand textareas (Selling Points/Quotes — the
+// two taAuto() fields that couldn't be converted to richTa, see item 5's
+// comment on why) size themselves via scrollHeight, which reads as 0 (or
+// whatever CSS min-height happens to be) for any element inside a
+// display:none ancestor — exactly the state a COLLAPSED accord-body sits
+// in. Previously autoGrow() only ever ran once, globally, right after
+// renderDetail() — for any section that was collapsed AT THAT MOMENT, its
+// textareas got measured while invisible, baking in a wrong/tiny height
+// that toggleAccord() (a plain class-toggle, no re-render) never
+// recalculated on a later reopen. Fixed by re-running autoGrowAll() scoped
+// to just this section's body every time it actually becomes visible.
+function setAccordOpen(tid,key,openState){
   const k=`${tid}-${key}`;
-  const cur=isOpen(tid,key);accordionOpen[k]=!cur;
-  const body=document.querySelector(`[data-accord="${k}"]`);if(body)body.classList.toggle('open',accordionOpen[k]);
-  const hdr=document.querySelector(`[data-accord-header="${k}"]`);if(hdr){const arr=hdr.querySelector('.accord-arrow');if(arr)arr.classList.toggle('open',accordionOpen[k]);}
+  accordionOpen[k]=openState;
+  const body=document.querySelector(`[data-accord="${k}"]`);
+  if(body){ body.classList.toggle('open',openState); if(openState) autoGrowAll(body); }
+  const hdr=document.querySelector(`[data-accord-header="${k}"]`);
+  if(hdr){ const arr=hdr.querySelector('.accord-arrow'); if(arr) arr.classList.toggle('open',openState); }
   // PO Tracker's live-fetched tables (print estimates / PO & Invoice pulls)
   // used to load automatically because the section was always open on
   // render — now that it starts closed like everything else, kick the fetch
   // off the first time it's actually opened instead (once per title per
   // session; the "Loading…" placeholder in renderPoTracker() is what's
   // sitting there until this fires).
-  if(key==='poTracker' && accordionOpen[k] && !poTrackerLoadedFor[tid]){
+  if(key==='poTracker' && openState && !poTrackerLoadedFor[tid]){
     poTrackerLoadedFor[tid]=true;
     loadPoTrackerFor(tid);
   }
 }
+function toggleAccord(tid,key){ setAccordOpen(tid,key,!isOpen(tid,key)); }
+// Item 9b (2026-08-11) — clicking a sidebar item used to be a plain <a
+// href="#asec-...">, which relies on the browser's native anchor-scroll —
+// it scrolls to the section's OUTER box just fine, but does nothing to open
+// it if it's currently collapsed, so David would land on an empty collapsed
+// header rather than the content he clicked for. Now a real function: force
+// the section open first (never closes an already-open one — this is a
+// "take me there" action, not a toggle) via setAccordOpen(), THEN scroll.
+// .accord-section already has scroll-margin-top set (index.html) to clear
+// the fixed header, so a plain scrollIntoView is enough — no manual offset
+// math needed here.
+function jumpToSection(tid,key){
+  if(!isOpen(tid,key)) setAccordOpen(tid,key,true);
+  const el=document.getElementById(`asec-${tid}-${key}`);
+  if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+  setActiveSideNavItem(key);
+}
+// Item 9a (2026-08-11) — scroll-spy active-state highlighting for the
+// floating sidebar. The .toc-side-item.active CSS rule (index.html) already
+// existed — it was written for this same feature but never actually wired
+// up to anything in JS, so it's been permanently dead code until now.
+function setActiveSideNavItem(key){
+  document.querySelectorAll('.toc-side-item').forEach(a=>{
+    a.classList.toggle('active', a.dataset.sectionKey===key);
+  });
+}
+// Recomputes which section is "current" by finding the LAST accord-header
+// whose top edge has scrolled up past a marker line just below the fixed
+// app header, then falling back to the very first header if none has (i.e.
+// David is still above/at the top of the content). Reading getBoundingClient
+// Rect() for every header on each tick is cheap (11 sections, max) — no
+// IntersectionObserver bookkeeping needed for something this small. Called
+// from a rAF-throttled scroll listener (see window.addEventListener
+// ('scroll', ...) below) so it costs nothing while idle and never runs more
+// than once per animation frame while scrolling.
+// 2026-08-11 — markerY MUST be >= .accord-section's own scroll-margin-top
+// (index.html: calc(var(--hh) + 46px)) — caught live in dev-preview testing:
+// with a smaller marker (was +24), jumpToSection()'s own scrollIntoView()
+// lands a freshly-opened section's header at top≈hh+46, which sat BELOW the
+// old +24 marker line — so the very next scroll-triggered recompute
+// (scrollIntoView fires real scroll events) immediately reverted the
+// highlight back to whatever section was active before the jump, undoing
+// jumpToSection()'s own setActiveSideNavItem() call a moment later. +50
+// clears the real +46 landing position with a small rounding buffer.
+function updateSectionScrollSpy(){
+  if(view!=='detail') return;
+  const headers=document.querySelectorAll('.accord-header[data-accord-header]');
+  if(!headers.length) return;
+  const markerY=(parseInt(getComputedStyle(document.documentElement).getPropertyValue('--hh'))||60)+50;
+  let best=null;
+  headers.forEach(h=>{ if(h.getBoundingClientRect().top<=markerY) best=h; });
+  if(!best) best=headers[0];
+  const akey=best.getAttribute('data-accord-header'); // `${titleId}-${key}`
+  if(!selectedId||!akey.startsWith(selectedId+'-')) return;
+  setActiveSideNavItem(akey.slice(selectedId.length+1));
+}
+let scrollSpyTicking=false;
+window.addEventListener('scroll', function(){
+  if(scrollSpyTicking) return;
+  scrollSpyTicking=true;
+  requestAnimationFrame(()=>{ updateSectionScrollSpy(); scrollSpyTicking=false; });
+}, {passive:true});
 
 // ─── SECTION RENDERS ───
 function frow(label,inputHtml,cls=''){return `<div class="field-group ${cls}"><label class="field-label">${label}</label>${inputHtml}</div>`;}
@@ -1837,19 +2055,50 @@ function taAuto(id,val,ph,handler){return `<textarea id="${id}" class="autoexpan
 // formatted blurbs out to distributors (flagged 2026-07-22, now fixed).
 // Stored value is the div's innerHTML; existing plain-text data (no tags)
 // renders identically to before, so nothing already saved is disturbed.
+// Round 11, item 5 (2026-08-11) — richTa() is now used well beyond the
+// original 3 Content & Marketing fields (see the SECTION RENDERS below —
+// Author/Print/Publicity/TOC/Production Notes/Future Edition fields that
+// used to be plain taAuto() textareas). A real number of those fields carry
+// EXISTING plain-text data saved with informal "one per line" newlines
+// (Socials & Societies, Previous Publications, Printer Contacts notes,
+// etc.) — a bare newline character has no meaning inside HTML/contenteditable
+// (browsers collapse it, same as any other whitespace), so dropping that raw
+// text straight into a contenteditable div as-is would visually COLLAPSE
+// every existing multi-line entry onto one run-on line the moment this
+// ships — not a real data loss (the stored string is untouched) but a
+// convincing-looking one the first time David opens an old title. Guarded
+// against here: plainToRichHtml() detects "no real HTML tags yet" and
+// wraps each existing line in its own <p>, one time, purely for display —
+// nothing is written back to the Sheet until David actually edits the
+// field, at which point it saves as real HTML paragraphs from then on,
+// same as any other richTa field.
+function plainToRichHtml(val){
+  if(!val) return '';
+  if(/<[a-z][\s\S]*>/i.test(val)) return val; // already real HTML — leave untouched
+  return val.split(/\r?\n/).map(line=>line.trim()?`<p>${esc(line)}</p>`:'').join('');
+}
 function richTa(titleId,fieldKey,path,val,ph){
   const editId=`f-${titleId}-${fieldKey}`;
   const isEmpty = !val || !val.replace(/<[^>]+>/g,'').trim();
+  const displayHtml = plainToRichHtml(val);
   return `<div class="richtext-wrap">
     <div class="richtext-toolbar">
       <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('bold')"><b>B</b></button>
       <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('italic')"><i>I</i></button>
       <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('formatBlock',false,'p')">¶</button>
+      <!-- Item 8 (2026-08-11) — numbered list, asked for specifically on the
+           TOC field but wired into the shared toolbar (every richTa field
+           gets it) rather than a TOC-only special case, per item 5's "extend
+           consistently" steer. insertOrderedList produces a real <ol><li>
+           structure; see htmlFragmentToRtfParagraphs()'s <ol> handling below
+           for why the Word export needed a matching update to not silently
+           drop list content. -->
+      <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('insertOrderedList')" title="Numbered list">1.</button>
     </div>
     <div id="${editId}" class="richtext" contenteditable="true" data-placeholder="${esc(ph)}" data-empty="${isEmpty?'1':'0'}"
       oninput="fc('${titleId}','${path}',this.innerHTML);this.dataset.empty=this.innerText.trim()?'0':'1'"
       onfocus="this.dataset.wasEmpty=this.dataset.empty;try{document.execCommand('defaultParagraphSeparator',false,'p')}catch(e){}" onblur="this.dataset.empty=this.innerText.trim()?'0':'1'"
-      >${val||''}</div>
+      >${displayHtml}</div>
   </div>`;
 }
 
@@ -1888,12 +2137,27 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
     ${isbnField('isbnPbk','ISBN (PBK)')}
     ${isbnField('isbnHbk','ISBN (HBK)')}
     ${isbnField('isbnEbk','ISBN (EBK)')}
-    ${frow('Cover Price PBK (£)',inp(`f-${id}-pbkGBP`,p.pbkGBP,'e.g. 14.99','fc(\''+id+'\',\'price.pbkGBP\',this.value)'))}
-    ${frow('Cover Price HBK (£)',inp(`f-${id}-hbkGBP`,p.hbkGBP,'','fc(\''+id+'\',\'price.hbkGBP\',this.value)'))}
-    ${frow('Cover Price PBK ($)',inp(`f-${id}-pbkUSD`,p.pbkUSD,'','fc(\''+id+'\',\'price.pbkUSD\',this.value)'))}
-    ${frow('Cover Price EBK ($)',inp(`f-${id}-ebkUSD`,p.ebkUSD,'','fc(\''+id+'\',\'price.ebkUSD\',this.value)'))}
+    ${/* Round 11, item 4a (2026-08-11) — simplified from 4 currency-specific
+        fields to 1 field per format, reordered PBK/EBK/HBK per David's ask.
+        "Cover Price PBK ($)" (price.pbkUSD) is removed from the UI entirely
+        — but NOT from the data model/Sheet: 9 of 26 live titles carry real
+        $-price data in that exact key (checked live against the actual
+        Sheet before touching this, not assumed empty), so it's preserved
+        untouched in price_json (see defTitle()/rowToTitle's price object) —
+        same non-destructive precedent as the Backup ISBN fields' removal
+        (item 18, an earlier round). Flagged to David in the build report:
+        that USD PBK figure is now archived/inaccessible in the UI, not
+        merged anywhere — his call whether it needs to resurface. */''}
+    ${frow('Cover Price PBK',inp(`f-${id}-pbkGBP`,p.pbkGBP,'e.g. 14.99','fc(\''+id+'\',\'price.pbkGBP\',this.value)'))}
+    ${frow('Cover Price EBK',inp(`f-${id}-ebkUSD`,p.ebkUSD,'','fc(\''+id+'\',\'price.ebkUSD\',this.value)'))}
+    ${frow('Cover Price HBK',inp(`f-${id}-hbkGBP`,p.hbkGBP,'','fc(\''+id+'\',\'price.hbkGBP\',this.value)'))}
     ${frow('Trim Size',inp(`f-${id}-trimSize`,c.trimSize,'e.g. 198x129mm','fc(\''+id+'\',\'commercial.trimSize\',this.value)'))}
     ${frow('Pages',`<input type="number" id="f-${id}-pages" value="${esc(c.pages)}" min="0" oninput="fc('${id}','commercial.pages',this.value)">`)}
+    ${/* Round 11, item 4c — free-text reference field, purely for David's
+        own notes (e.g. "front matter i-iv; body of book 1-172"), sat next
+        to Pages. Stored as productionNotes_json.pagesBreakdown, same
+        no-new-Sheet-column pattern as illustrationsText just below. */''}
+    ${frow('Pages Breakdown',inp(`f-${id}-pagesBreakdown`,c.pagesBreakdown,'e.g. front matter i-iv; body of book 1-172','fc(\''+id+'\',\'commercial.pagesBreakdown\',this.value)'))}
     ${frow('Category UK',inp(`f-${id}-categoryUK`,c.categoryUK,'','fc(\''+id+'\',\'commercial.categoryUK\',this.value)'))}
     ${frow('Category USA',inp(`f-${id}-categoryUSA`,c.categoryUSA,'','fc(\''+id+'\',\'commercial.categoryUSA\',this.value)'))}
     ${frow('Nielsen Notified',`<label class="field-row"><input type="checkbox" ${c.nielsenNotified?'checked':''} onchange="fc('${id}','commercial.nielsenNotified',this.checked)"> Notified</label>`)}
@@ -1917,19 +2181,33 @@ function renderContent(t){const id=t.id;const c=t.content;
   // comment for why.
 
 function renderAuthor(t){const id=t.id;const a=t.authorInfo;
-  // Item 24 (7/26) — "Other contributors" sits BELOW "Previous publications"
-  // (was reversed before). Item 21/23 (7/26) — Socials field widened to a
-  // proper auto-expanding textarea (was a single-line input) so it
-  // comfortably holds multiple lines/entries.
   // Item 12 (Round 2) — Author Liaison moved OUT of this box entirely, into
   // the new standalone Key Contacts block under the title header (see
   // renderKeyContacts()) — it's no longer rendered here.
+  //
+  // Round 11, item 7 (2026-08-11) — David asked for a single new
+  // "Contributor(s)" field positioned right after Author Bio/Author
+  // Hometown, explicitly NOT a multi-author dynamic-list system. This box
+  // already had a field doing exactly that job — "Other Contributors"
+  // (authorInfo.otherContributors) — just sitting lower down (after
+  // Previous Publications, per the 7/26 item-24 reorder above) and under a
+  // slightly different name. Rather than add a genuinely duplicate field
+  // covering the same purpose, this is that existing field RENAMED to
+  // "Contributor(s)" and MOVED to the position David asked for — same data,
+  // same storage key (authorInfo.otherContributors), nothing lost. Flagged
+  // in the build report: if David actually wants two distinct fields (this
+  // one AND a separate brand-new one), say so and it's a two-minute add.
+  // Item 21/23 (7/26, still current) — Socials/Previous Publications stayed
+  // as auto-expanding fields; Round 11 item 5 upgrades them (and this one)
+  // to full rich-text (richTa) — see that item's comment on plainToRichHtml()
+  // in richTa() above for how existing "one per line" plain data is handled
+  // without visually collapsing.
   return `<div class="field-grid">
-    ${frow('Author Bio',taAuto(`f-${id}-bio`,a.bio,'',`fc('${id}','authorInfo.bio',this.value)`),'full')}
+    ${frow('Author Bio',richTa(id,'bio','authorInfo.bio',a.bio,''),'full')}
     ${frow('Author Hometown',inp(`f-${id}-hometown`,a.hometown,'',`fc('${id}','authorInfo.hometown',this.value)`))}
-    ${frow('Socials & Societies',taAuto(`f-${id}-socials`,a.socials,'One per line is fine…',`fc('${id}','authorInfo.socials',this.value)`),'full')}
-    ${frow('Previous Publications',taAuto(`f-${id}-prevPubs`,a.previousPublications,'',`fc('${id}','authorInfo.previousPublications',this.value)`),'full')}
-    ${frow('Other Contributors',taAuto(`f-${id}-otherContribs`,a.otherContributors,'',`fc('${id}','authorInfo.otherContributors',this.value)`),'full')}
+    ${frow('Contributor(s)',richTa(id,'otherContribs','authorInfo.otherContributors',a.otherContributors,'Any additional contributor(s), separate from the main author(s)…'),'full')}
+    ${frow('Socials & Societies',richTa(id,'socials','authorInfo.socials',a.socials,'One per line is fine…'),'full')}
+    ${frow('Previous Publications',richTa(id,'prevPubs','authorInfo.previousPublications',a.previousPublications,''),'full')}
   </div>`;}
 
 // Items 25/26 — reworked pipeline: each stage is its own bounded box with
@@ -1985,7 +2263,7 @@ function renderDates(t){const id=t.id;const d=t.dates;
     ${frow('Soft Date',`<input type="date" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)">`)}
     ${frow('Street Date',`<input type="date" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)">`)}
     ${frow('Print Date',`<input type="date" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)"><label style="font-size:.72rem;color:var(--text3);display:flex;align-items:center;gap:4px;margin-top:4px"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label>`)}
-    ${frow('Print Status',`<div id="f-${id}-daysToprint" style="padding:8px 0;font-size:.9rem">${ddHtml}</div>`)}
+    ${frow('Print Status',`<div id="f-${id}-daysToprint" style="padding:6px 0 2px;font-size:.9rem">${ddHtml}</div><select id="f-${id}-printStatusOverride" style="margin-top:2px" onchange="onPrintStatusOverrideChange('${id}',this.value)"><option value="" ${!d.printStatusOverride?'selected':''}>Auto (from Print Date)</option>${Object.keys(PRINT_STATUS_OVERRIDES).map(v=>`<option value="${esc(v)}" ${d.printStatusOverride===v?'selected':''}>${esc(v)}</option>`).join('')}</select><div style="font-size:.7rem;color:var(--text3);margin-top:3px">Leave on Auto to derive from Print Date; pick a value here to lock it — it won't be overridden back to Overdue automatically.</div>`)}
   </div>`;}
 
 function renderPrint(t){const id=t.id;const p=t.print;
@@ -1995,9 +2273,9 @@ function renderPrint(t){const id=t.id;const p=t.print;
       <button class="btn-danger btn-sm" onclick="removePrinterContact('${id}',${i})">Remove</button>
     </div>`).join('');
   return `<div class="field-grid">
-    ${frow('Print Estimate / Quotes',taAuto(`f-${id}-printEstimate`,p.printEstimate,'Record printer quotes here…',`fc('${id}','print.printEstimate',this.value)`),'full')}
+    ${frow('Print Estimate / Quotes',richTa(id,'printEstimate','print.printEstimate',p.printEstimate,'Record printer quotes here…'),'full')}
     ${frow('SCB eBook Cover Spec',inp(`f-${id}-scbSpec`,p.scbEbookCoverSpec,'',`fc('${id}','print.scbEbookCoverSpec',this.value)`),'full')}
-    ${frow('For LSI Notes',taAuto(`f-${id}-forLsi`,p.forLsiNotes,'',`fc('${id}','print.forLsiNotes',this.value)`),'full')}
+    ${frow('For LSI Notes',richTa(id,'forLsi','print.forLsiNotes',p.forLsiNotes,''),'full')}
     <div class="field-group full"><label class="field-label">Printer Contacts</label>
       <div class="printer-contacts">${contactRows}</div>
       <button class="btn btn-sm" style="margin-top:8px" onclick="addPrinterContact('${id}')">+ Add Printer Contact</button>
@@ -2039,7 +2317,7 @@ function renderPoTracker(t){const id=t.id;
       <div class="po-source-label">Matching POs / Invoices — best-effort match by title name (PO &amp; Invoice Tracker - Headpress)</div>
       <div class="po-empty">Loading…</div>
     </div>
-    ${frow('Manual PO/Invoice Notes',taAuto(`f-${id}-poManual`,t.poManualNotes,'Jot anything here manually — a PO number, a note about an invoice, whatever’s useful, independent of the linked pulls above…',`fc('${id}','poManualNotes',this.value)`),'full')}
+    ${frow('Manual PO/Invoice Notes',richTa(id,'poManual','poManualNotes',t.poManualNotes,'Jot anything here manually — a PO number, a note about an invoice, whatever’s useful, independent of the linked pulls above…'),'full')}
   </div>`;}
 
 async function loadPoTrackerFor(titleId){
@@ -2137,17 +2415,22 @@ function poInvoiceOpenLink(){
 // renderKeyContacts()) — no longer rendered here.
 function renderPublicity(t){const id=t.id;const p=t.publicity;
   return `<div class="field-grid">
-    ${frow('Publicity Statement',taAuto(`f-${id}-pubStmt`,p.publicityStatement,'',`fc('${id}','publicity.publicityStatement',this.value)`),'full')}
-    ${frow('Marketing Notes',taAuto(`f-${id}-marketing`,p.marketing,'',`fc('${id}','publicity.marketing',this.value)`),'full')}
+    ${frow('Publicity Statement',richTa(id,'pubStmt','publicity.publicityStatement',p.publicityStatement,''),'full')}
+    ${frow('Marketing Notes',richTa(id,'marketing','publicity.marketing',p.marketing,''),'full')}
     <p style="grid-column:1/-1;font-size:.78rem;color:var(--text3)">Amazon A+, PLS.ORG, Newsletter and Promo Film status now live in the Production Pipeline section above (they were duplicated in both places in the original app) — use each stage's Notes field for detail.</p>
   </div>`;}
 
+// Round 11, items 5/8 (2026-08-11) — every field in this box converted from
+// plain auto-expand textareas to full rich text (richTa), Table of Contents
+// specifically being item 8's named target for numbered-list support (the
+// "1." toolbar button lives in richTa() itself, shared by every rich field —
+// see that function's comment for why it's not TOC-only).
 function renderTOC(t){const id=t.id;const c=t.toc;
   return `<div class="field-grid">
-    ${frow('Table of Contents',taAuto(`f-${id}-toc`,c.tableOfContents,'',`fc('${id}','toc.tableOfContents',this.value)`),'full')}
-    ${frow('How I Came to Write This Book',taAuto(`f-${id}-howIWrote`,c.howICameToWriteThis,'',`fc('${id}','toc.howICameToWriteThis',this.value)`),'full')}
-    ${frow('Excerpt',taAuto(`f-${id}-excerpt`,c.excerpt,'',`fc('${id}','toc.excerpt',this.value)`),'full')}
-    ${frow('Competing Titles',taAuto(`f-${id}-competing`,c.competingTitles,'',`fc('${id}','toc.competingTitles',this.value)`),'full')}
+    ${frow('Table of Contents',richTa(id,'toc','toc.tableOfContents',c.tableOfContents,''),'full')}
+    ${frow('How I Came to Write This Book',richTa(id,'howIWrote','toc.howICameToWriteThis',c.howICameToWriteThis,''),'full')}
+    ${frow('Excerpt',richTa(id,'excerpt','toc.excerpt',c.excerpt,''),'full')}
+    ${frow('Competing Titles',richTa(id,'competing','toc.competingTitles',c.competingTitles,''),'full')}
   </div>`;}
 
 function renderProductionNotes(t){const id=t.id;
@@ -2157,13 +2440,13 @@ function renderProductionNotes(t){const id=t.id;
   </div>`).join('');
   return `<div class="checklist">${items}</div>
   <div class="field-grid" style="margin-top:14px">
-    ${frow('Proofing Notes',taAuto(`f-${id}-proofingNotes`,t.productionNotes.proofingNotes,'',`fc('${id}','productionNotes.proofingNotes',this.value)`),'full')}
-    ${frow('Typesetting Notes',taAuto(`f-${id}-typesettingNotes`,t.productionNotes.typesettingNotes,'',`fc('${id}','productionNotes.typesettingNotes',this.value)`),'full')}
+    ${frow('Proofing Notes',richTa(id,'proofingNotes','productionNotes.proofingNotes',t.productionNotes.proofingNotes,''),'full')}
+    ${frow('Typesetting Notes',richTa(id,'typesettingNotes','productionNotes.typesettingNotes',t.productionNotes.typesettingNotes,''),'full')}
   </div>`;}
 
 function renderFutureEdition(t){const id=t.id;const f=t.futureEdition;
   return `<div class="field-grid">
-    ${frow('Info & Changes for Future Edition',taAuto(`f-${id}-futureInfo`,f.infoAndChanges,'',`fc('${id}','futureEdition.infoAndChanges',this.value)`),'full')}
+    ${frow('Info & Changes for Future Edition',richTa(id,'futureInfo','futureEdition.infoAndChanges',f.infoAndChanges,''),'full')}
     ${frow('Print-Ready Files',`<select id="f-${id}-prf" onchange="fc('${id}','futureEdition.printReadyFilesStatus',this.value)"><option ${f.printReadyFilesStatus==='Not Ready'?'selected':''}>Not Ready</option><option ${f.printReadyFilesStatus==='Ready'?'selected':''}>Ready</option><option ${f.printReadyFilesStatus==='Submitted'?'selected':''}>Submitted</option></select>`)}
   </div>`;}
 
@@ -2339,8 +2622,16 @@ function renderISBNPoolList(){
   if(fmt)avail=avail.filter(r=>r.format===fmt||(!r.format&&fmt===''));
   const el=document.getElementById('isbn-pool-list');
   if(!avail.length){el.innerHTML='<p style="padding:12px;color:var(--text3);font-size:.85rem">No unassigned ISBNs available for this format.</p>';return;}
+  // 2026-08-11 (item 4b) — root cause of "genuinely hard to read" (Team
+  // Inbox/Assign from ISBN Pool.png): the ISBN <span> had no explicit
+  // `color` set at all, so it fell through to body{color:var(--text-oncream)}
+  // — the light cream tone meant for THIS app's dark page chrome — instead
+  // of a colour meant for text on a light surface. This modal (.modal) is a
+  // white surface, so that cream text rendered as pale, barely-visible
+  // near-white-on-white. Fixed by giving it an explicit --text colour, same
+  // as every other real value shown on a light card surface in this app.
   el.innerHTML=avail.map(r=>`<div style="padding:8px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:10px;cursor:pointer" onclick="pickISBN('${esc(r.isbn)}')" onmouseover="this.style.background='var(--bg2)'" onmouseout="this.style.background=''">
-    <span style="font-family:monospace;font-size:.85rem">${esc(r.isbn)}</span>
+    <span style="font-family:monospace;font-size:.85rem;color:var(--text)">${esc(r.isbn)}</span>
     <span class="isbn-badge isbn-badge-${(r.format||'other').toLowerCase()}">${r.format||'—'}</span>
   </div>`).join('');
 }
@@ -2492,15 +2783,37 @@ function onAutoPrint(titleId,checked){
   if(pdInput){pdInput.readOnly=checked;if(checked)pdInput.value=calcAutoPrint(t.dates.streetDate);}
   updateDaysDisplay(titleId);debouncedSave(titleId);
 }
+// 2026-08-11 (item 3 fix) — this used to carry its OWN separate, simpler
+// day-count calculation, completely independent of computeDayInfo() — so it
+// neither knew about isPublished() (a published title with a stale past
+// print date would still say "OVERDUE" here, even though the main Print
+// Status badge said "Published") nor, now, about the new printStatusOverride
+// lock: changing Street Date or the auto-calculate checkbox would silently
+// blow this element's display back to a raw date calculation, stomping over
+// a manual override David had just set, until the next full renderDetail().
+// Fixed by making this just another caller of computeDayInfo() — the single
+// source of truth every other Print-Status-reading surface in the app
+// already uses (renderDates, renderCard, the print-timing filter, both
+// exports) — instead of a second, drifting copy of the same logic.
 function updateDaysDisplay(titleId){
   const t=getTitle(titleId);if(!t)return;
-  const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   const el=document.getElementById(`f-${titleId}-daysToprint`);
   if(!el)return;
-  if(!pd){el.innerHTML='—';return;}
-  const d=daysUntil(pd);
-  const cls=d<0?'var(--terra)':d<=60?'var(--terra)':d<=90?'var(--amber)':'var(--sage)';
-  el.innerHTML=`<span style="color:${cls};font-weight:600">${d<0?'OVERDUE — '+Math.abs(d)+' days ago':d+' days'}</span>`;
+  const info=computeDayInfo(t);
+  const colorVar={published:'var(--sage)',ok:'var(--sage)',notice:'var(--amber-border)','due-soon':'#B8722E',overdue:'var(--terra)',neutral:'var(--text3)'}[info.colorClass]||'var(--text3)';
+  el.innerHTML=`<span style="color:${colorVar};font-weight:600">${esc(info.kind==='overdue'?'OVERDUE — '+info.label:info.label)}</span>`;
+}
+// Item 3 — the new manual-override control (renderDates()'s
+// #f-<id>-printStatusOverride select). Empty value = back to Auto (fully
+// re-derived from Print Date every render, exactly as before this fix
+// existed); any other value locks Print Status to that literal label until
+// changed back, same "sticks until deliberately changed" contract as
+// Status/statusAuto elsewhere in this app.
+function onPrintStatusOverrideChange(titleId,value){
+  const t=getTitle(titleId);if(!t)return;
+  t.dates.printStatusOverride=value;
+  updateDaysDisplay(titleId);
+  debouncedSave(titleId);updateSectionHeaders(titleId);
 }
 function updateSectionHeaders(titleId){
   const t=getTitle(titleId);if(!t)return;
@@ -2584,6 +2897,12 @@ function closeDeleteConfirm(){
 async function confirmDeleteTitle(){
   const titleId=pendingDeleteTitleId;
   const t=getTitle(titleId);if(!t)return;
+  // Cancel any live debounce timer for the title about to be deleted — a
+  // stray saveTitle() firing after the row is gone would either error
+  // harmlessly (no _row) or, worse, write into whatever row now occupies
+  // that index post-delete-shift. Same saveTimers map the 2026-08-11
+  // debounce fix introduced (see debouncedSave()/flushPendingSave() above).
+  clearTimeout(saveTimers[titleId]); delete saveTimers[titleId]; pendingSaveTitleIds.delete(titleId);
   const btn=document.getElementById('confirm-delete-btn');
   if(btn){btn.disabled=true;btn.textContent='Deleting…';}
   if(devMode){
@@ -2782,9 +3101,8 @@ function getSectionExportFields(t,key,blockNameById){
       const c=t.commercial,p=t.price;
       return [
         ['ISBN (PBK)','text', c.isbnPbk],['ISBN (HBK)','text', c.isbnHbk],['ISBN (EBK)','text', c.isbnEbk],
-        ['Cover Price PBK (£)','text', p.pbkGBP],['Cover Price HBK (£)','text', p.hbkGBP],
-        ['Cover Price PBK ($)','text', p.pbkUSD],['Cover Price EBK ($)','text', p.ebkUSD],
-        ['Trim Size','text', c.trimSize],['Pages','text', c.pages],
+        ['Cover Price PBK','text', p.pbkGBP],['Cover Price EBK','text', p.ebkUSD],['Cover Price HBK','text', p.hbkGBP],
+        ['Trim Size','text', c.trimSize],['Pages','text', c.pages],['Pages Breakdown','text', c.pagesBreakdown],
         ['Category UK','text', c.categoryUK],['Category USA','text', c.categoryUSA],
         ['Nielsen Notified','text', c.nielsenNotified?'Yes':'No'],
         ['Illustrations','text', c.illustrationsText]
@@ -2807,11 +3125,13 @@ function getSectionExportFields(t,key,blockNameById){
       const a=t.authorInfo;
       return [
         ['Contributor Role','text', a.contributorRole||'Author(s)'],
-        ['Author Bio','text', a.bio],
+        ['Author Bio','html', a.bio],
         ['Author Hometown','text', a.hometown],
-        ['Socials & Societies','text', a.socials],
-        ['Previous Publications','text', a.previousPublications],
-        ['Other Contributors','text', a.otherContributors]
+        // Round 11, item 7 — renamed/repositioned in the UI (see
+        // renderAuthor() above); label matched here so exports read the same.
+        ['Contributor(s)','html', a.otherContributors],
+        ['Socials & Societies','html', a.socials],
+        ['Previous Publications','html', a.previousPublications]
       ];
     }
     case 'pipeline':{
@@ -2828,9 +3148,9 @@ function getSectionExportFields(t,key,blockNameById){
       const p=t.print;
       const contacts=(p.printerContacts||[]).filter(pc=>pc.name||pc.email).map(pc=>pc.name+(pc.email?' — '+pc.email:'')).join('\n');
       return [
-        ['Print Estimate / Quotes','text', p.printEstimate],
+        ['Print Estimate / Quotes','html', p.printEstimate],
         ['SCB eBook Cover Spec','text', p.scbEbookCoverSpec],
-        ['For LSI Notes','text', p.forLsiNotes],
+        ['For LSI Notes','html', p.forLsiNotes],
         ['Printer Contacts','text', contacts]
       ];
     }
@@ -2845,29 +3165,29 @@ function getSectionExportFields(t,key,blockNameById){
       return [
         ['PO Tracker ISBN Key (auto)','text', key],
         ['Manual Override (title/tab name)','text', t.poTrackerTitleOverride],
-        ['Manual PO/Invoice Notes','text', t.poManualNotes]
+        ['Manual PO/Invoice Notes','html', t.poManualNotes]
       ];
     }
     case 'publicity': return [
-      ['Publicity Statement','text', t.publicity.publicityStatement],
-      ['Marketing Notes','text', t.publicity.marketing]
+      ['Publicity Statement','html', t.publicity.publicityStatement],
+      ['Marketing Notes','html', t.publicity.marketing]
     ];
     case 'toc': return [
-      ['Table of Contents','text', t.toc.tableOfContents],
-      ['How I Came to Write This Book','text', t.toc.howICameToWriteThis],
-      ['Excerpt','text', t.toc.excerpt],
-      ['Competing Titles','text', t.toc.competingTitles]
+      ['Table of Contents','html', t.toc.tableOfContents],
+      ['How I Came to Write This Book','html', t.toc.howICameToWriteThis],
+      ['Excerpt','html', t.toc.excerpt],
+      ['Competing Titles','html', t.toc.competingTitles]
     ];
     case 'productionNotes':{
       const checklistText=(t.productionNotes.checklist||[]).map(c=>'['+(c.checked?'x':' ')+'] '+c.text).join('\n');
       return [
         ['Checklist','text', checklistText],
-        ['Proofing Notes','text', t.productionNotes.proofingNotes],
-        ['Typesetting Notes','text', t.productionNotes.typesettingNotes]
+        ['Proofing Notes','html', t.productionNotes.proofingNotes],
+        ['Typesetting Notes','html', t.productionNotes.typesettingNotes]
       ];
     }
     case 'futureEdition': return [
-      ['Info & Changes for Future Edition','text', t.futureEdition.infoAndChanges],
+      ['Info & Changes for Future Edition','html', t.futureEdition.infoAndChanges],
       ['Print-Ready Files','text', t.futureEdition.printReadyFilesStatus]
     ];
     default: return [];
@@ -2991,16 +3311,51 @@ function inlineHtmlToRtf(raw){
 function htmlFragmentToRtfParagraphs(html){
   if(!html || !String(html).replace(/<[^>]+>/g,'').trim()) return [];
   let s=String(html).replace(/<div[^>]*>/gi,'<p>').replace(/<\/div>/gi,'</p>');
+  // Item 8 (2026-08-11) — numbered lists. execCommand('insertOrderedList')
+  // produces a top-level <ol><li>…</li></ol> block sitting OUTSIDE any <p>
+  // tag — the <p>-matching pass just below only ever extracts what's inside
+  // <p>…</p>, so without this an <ol> block's content would silently vanish
+  // from the Word export entirely (dropped, not just unformatted). Pulled
+  // out into its own hand-numbered pseudo-paragraphs before the <p> pass
+  // runs (and removed from `s` so it isn't double-counted); each <li>'s own
+  // inline bold/italic still goes through inlineHtmlToRtf like anything
+  // else. RTF's native \pn auto-numbering is real overhead for a converter
+  // this deliberately small (see the function-group comment above
+  // inlineHtmlToRtf) — a hand-numbered "N. " prefix is the same pragmatic
+  // choice already used for bullet lists (exportFieldToRtfParagraphs'
+  // 'list' kind, • prefix). Order note: list paragraphs are appended
+  // AFTER any surrounding prose rather than interleaved at their original
+  // position — a documented simplification, not a precision loss this
+  // export has ever promised (see getSectionExportFields's own "everything
+  // present, not position-perfect" framing).
+  const listParas=[];
+  s=s.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi,(_,inner)=>{
+    let n=0; const liRe=/<li[^>]*>([\s\S]*?)<\/li>/gi; let lm;
+    while((lm=liRe.exec(inner))){ n++; listParas.push(n+'.  '+inlineHtmlToRtf(lm[1])); }
+    return '';
+  });
   const paras=[]; const re=/<p[^>]*>([\s\S]*?)<\/p>/gi; let m,any=false;
   while((m=re.exec(s))){ any=true; paras.push(m[1]); }
-  if(!any) paras.push(s);
-  return paras.map(inlineHtmlToRtf).filter(p=>p.trim()!=='');
+  if(!any && s.replace(/<[^>]+>/g,'').trim()) paras.push(s);
+  return paras.map(inlineHtmlToRtf).filter(p=>p.trim()!=='').concat(listParas.filter(p=>p.trim()!==''));
 }
 function plainTextToRtfParagraphs(text){
   return String(text||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>rtfEscapeText(l));
 }
 function exportFieldToRtfParagraphs(kind,value){
-  if(kind==='html') return htmlFragmentToRtfParagraphs(value);
+  // plainToRichHtml() (see richTa() above) — a field that's now 'html' kind
+  // (Round 11, item 5's newly-converted fields) may still hold RAW, un-
+  // migrated plain multi-line text from before this round (nothing rewrites
+  // the Sheet until David next edits that specific field). Without this,
+  // htmlFragmentToRtfParagraphs() would see no <p>/<br> structure at all and
+  // collapse the whole value into a single run-on RTF paragraph, silently
+  // losing the line breaks in the Word export specifically (the live UI and
+  // the HTML "source" export both already handle this fine — richTa()
+  // applies the same wrap for display, and the HTML export's <pre> block
+  // preserves raw newlines natively either way). Same normalization, same
+  // "already has real tags → left untouched" guard, just applied here too
+  // so the Word export can't silently regress on legacy data.
+  if(kind==='html') return htmlFragmentToRtfParagraphs(plainToRichHtml(value));
   if(kind==='list') return (value||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>'\u2022  '+rtfEscapeText(s));
   if(kind==='quote') return (value||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>'\u201c'+rtfEscapeText(s)+'\u201d');
   return plainTextToRtfParagraphs(value);

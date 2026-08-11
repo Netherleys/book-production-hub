@@ -432,6 +432,33 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
 .folder-links-row{display:flex;gap:16px;flex-wrap:wrap}
 .folder-link-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}
 .folder-link-group label.field-label{font-size:.72rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+/* Round 11, items 2b/2c (2026-08-11) — the raw bold full-width paths David
+   flagged as "messy" (Team Inbox/Cover & Folder Links layout messy.png):
+   Cover Image URL / Images Folder / Working Folder used to render as plain
+   full-size .btn-sm-adjacent <input>s at the same font-size/weight as every
+   other form field, cramming a long URL/path into a ~220px box with no
+   visual distinction from a genuinely EMPTY field. Two changes:
+   (1) the two fields with a real action (Open / Reveal) now lead with a
+   proper pill button in the exact .btn.btn-export family already used for
+   "View HTML Output ↗"/"View Word File ⇊" just below this box — the look
+   David specifically pointed at as what he wants here instead.
+   (2) the actual editable value, for all three fields, drops down to a
+   small, quiet, monospace "value line" — reusing the same plain-until-
+   hover/focus idiom already established for the Title/Subtitle/Author
+   inputs (input[type=text].detail-title-input etc., see FORM FIELDS block
+   above) — real values render slightly darker/heavier (--text2) than the
+   explicitly lighter/italic placeholder (--text-muted) shown when nothing's
+   set, so "is there a real value here or not" is legible at a glance
+   without needing to read the path itself (item 2b). */
+.link-action-row{margin-bottom:2px}
+.link-value-edit{width:100%;font-family:'SF Mono',Consolas,'Courier New',monospace;font-size:.74rem;line-height:1.4;color:var(--text2);border:1px solid transparent;background:transparent;padding:3px 4px;border-radius:var(--r4);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.link-value-edit:hover{border-color:var(--border);background:var(--surface)}
+.link-value-edit:focus{border-color:var(--sage);background:var(--surface);outline:none;white-space:normal;overflow:visible;text-overflow:clip}
+.link-value-edit::placeholder{color:var(--text-muted);font-style:italic;font-family:var(--sans)}
+/* "No link set yet" state for the Open/Reveal pill buttons — dashed border,
+   muted label, distinct from the solid-bordered "ready to click" look of a
+   real set link, same real-vs-placeholder differentiation as item 2b above. */
+.btn.btn-export.is-empty{border-style:dashed;border-color:var(--border2);color:var(--text-muted);font-weight:500}
 /* Round 10, item 9 — short inline help note under Cover Image URL,
    documenting the GitHub-upload workflow David now uses himself. */
 .field-help{font-size:.7rem;color:var(--text3);line-height:1.4;margin-top:1px}
@@ -558,6 +585,18 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    line-height so it can't be read as anything other than a skipped line. */
 .richtext p,.richtext div{margin-bottom:2.2em}
 .richtext p:last-child,.richtext div:last-child{margin-bottom:0}
+/* Item 8 (2026-08-11) — numbered lists (execCommand('insertOrderedList'),
+   see the "1." toolbar button in richTa(), app.js). Deliberately NOT given
+   the same 2.2em paragraph gap as .richtext p/div above — that spacing was
+   sized to read as "a skipped line between paragraphs" (see the long
+   comment history above), which would make a numbered list look like a set
+   of disconnected paragraphs rather than one list. A tighter, list-typical
+   gap between items instead, with real indent so the numbers themselves are
+   clearly outside the text column. */
+.richtext ol{margin:0 0 .9em 1.4em;padding:0}
+.richtext ol:last-child{margin-bottom:0}
+.richtext li{margin-bottom:.4em;padding-left:.2em}
+.richtext li:last-child{margin-bottom:0}
 .richtext[data-empty="1"]:not(:focus)::before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none}
 .field-row{display:flex;align-items:center;gap:8px}
 .field-row input[type=text]{flex:1}
