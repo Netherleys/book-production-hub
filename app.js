@@ -47,9 +47,14 @@ const TITLE_COLS = [
   'poTrackerIsbnKey','poTrackerTitleOverride','bookBiblePresent','lastUpdated',
   'price_json','production_json','publicity_json','editorial_json','authorInfo_json',
   'productionNotes_json','printerContacts_json','filesLinks_json',
-  'blockId','quickNotes_json'
+  'blockId','quickNotes_json',
+  // Round 10, items 1/2 — new column, appended at the end (same pattern
+  // previous rounds used for imagesFolderLink etc.) so existing row
+  // positions/columns are untouched. TRUE/FALSE string, see
+  // applyStatusAutoRules() below for what it means.
+  'statusAuto'
 ];
-const TITLE_RANGE_LAST_COL = 'AP'; // keep in lockstep with TITLE_COLS.length (42)
+const TITLE_RANGE_LAST_COL = 'AQ'; // keep in lockstep with TITLE_COLS.length (43)
 const ISBN_COLS = ['isbn','format','assignedToTitleId','assignedToTitleName','nielsenNotified','legacyArchived'];
 
 // Pipeline stages, grouped for the reworked chained/boxed layout (items
@@ -161,9 +166,65 @@ function dotColor(status){ if(status==='Complete') return 'var(--sage)'; if(stat
 // so both the string-mismatch and the NaN-fallthrough are fixed at the root
 // rather than patched at each call site.
 function isPublished(t){ return t.status==='Complete' || t.status==='Completed' || t.status==='Released'; }
+// Round 9, item 1 — the values status can hold. Matches the Add Title
+// modal's new-status options (Not Scheduled/In Progress/Complete/Released)
+// PLUS 'Completed' — the literal legacy string already live on 5 real
+// titles (see the item-15 comment above) that the Add Title modal never
+// actually offers but which real data already contains, so the edit
+// control has to be able to display/keep it, not just the 4 the modal
+// writes.
+const STATUS_VALUES=['Not Scheduled','In Progress','Complete','Completed','Released'];
+// Single source of truth for the badge/edit-control colour class, factored
+// out of renderDetail() so the same logic backs both the read-only card
+// badge and the new editable one (statusEditSelect below) — previously
+// this was inlined once, in renderDetail only.
+function statusBadgeClass(status){
+  return isPublished({status}) ? (status==='Released'?'badge-released':'badge-complete') : ({'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled'}[status]||'badge-notscheduled');
+}
 function toBool(v){ return v===true || v==='TRUE' || v==='true' || v===1 || v==='1'; }
 function fromBool(v){ return v ? 'TRUE' : 'FALSE'; }
 function safeJson(str, fallback){ if(!str) return fallback; try{ const p=JSON.parse(str); return p==null?fallback:p; }catch(e){ return fallback; } }
+
+// ─── STATUS AUTO-DERIVATION (Round 10, items 1/2) ───
+// t.statusAuto:true means Status is still under this app's automatic
+// control — either untouched at the 'Not Scheduled' default, or advanced by
+// one of the two rules below (never by a deliberate pick from the
+// statusEditSelect dropdown). onStatusChange() sets this to false the
+// instant David picks ANY value himself, forever — from that point on
+// neither rule below is allowed to touch Status again for this title, no
+// matter what the pipeline stages or Street Date do afterwards.
+//
+// Build note on wording: the brief asks for the auto value "In Production",
+// which isn't one of STATUS_VALUES above (only Not Scheduled/In
+// Progress/Complete/Completed/Released exist — matching the Add Title modal
+// and real Sheet data). Read this as shorthand for the existing "actively
+// being worked on" state rather than a brand-new 6th status value/Sheet
+// schema change, and mapped it onto 'In Progress' — already styled
+// (badge-inprogress), already what the dropdown offers for exactly this
+// meaning. Flagged in the build report; happy to add a genuinely distinct
+// value instead if that's not what was meant.
+function applyStatusAutoRules(t){
+  if(t.statusAuto===false) return false;
+  let changed=false;
+  // Item 2 — Street Date passed: title counts as Complete/Published, full
+  // stop. Checked ahead of item 1 so an already-released title can never be
+  // left sitting on a stale auto-'In Progress' value. Reuses daysUntil() —
+  // the same date-comparison helper computeDayInfo() (and the Todoist
+  // reminder export further down) already use for this exact "has this date
+  // passed" question — rather than a new one-off date parser.
+  if(!isPublished(t)){
+    const d=daysUntil(t.dates.streetDate);
+    if(d!==null && d<0){ t.status='Complete'; changed=true; }
+  }
+  // Item 1 — any Production Pipeline stage moves off its own 'Not Started'
+  // default: advance the still-untouched 'Not Scheduled' default forward.
+  // Only fires from the exact untouched default value, so it can never fire
+  // twice, and never fights whatever item 2 (above) may just have set.
+  if(!changed && t.status==='Not Scheduled' && t.pipeline.stages.some(s=>s.status!=='Not Started')){
+    t.status='In Progress'; changed=true;
+  }
+  return changed;
+}
 
 // ─── SHARED GROWABLE LISTS (item 4, Round 3 — generalised to also cover
 // Release Block, added same round after David's live follow-up) ───
@@ -482,6 +543,61 @@ async function sheetsAppend(spreadsheetId, sheetName, rowValues){
     return m ? parseInt(m[1],10) : null;
   });
 }
+// Round 9, item 2 — real row delete, added for Delete Title. Checked every
+// existing Sheets helper first (sheetsGet/Put/Append above, plus how ISBN
+// pool saves and Blocks-tab appends work): none of them delete anything —
+// this app had never needed to remove a row before, only read/write/append
+// one. sheetsGet/Put/Append all address a sheet by NAME (e.g. 'Titles'),
+// which is all the values API needs — but a genuine row delete has to go
+// through spreadsheets.batchUpdate's deleteDimension request, which
+// addresses sheets by their numeric gid, not name, so that has to be
+// resolved first.
+const _sheetGidCache = {};
+async function getSheetGid(spreadsheetId, sheetName){
+  const key = spreadsheetId+'::'+sheetName;
+  if(_sheetGidCache[key] !== undefined) return _sheetGidCache[key];
+  const url = SHEETS_API+spreadsheetId+'?fields='+encodeURIComponent('sheets.properties(sheetId,title)');
+  const resp = await fetch(url, { headers: authHeaders() });
+  if(!resp.ok){
+    const body = await resp.text().catch(()=>'');
+    throw new Error('Sheets metadata GET '+resp.status+': '+body.slice(0,300));
+  }
+  const j = await resp.json();
+  const sheet = (j.sheets||[]).find(s=>s.properties && s.properties.title===sheetName);
+  if(!sheet) throw new Error('Could not find a "'+sheetName+'" tab in the spreadsheet.');
+  _sheetGidCache[key] = sheet.properties.sheetId;
+  return sheet.properties.sheetId;
+}
+// Physically removes ONE row via batchUpdate/deleteDimension — a real
+// Sheets-side delete, not a client-side splice that reappears on reload and
+// not a blank-out-the-cells soft-delete either: the row is actually gone,
+// so the sheet doesn't accumulate dead rows every time a title is deleted.
+// rowNumber1Based is the same 1-indexed sheet row already cached as
+// t._row everywhere else (see saveTitle's Titles!A{row} range) — converted
+// here to the API's 0-indexed, end-exclusive range.
+//
+// Known consequence, handled by the caller (deleteTitleConfirmed below):
+// deleteDimension shifts every row BELOW the deleted one up by one. Any
+// other title object already loaded this session has its _row cached from
+// before the shift, so it's stale the instant this call succeeds — the
+// caller re-runs loadAllData() straight after so every title's _row is
+// recomputed against the sheet's new layout, rather than leaving other
+// titles' next save silently writing to the wrong (shifted) row.
+async function sheetsDeleteRow(spreadsheetId, sheetName, rowNumber1Based){
+  const sheetId = await getSheetGid(spreadsheetId, sheetName);
+  const url = SHEETS_API+spreadsheetId+':batchUpdate';
+  const body = { requests: [{ deleteDimension: { range: {
+    sheetId, dimension: 'ROWS',
+    startIndex: rowNumber1Based-1, // 0-indexed, inclusive
+    endIndex: rowNumber1Based      // exclusive — removes exactly this one row
+  } } }] };
+  const resp = await fetch(url, { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify(body) });
+  if(!resp.ok){
+    const errBody = await resp.text().catch(()=>'');
+    throw new Error('Sheets batchUpdate (delete row) '+resp.status+': '+errBody.slice(0,300));
+  }
+  return resp.json();
+}
 
 // ─── TITLE ROW <-> OBJECT MAPPING ───
 // Deliberate mapping/consolidation calls made porting the old
@@ -548,6 +664,17 @@ function rowToTitle(row){
     id: c.title_id, _row: null,
     title: c.title||'', subtitle: c.subtitle||'', authors: c.author||'',
     authorLiaison: c.authorLiaison||'David', imprint: c.imprint||'Headpress', status: c.status||'Not Scheduled',
+    // Round 10, items 1/2 — statusAuto is a new column, so it's blank ('',
+    // see rowToTitle's c[k]=row[i]!==undefined?row[i]:'' default above) on
+    // every row until this app next saves it. Blank is read as "derive from
+    // the current status value": still true (auto-eligible) if status is
+    // literally the untouched 'Not Scheduled' default, false otherwise — so
+    // real legacy titles that already carry a deliberately-set status (from
+    // the old create-once Add Title modal, before per-title editing existed)
+    // are never retroactively auto-managed, only ones genuinely still
+    // sitting at default. Once this saves once, the real TRUE/FALSE string
+    // takes over via toBool().
+    statusAuto: c.statusAuto==='' ? (c.status||'Not Scheduled')==='Not Scheduled' : toBool(c.statusAuto),
     planningSheet: c.planningSheet||'', bookBiblePresent: toBool(c.bookBiblePresent), lastUpdated: c.lastUpdated||'',
     blockId: c.blockId||'',
     dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc) },
@@ -620,6 +747,10 @@ function titleToRow(t){
     poTrackerTitleOverride: t.poTrackerTitleOverride||'',
     bookBiblePresent: fromBool(t.bookBiblePresent), lastUpdated: new Date().toISOString(),
     blockId: t.blockId||'',
+    // Round 10, items 1/2 — persist statusAuto as a real TRUE/FALSE string
+    // once this title has been through this app at all, so subsequent loads
+    // stop having to guess from the status text (see rowToTitle above).
+    statusAuto: fromBool(t.statusAuto),
     price_json, production_json, publicity_json, editorial_json, authorInfo_json,
     productionNotes_json, printerContacts_json, filesLinks_json, quickNotes_json
   };
@@ -636,14 +767,25 @@ function isbnObjToRow(r){
 // ─── DEFAULT NEW TITLE ───
 // Round 7, item 5 — every new title now defaults its Cover Image URL to
 // David's real branded "Awaiting Cover" placeholder (yellow bg, AWAITING
-// COVER text) committed into this repo at covers/_awaiting-cover.jpg,
-// instead of the old blank field that fell through to the generic "B" +
-// title-text placeholder box. David can overwrite it with a real cover URL
-// at any time via the same Cover Image URL field as always.
-const DEFAULT_COVER_PLACEHOLDER='covers/_awaiting-cover.jpg';
+// COVER text) committed into this repo, instead of the old blank field that
+// fell through to the generic "B" + title-text placeholder box. David can
+// overwrite it with a real cover URL at any time via the same Cover Image
+// URL field as always.
+// Round 10, item 8 — repointed at David's own upload, covers/Awaiting Cover
+// - 600.jpg (no leading underscore — he uploaded it himself directly via the
+// GitHub website, confirmed live: verified 200 OK / correct byte size on both
+// raw.githubusercontent.com and the Pages URL before wiring this in). The old
+// covers/_awaiting-cover.jpg stays in the repo untouched, just no longer
+// referenced as the default.
+const DEFAULT_COVER_PLACEHOLDER='covers/Awaiting Cover - 600.jpg';
 function defTitle(o={}){
   const base = {
     id: uid(), title:'', subtitle:'', authors:'', authorLiaison:'David', imprint:'Headpress', status:'Not Scheduled',
+    // Round 10, items 1/2 — statusAuto:true means Status is still under this
+    // app's automatic control (see applyStatusAutoRules() below); a brand
+    // new title always starts here. Flips to false forever the instant
+    // David picks a value himself via statusEditSelect/onStatusChange.
+    statusAuto:true,
     planningSheet:'', bookBiblePresent:false, lastUpdated:'', blockId:'',
     dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false},
     commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:''},
@@ -690,7 +832,17 @@ function loadDevSampleData(){
         {id:'qn-sample-1c', ts:new Date(Date.now()-6*86400000).toISOString(), text:'Old note — already dealt with.', archived:true, archivedTs:new Date(Date.now()-3*86400000).toISOString()}
       ]
     }),
-    defTitle({id:'sample-2', title:'Sample Not Scheduled Title', authors:'Jane Author', status:'Not Scheduled', imprint:'Oil and Water Press'})
+    defTitle({id:'sample-2', title:'Sample Not Scheduled Title', authors:'Jane Author', status:'Not Scheduled', imprint:'Oil and Water Press'}),
+    // Round 10, items 1/2 dev-preview fixture — status still auto-managed
+    // (statusAuto:true, the defTitle() default, not overridden here) but its
+    // Street Date is already 10 days in the past, so the normalisation pass
+    // below (applyStatusAutoRules(), run once per title straight after this
+    // data is built) should flip it to 'Complete' the moment dev preview
+    // loads — exercises item 2 without needing to wait for a real calendar
+    // date to pass.
+    defTitle({id:'sample-3', title:'Sample Auto-Complete Title', authors:'Pat Editor', status:'In Progress', imprint:'Headpress',
+      dates:{releaseBlock:'',softDate:'',streetDate:new Date(Date.now()-10*86400000).toISOString().slice(0,10), printDate:'', autoPrintDate:false}
+    })
   ], isbns:[
     {isbn:'978-1-909394-11-7', format:'', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null},
     {isbn:'978-1-909394-12-4', format:'PBK', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null}
@@ -704,6 +856,10 @@ function loadDevSampleData(){
     {block_id:'2027', block_name:'2027', sortOrder:4, notes:'titles on the 2027 year-sheet, no half-year chosen yet'},
     {block_id:'not-yet-assigned', block_name:'Not Yet Assigned', sortOrder:999, notes:'titles genuinely unscheduled'}
   ]};
+  // Round 10, item 2 — same load-time normalisation pass loadAllData() runs
+  // on real data (see there); saveTitle() no-ops under devMode anyway, but
+  // running it here too keeps dev preview's behaviour identical to live.
+  data.titles.forEach(t=>{ applyStatusAutoRules(t); });
   document.getElementById('auth-overlay').classList.add('hidden');
   document.getElementById('whoami').textContent = 'DEV PREVIEW — not saving';
   setSyncStatus('none');
@@ -748,6 +904,15 @@ async function loadAllData(){
     data.titles = titleRows
       .filter(r => r[0] && r[0] !== 'EXAMPLE-DELETE-ME')
       .map((r,i) => { const t = rowToTitle(r); t._row = findRowIndex(titleRows, r) + 2; return t; });
+    // Round 10, item 2 — Street Date is a calendar fact, not a user action,
+    // so there's no click/onchange handler to hook it onto the way item 1
+    // hooks into cycleStage(). Instead it's re-checked here, once per load
+    // (covers the normal "David opens the app" case) — any title whose
+    // Street Date has passed since it was last opened gets corrected and
+    // saved back immediately, same non-override rule as everywhere else
+    // (applyStatusAutoRules() no-ops instantly on any title David has
+    // manually set Status on).
+    data.titles.forEach(t=>{ if(applyStatusAutoRules(t)) saveTitle(t.id); });
     data.isbns = isbnRows.map((r,i) => { const o = isbnRowToObj(r); o._row = i+2; return o; });
     data.blocks = blockRows.filter(r=>r[0]).map(r=>({
       block_id: r[0]||'', block_name: r[1]||r[0]||'',
@@ -955,7 +1120,7 @@ function getSectionStatus(t,key){
 // position 2, right after Commercial, defaults open like Pipeline, made
 // visually prominent (see .po-prominent) — "no longer buried". Files &
 // Links removed entirely (item 31 — redundant with the top-of-page folder
-// links row already added 2026-07-15, see renderFolderLinksRow()).
+// links row already added 2026-07-15, see renderLinksStrip()).
 //
 // Round 2 (items 20/21) — SUPERSEDES the 7/26 placement above: "wrong place
 // for David's actual workflow" — PO Tracker moves from position 2 down to
@@ -1119,7 +1284,10 @@ function imprintName(imprint){ return imprintKey(imprint)==='oowp' ? 'Oil On Wat
 // the Sheet's imprint column is unaffected.
 function imprintEditSelect(t){
   const ik=imprintKey(t.imprint);
-  return `<select class="imprint-edit-select" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
+  // Round 10, item 5 — data-imprint drives the per-imprint accent-colour CSS
+  // (see .imprint-edit-select[data-imprint=...] in index.html), same
+  // attribute/pattern .book-card already uses for its own imprint accent.
+  return `<select class="imprint-edit-select" data-imprint="${ik}" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
     <option value="Headpress" ${ik==='headpress'?'selected':''}>Headpress</option>
     <option value="Oil and Water Press" ${ik==='oowp'?'selected':''}>Oil and Water Press</option>
   </select>`;
@@ -1133,6 +1301,48 @@ function onImprintChange(titleId,value){
   // colour next to the title and the card-grid colour-code both pick up
   // the change immediately — imprint changes are rare/deliberate edits,
   // not per-keystroke typing, so losing focus on re-render is a non-issue.
+  renderDetail();
+}
+
+// Round 9, item 1 — real edit control for status. Same bug class as
+// imprint/title/subtitle/author before it: status could only ever be set
+// once, at title-creation (new-status select in the Add Title modal, see
+// index.html), then only ever rendered afterward as a plain read-only
+// .status-badge <span> — confirmed live there was genuinely no edit path,
+// which is exactly what produced David's "Not Scheduled" confusion on a
+// title that already had a real Street Date (status is a separate manual
+// field, never derived from schedule data — that auto-derive question is
+// a bigger design call flagged to David directly, out of scope here).
+//
+// Implementation choice: rather than bolting a second select next to the
+// badge (the pattern imprintEditSelect uses, sitting alongside
+// .status-badge), the badge itself BECOMES the control — same badge-*
+// colour classes, same pill shape, just swapped from <span> to <select>.
+// Status IS what the badge shows, so there's no reason for a separate
+// control; this also means the coloured badge people already read at a
+// glance keeps working exactly as before, just clickable now.
+function statusEditSelect(t){
+  const cls=statusBadgeClass(t.status);
+  const opt=v=>`<option value="${esc(v)}" ${t.status===v?'selected':''}>${esc(v)}</option>`;
+  return `<select class="status-badge ${cls}" title="Change status" onchange="onStatusChange('${t.id}',this.value)">
+    ${STATUS_VALUES.map(opt).join('')}
+  </select>`;
+}
+function onStatusChange(titleId,value){
+  const t=getTitle(titleId);if(!t)return;
+  t.status=value;
+  // Round 10, items 1/2 — the instant David picks a value himself here,
+  // auto-derivation (applyStatusAutoRules(), see above) must never touch
+  // Status again for this title, permanently — even if he happens to pick
+  // back to 'Not Scheduled' or 'In Progress', values the automatic rules
+  // could also produce on their own.
+  t.statusAuto=false;
+  debouncedSave(titleId);
+  // Full re-render, same reasoning as onImprintChange — status changes are
+  // rare/deliberate, and the badge colour class, the card-grid progress bar
+  // ("Published" vs percentage — see renderCard's isPublished() check) and
+  // the day-count badge all read off status too, so all of it needs to
+  // pick up the change immediately, not just the control itself.
   renderDetail();
 }
 
@@ -1224,11 +1434,19 @@ function renderCard(t){
   const info=computeDayInfo(t);
   const deadlineHtml=`<div class="card-deadline ${info.colorClass}">${esc(info.label)}</div>`;
   const ik=imprintKey(t.imprint);
+  // Round 10, item 3 — Street Date / Soft Date, added to the card when they
+  // exist (omitted entirely, not shown as an empty placeholder, when blank —
+  // most titles this early only have one or neither set).
+  const cardDateParts=[];
+  if(t.dates.streetDate) cardDateParts.push(`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`);
+  if(t.dates.softDate) cardDateParts.push(`<span>Soft: ${esc(formatDate(t.dates.softDate))}</span>`);
+  const cardDatesHtml = cardDateParts.length ? `<div class="card-dates">${cardDateParts.join('')}</div>` : '';
   return `<div class="book-card" data-imprint="${ik}" onclick="gotoDetail('${t.id}')">${attn}
     <div class="book-cover">${cover}</div>
     <div class="card-info">
       <div class="card-title-row"><span class="imprint-dot" title="${esc(imprintName(t.imprint))}"></span><span class="card-title">${esc(t.title)}</span></div>
       ${t.authors?`<div class="card-author">${esc(contributorLabel(t))}</div>`:''}
+      ${cardDatesHtml}
       ${deadlineHtml}
     </div>
     <div class="card-footer">${progressHtml}</div>
@@ -1242,11 +1460,20 @@ function renderDetail(){
   const main=document.getElementById('main');
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   const info=computeDayInfo(t);
-  const daysHtml=`<span class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
+  // Round 10, item 4 — computeDayInfo()'s generic no-date fallback (kind
+  // 'nodate' with no hasStreet flag, literal label 'Not scheduled') is
+  // suppressed here specifically: statusEditSelect() just above already
+  // shows the same thing via the Status badge, so on a title with neither
+  // dates nor pipeline activity the two used to say essentially the same
+  // thing side by side. The 'Street: [date]' variant (hasStreet:true) and
+  // the real day-count/overdue variants aren't duplicated by the badge, so
+  // those still render exactly as before.
+  const suppressGenericNoDate = info.kind==='nodate' && !info.hasStreet;
+  const daysHtml = suppressGenericNoDate ? '' : `<span class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
   // Badge: 'Completed' (the literal live-data string, see isPublished()) now
   // maps onto the same badge-complete style as 'Complete' — item 15's
-  // underlying status-string mismatch fix.
-  const badgeClass=isPublished(t)?(t.status==='Released'?'badge-released':'badge-complete'):({'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled'}[t.status]||'badge-notscheduled');
+  // underlying status-string mismatch fix. (Round 9: factored into
+  // statusBadgeClass() so statusEditSelect() below can share it.)
   // 2026-07-15: real thumbnail if a Cover Image URL is set (see renderCard()
   // for why this is a pasted direct URL rather than a Graph API fetch),
   // same onerror fallback pattern as the card grid.
@@ -1269,7 +1496,10 @@ function renderDetail(){
   // already just the plain name.
   const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav">${SECTION_KEYS.map(k=>`<a class="toc-side-item" href="#asec-${t.id}-${k}">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`).join('')}</nav>`;
   main.innerHTML=`
-    <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
+    <div class="detail-header-row">
+      <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
+      <button class="btn-delete-title" onclick="openDeleteConfirm('${t.id}')" title="Permanently delete this title">Delete Title&hellip;</button>
+    </div>
     <div class="detail-layout">
       ${tocNavHtml}
       <div class="detail-content">
@@ -1284,7 +1514,7 @@ function renderDetail(){
             </div>
             ${t.authors?`<div class="detail-author-preview" id="detail-author-preview-${t.id}">Displays as: “${esc(contributorLabel(t))}”</div>`:''}
             <div class="detail-meta-row">
-              <span class="status-badge ${badgeClass}">${esc(t.status)}</span>
+              ${statusEditSelect(t)}
               ${imprintEditSelect(t)}
               ${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}
               ${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}
@@ -1294,11 +1524,11 @@ function renderDetail(){
               <div class="detail-strip-label">Production Pipeline — click to cycle status</div>
               <div class="detail-strip" id="detail-strip-${t.id}">${detailStrip}</div>
             </div>
-            ${renderFolderLinksRow(t)}
           </div>
         </div>
-        ${renderKeyContacts(t)}
+        ${renderLinksStrip(t)}
         ${renderExportButtons(t)}
+        ${renderKeyContacts(t)}
         <div class="accordion" id="accordion-${t.id}">${accordionHtml}</div>
       </div>
     </div>`;
@@ -1313,8 +1543,7 @@ function renderDetail(){
 }
 
 // New fields from brief §3: images folder link + working folder link
-// (reveal helper). Placed on the always-visible top panel per the brief's
-// instruction to add them to "the title detail view".
+// (reveal helper).
 //
 // Cover Image URL (added 2026-07-15): a direct link to a single image file,
 // separate from the Images Folder link above (which stays a plain folder
@@ -1342,28 +1571,45 @@ function renderDetail(){
 // publicly-hosted absolute URL still works fine in this field for any
 // future title — a 1drv.ms/onedrive.live.com share link will NOT, per the
 // above; use a direct file host or add the image to /covers/ instead.
-function renderFolderLinksRow(t){
+//
+// Round 10, item 6 — these three fields, previously loose inside the
+// title/cover panel (detail-info), are now pulled into their own small
+// bordered/backgrounded strip directly under it (renderLinksStrip below,
+// renamed from renderFolderLinksRow) — same visual pattern as the Key
+// Contacts box (.key-contacts-box), rather than fields floating inside the
+// title block. David chose this over relocating them into the jump-nav
+// sidebar (flagged as impractical live: too narrow/dark for real text
+// inputs, and collapses under 900px).
+// Round 10, item 9 — a short inline help note now sits under the Cover
+// Image URL field, documenting the GitHub-upload workflow David uses
+// himself (repo's covers/ folder → Add file → Upload files → commit → paste
+// the resulting covers/<filename> path back in here).
+function renderLinksStrip(t){
   const id=t.id;
-  return `<div class="folder-links-row">
-    <div class="folder-link-group">
-      <label class="field-label">Cover Image URL</label>
-      <div class="folder-link-row">
-        <input type="text" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="covers/title-id.jpg, or a direct image URL (NOT a 1drv.ms/OneDrive share link — see code comment)" oninput="onCoverUrlChange('${id}',this.value)">
+  return `<div class="links-strip-box">
+    <div class="links-strip-label">Cover &amp; Folder Links</div>
+    <div class="folder-links-row">
+      <div class="folder-link-group">
+        <label class="field-label">Cover Image URL</label>
+        <div class="folder-link-row">
+          <input type="text" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="covers/title-id.jpg, or a direct image URL (NOT a 1drv.ms/OneDrive share link — see code comment)" oninput="onCoverUrlChange('${id}',this.value)">
+        </div>
+        <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
+        <div class="field-help">To add a new cover: go to this repo's <code>covers</code> folder on github.com &rarr; "Add file" &rarr; "Upload files" &rarr; drag the image in &rarr; commit &rarr; paste the resulting <code>covers/&lt;filename&gt;</code> path in above.</div>
       </div>
-      <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
-    </div>
-    <div class="folder-link-group">
-      <label class="field-label">Images Folder (OneDrive)</label>
-      <div class="folder-link-row">
-        <input type="url" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" placeholder="https://onedrive.live.com/…" oninput="fc('${id}','imagesFolderLink',this.value)">
-        <button class="btn btn-sm" onclick="openImagesFolder('${id}')">Open</button>
+      <div class="folder-link-group">
+        <label class="field-label">Images Folder (OneDrive)</label>
+        <div class="folder-link-row">
+          <input type="url" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" placeholder="https://onedrive.live.com/…" oninput="fc('${id}','imagesFolderLink',this.value)">
+          <button class="btn btn-sm" onclick="openImagesFolder('${id}')">Open</button>
+        </div>
       </div>
-    </div>
-    <div class="folder-link-group">
-      <label class="field-label">Working Folder (local)</label>
-      <div class="folder-link-row">
-        <input type="text" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" placeholder="D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
-        <button class="btn btn-sm" onclick="revealWorkingFolder('${id}')">Reveal in Explorer</button>
+      <div class="folder-link-group">
+        <label class="field-label">Working Folder (local)</label>
+        <div class="folder-link-row">
+          <input type="text" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" placeholder="D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
+          <button class="btn btn-sm" onclick="revealWorkingFolder('${id}')">Reveal in Explorer</button>
+        </div>
       </div>
     </div>
   </div>`;
@@ -1376,7 +1622,7 @@ function renderFolderLinksRow(t){
 // either way. onCoverImgError() below now distinguishes that specific,
 // very-likely cause from a genuine generic load failure (wrong URL, deleted
 // file, host down, etc.) and writes a real, visible message into the
-// cover-url-msg-${id} box added next to the field in renderFolderLinksRow().
+// cover-url-msg-${id} box added next to the field in renderLinksStrip().
 function looksLikeOneDriveShareLink(url){
   return /(^|\/\/)(1drv\.ms|onedrive\.live\.com)(\/|$|\?)/i.test(String(url||'').trim());
 }
@@ -1503,11 +1749,15 @@ function renderKeyContacts(t){const id=t.id;
 // it no longer belongs tucked inside one specific section — moved up here,
 // next to Key Contacts, which is the one block that always renders above
 // the numbered accordion regardless of which sections are open/closed.
+// Round 10, item 7 — moved again, this time to sit directly beneath the new
+// Cover & Folder Links strip (renderLinksStrip(), item 6) rather than next
+// to Key Contacts. Buttons made a little bigger (.btn-export, up from
+// .btn-sm) and the explanatory paragraph that used to sit next to them is
+// deleted outright, per the brief — just the two buttons now.
 function renderExportButtons(t){
   return `<div class="export-actions-row">
-    <button class="btn btn-sm" onclick="openHtmlOutput('${t.id}')">View HTML Output &#8599;</button>
-    <button class="btn btn-sm" onclick="downloadWordFile('${t.id}')">View Word File &#8681;</button>
-    <p class="export-hint">Both export the full title record — every section below, each under its own heading, whether or not it's currently expanded. HTML opens in a new tab as plain text source (select all &amp; copy into distributor systems); Word downloads a .rtf file that opens directly in Word or Google Docs.</p>
+    <button class="btn btn-export" onclick="openHtmlOutput('${t.id}')">View HTML Output &#8599;</button>
+    <button class="btn btn-export" onclick="downloadWordFile('${t.id}')">View Word File &#8681;</button>
   </div>`;
 }
 
@@ -1920,7 +2170,7 @@ function renderFutureEdition(t){const id=t.id;const f=t.futureEdition;
 // Item 31 — Files & Links box removed entirely (renderFilesLinks/addLink/
 // removeLink deleted along with it, 2026-07-26). That information is
 // already effectively available at the top of the page via
-// renderFolderLinksRow() (Cover Image URL / Images Folder / Working
+// renderLinksStrip() (Cover Image URL / Images Folder / Working
 // Folder), added 2026-07-15 — this box had become redundant with it.
 // t.filesLinks itself is left in the data model/Sheet column untouched
 // (same non-destructive approach as the Backup ISBN removal) in case any
@@ -2203,6 +2453,18 @@ function cycleStage(titleId,idx){
   if(btn){const ns=t.pipeline.stages[idx].status;btn.textContent=ns;btn.className='stage-btn stage-'+ns.toLowerCase().replace(/ /g,'-');}
   const strip=document.getElementById(`detail-strip-${titleId}`);
   if(strip)strip.innerHTML=t.pipeline.stages.map((ss,i)=>`<div class="detail-p-dot" style="background:${dotColor(ss.status)}" title="${esc(ss.name)}: ${esc(ss.status)}" onclick="cycleStage('${titleId}',${i})"></div>`).join('');
+  // Round 10, item 1 — a stage moving off 'Not Started' is exactly the
+  // trigger item 1 asks for; re-evaluate Status auto-derivation now. Full
+  // renderDetail() only when Status itself actually changed as a result (a
+  // rare, meaningful transition — same "full re-render on a rare/deliberate
+  // change" reasoning used for onImprintChange/onStatusChange above); every
+  // OTHER stage click keeps the lightweight per-element DOM patch above so
+  // rapid cycling doesn't lose scroll position.
+  if(applyStatusAutoRules(t)){
+    debouncedSave(titleId);updateSectionHeaders(titleId);
+    renderDetail();
+    return;
+  }
   debouncedSave(titleId);updateSectionHeaders(titleId);
 }
 function checklistChange(titleId,idx,checked){
@@ -2278,6 +2540,86 @@ async function confirmAddTitle(){
   ['new-title','new-subtitle','new-authors'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   gotoDetail(t.id);
   await saveTitle(t.id); // append immediately (not debounced) so _row is assigned right away
+}
+
+// ─── DELETE TITLE (Round 9, item 2) ───
+// Confirmed via code search before writing any of this: no delete/remove-
+// title function existed anywhere in the app — a title could be created
+// (confirmAddTitle above) but never removed, so a test title had nowhere
+// to go. This is genuinely destructive and per-title (unlike e.g.
+// removePrinterContact, which just drops one entry from a sub-list within
+// a title), so it gets its own real confirmation modal rather than a
+// single confirm() dialog — David has to type the title's exact name
+// before the button even enables, the same friction pattern GitHub/similar
+// tools use for "delete this repo"-class actions, specifically so it can't
+// be triggered by one stray/fast click.
+let pendingDeleteTitleId=null;
+function openDeleteConfirm(titleId){
+  const t=getTitle(titleId);if(!t)return;
+  pendingDeleteTitleId=titleId;
+  const body=document.getElementById('delete-confirm-body');
+  if(body){
+    body.innerHTML = `<p>You're about to permanently delete:</p>
+      <p class="delete-confirm-title">"${esc(t.title)}"${t.authors?' — '+esc(contributorLabel(t)):''}</p>
+      <p>This removes the ENTIRE title record from the live Sheet: every field on this page for this title — Contents &amp; Marketing text, the production checklist, print/publicity/TOC notes, dates, ISBN values, cover and folder links, quick notes, everything. It does not touch the ISBN pool, the Blocks list, or any other separate tracker sheet — only this one title's row.</p>
+      <p><strong>This cannot be undone from inside the app.</strong> To confirm, type the title exactly as shown above:</p>
+      <input type="text" id="delete-confirm-input" placeholder="Type the title name to confirm" autocomplete="off" oninput="onDeleteConfirmInput()">`;
+  }
+  const confirmBtn=document.getElementById('confirm-delete-btn');
+  if(confirmBtn){confirmBtn.disabled=true;confirmBtn.textContent='Delete Title';}
+  document.getElementById('delete-confirm-modal').classList.remove('hidden');
+  const input=document.getElementById('delete-confirm-input');
+  if(input) input.focus();
+}
+function onDeleteConfirmInput(){
+  const t=getTitle(pendingDeleteTitleId);if(!t)return;
+  const el=document.getElementById('delete-confirm-input');
+  const btn=document.getElementById('confirm-delete-btn');
+  if(btn) btn.disabled = !el || el.value.trim()!==t.title.trim();
+}
+function closeDeleteConfirm(){
+  document.getElementById('delete-confirm-modal').classList.add('hidden');
+  pendingDeleteTitleId=null;
+}
+async function confirmDeleteTitle(){
+  const titleId=pendingDeleteTitleId;
+  const t=getTitle(titleId);if(!t)return;
+  const btn=document.getElementById('confirm-delete-btn');
+  if(btn){btn.disabled=true;btn.textContent='Deleting…';}
+  if(devMode){
+    // Preview sandbox only — same guard used by saveTitle/saveIsbn, no
+    // network write ever happens in devMode, so just drop it from the
+    // in-memory array so the UI still demonstrates the flow.
+    data.titles=data.titles.filter(x=>x.id!==titleId);
+    closeDeleteConfirm();
+    gotoTitles();
+    return;
+  }
+  try{
+    if(t._row){
+      // The real Sheets-side delete — see sheetsDeleteRow above for why
+      // this is a full deleteDimension row removal rather than a client-
+      // side splice (which would just reappear on the next load/reload,
+      // exactly the gap this brief called out).
+      await sheetsDeleteRow(CFG.TITLES_SHEET_ID, 'Titles', t._row);
+    }
+    // t._row can legitimately be unset only if a brand-new title's initial
+    // saveTitle() append (confirmAddTitle above) somehow never completed —
+    // in that case there's nothing on the Sheet to delete yet, so just
+    // drop the local object.
+    closeDeleteConfirm();
+    gotoTitles();
+    // Re-fetch everything from the Sheet so every remaining title's cached
+    // _row is recomputed against the post-delete layout — deleteDimension
+    // physically shifts every row below the deleted one up by one, which
+    // would otherwise leave other titles' _row stale for the rest of this
+    // session (see the long comment on sheetsDeleteRow).
+    await loadAllData();
+  }catch(e){
+    if(btn){btn.disabled=false;btn.textContent='Delete Title';}
+    showReconnect('Delete failed: '+e.message+' — the title has NOT been removed from the Sheet.');
+    console.error(e);
+  }
 }
 
 // ─── FILTERS ───
