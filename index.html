@@ -205,14 +205,39 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* ── BOOK CARD ── */
 .book-card{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-md);overflow:hidden;cursor:pointer;transition:box-shadow .2s,transform .15s,border-color .2s;position:relative;display:flex;flex-direction:column}
 .book-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px);border-color:var(--card-border-hover)}
-.card-attention{position:absolute;top:8px;right:8px;width:10px;height:10px;border-radius:50%;background:var(--terra);border:2px solid var(--surface);z-index:2}
-/* Imprint colour-code (item 6) — thin top accent bar + small dot, NEVER
-   text. Two imprints only: Headpress (warm orange) / Oil On Water Press
-   (teal). Deliberately subtle — 3px bar, 7px dot, no label. */
-.book-card{border-top:3px solid var(--imprint-accent, var(--card-border))}
+/* Round 12, item 3a (2026-08-12) — was a small 10px bullet, too easy to
+   miss per David; replaced with a diagonal corner ribbon across the
+   top-right of the cover image, David's own suggested treatment. This is
+   the "clean, not fragile" version of that idea: .book-card already has
+   overflow:hidden (line above, was already there for the card's own
+   rounded corners/border), which is exactly the one precondition a
+   diagonal ribbon needs to clip cleanly — the strip is drawn wider than the
+   card and rotated, and the card's existing overflow:hidden trims the
+   overhang automatically, so there's no separate clipping mechanism to get
+   wrong or that could break under a different card width. Colour is
+   var(--terra), this app's one existing "true alarm" token (same red
+   card-deadline.overdue already uses) rather than a new arbitrary red, so
+   "danger" reads as the same colour everywhere in the app, not a
+   second/different red just for this. The div sits as the book-card's first
+   child (unchanged from before), positioned absolute against the card
+   itself — since the cover image is the first visual block in the card,
+   the ribbon lands in the cover's corner exactly as asked. Kept genuinely
+   simple (solid colour band + one glyph, no gradients/multi-layer pseudo-
+   elements) specifically because David said it's fine to skip if a ribbon
+   gets tricky to implement cleanly — this reads as clean enough to ship. */
+.card-attention{position:absolute;top:14px;right:-36px;width:130px;padding:4px 0;background:var(--terra);color:#fff;text-align:center;font-size:1rem;font-weight:800;line-height:1;transform:rotate(45deg);box-shadow:0 2px 6px rgba(17,17,17,.35);border-top:1px solid rgba(255,255,255,.6);border-bottom:1px solid rgba(255,255,255,.6);z-index:3}
+/* Imprint colour-code (item 6; made more prominent Round 12, item 3b,
+   2026-08-12 — separately from 3a above, not conditional on it. David: "a
+   little more prominent," not a redesign — bar thickened 3px→5px, dot
+   enlarged 7px→11px with a thin white ring (border) added so it reads as a
+   deliberate marker against the card's cream/white surface rather than a
+   flat colour patch. Still no label text, per the original "never text"
+   design intent. Two imprints only: Headpress (warm orange) / Oil On Water
+   Press (teal). */
+.book-card{border-top:5px solid var(--imprint-accent, var(--card-border))}
 .book-card[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
 .book-card[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
-.imprint-dot{width:7px;height:7px;border-radius:50%;display:inline-block;flex-shrink:0;background:var(--imprint-accent,var(--border2))}
+.imprint-dot{width:11px;height:11px;border-radius:50%;display:inline-block;flex-shrink:0;background:var(--imprint-accent,var(--border2));border:1.5px solid var(--surface);box-shadow:0 0 0 1px var(--border2)}
 /* Item 3 (Round 2) — sanity-checked live before touching this: the CSS here
    was already object-fit:contain (letterbox), not stretch — confirmed by
    reading the deployed index.html directly (GitHub Pages serves this repo's
@@ -540,6 +565,21 @@ label.field-label{font-size:.78rem;color:var(--text3);font-weight:600;text-trans
 input[type=text],input[type=date],input[type=number],input[type=url],input[type=email],select,textarea{width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:1.05rem;font-family:var(--sans);color:var(--text);background:var(--surface);transition:border-color .15s}
 input[type=text]:focus,input[type=date]:focus,input[type=number]:focus,input[type=url]:focus,input[type=email]:focus,select:focus,textarea:focus{outline:none;border-color:var(--sage)}
 input[readonly]{background:var(--bg);color:var(--text3);cursor:default}
+/* Round 12, item 2c (2026-08-12) — app-wide placeholder de-emphasis.
+   David's ask: placeholder text (e.g. "Notes…") reads too dark/prominent
+   everywhere it appears, "roughly half its current darkness/opacity". One
+   global low-specificity rule covering every real text input/textarea in
+   the app (opacity halves whatever colour a placeholder would otherwise
+   render at, so it applies uniformly regardless of each browser's own
+   default placeholder styling — this app previously had no app-wide
+   placeholder rule at all, only the one local one below for
+   .link-value-edit, so placeholder darkness was actually inconsistent
+   browser-to-browser before this). Deliberately opacity, not a lighter
+   colour swap, so "half as dark" is literal rather than a judgement call.
+   Placed ahead of more specific rules like .link-value-edit::placeholder
+   below (which sets its own colour) — opacity here still applies on top,
+   cascading per-property, so that field gets the same 50% reduction too. */
+input::placeholder,textarea::placeholder{opacity:.5}
 textarea{resize:vertical;min-height:80px;line-height:1.5}
 textarea.tall{min-height:130px}
 /* Auto-expanding "word-processor surface" fields (items 20/22 — Content &
@@ -597,7 +637,13 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .richtext ol:last-child{margin-bottom:0}
 .richtext li{margin-bottom:.4em;padding-left:.2em}
 .richtext li:last-child{margin-bottom:0}
-.richtext[data-empty="1"]:not(:focus)::before{content:attr(data-placeholder);color:var(--text-muted);pointer-events:none}
+/* Round 12, item 2c — this is a contenteditable field's placeholder,
+   rendered via ::before rather than a real ::placeholder pseudo-element (no
+   <input>/<textarea> underneath it), so the global input/textarea rule
+   above can't reach it — same de-emphasis applied directly here instead so
+   "everywhere placeholder text appears" genuinely covers every mechanism
+   this app uses for placeholder text, not just the two native ones. */
+.richtext[data-empty="1"]:not(:focus)::before{content:attr(data-placeholder);color:var(--text-muted);opacity:.5;pointer-events:none}
 .field-row{display:flex;align-items:center;gap:8px}
 .field-row input[type=text]{flex:1}
 .isbn-row{display:flex;align-items:center;gap:6px}
@@ -637,12 +683,47 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    mirrors the colour-blocked grouping found in David's original
    "Book Planning 2025" Google Sheet. Round 2 (items 14-17) below: ── */
 .pipeline-chain{display:flex;flex-direction:column;gap:14px}
+/* Round 12, item 2e (2026-08-12) — legend/key, sits above the chain (see
+   pipelineLegendHtml() in app.js, called first inside renderPipeline()'s
+   return, so it renders directly beneath the "5. Production Pipeline"
+   accordion header). Chips reuse the real .stage-btn/.stage-* classes so
+   the legend's colours can never drift from the actual buttons' colours.
+   .legend-chip overrides the interactive sizing/cursor those classes
+   normally carry — this is a key, not a control. */
+.pipeline-legend{display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:2px;padding:8px 10px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--r4)}
+.pipeline-legend-label{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-right:2px}
+.pipeline-legend-arrow{color:var(--text3);font-size:.78rem}
+/* .stage-btn.legend-chip (not just .legend-chip) — needs to out-specificity
+   .stage-btn's own width:100% rule (defined later in this stylesheet, in
+   source order, so an equal-specificity single-class selector here would
+   otherwise lose the cascade and the legend chips would render full-width/
+   stacked instead of compact — caught live in dev-preview testing). */
+.stage-btn.legend-chip{width:auto;flex:0 0 auto;padding:2px 10px;cursor:default;pointer-events:none}
 .pipeline-group-label{font-size:.68rem;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin-bottom:2px}
+/* Round 12, item 2a (2026-08-12) — each pipeline category (PIPELINE_GROUPS
+   in app.js) gets its own subtle background tint + left accent bar, keyed
+   off the data-cat attribute renderPipeline() writes (see
+   pipelineCatSlug()), so the "bank of fields" reads as distinct scannable
+   categories rather than one undifferentiated block. Palette is a
+   judgement call — deliberately kept OUT of the sage/amber/terra family
+   (those mean stage-status: Complete/In Progress/overdue) and out of the
+   imprint orange/teal, so a category tint is never mistaken for a status or
+   an imprint colour. Flagged for David to course-correct if these read as
+   too similar to each other or just not what he pictured. */
+.pipeline-group[data-cat="setup"]{--cat-bg:#EAF0F7;--cat-accent:#6C88A8}
+.pipeline-group[data-cat="production"]{--cat-bg:#F1ECF6;--cat-accent:#8B6FA3}
+.pipeline-group[data-cat="payment"]{--cat-bg:#F5EFE6;--cat-accent:#A88A5E}
+.pipeline-group[data-cat="marketing-detail"]{--cat-bg:#EAF0F2;--cat-accent:#6E8B94}
+.pipeline-group[data-cat="formats"]{--cat-bg:#F6EDEF;--cat-accent:#A8748A}
+.pipeline-group[data-cat="extras"]{--cat-bg:#F0EDE7;--cat-accent:#8C8172}
 /* Item 17 — cream standard applies here too; border darkened from --border
    to --border2 since the original --border tone is too close to the new
    cream background to read clearly (it was designed for contrast against
-   white). */
-.pipeline-group-boxes{display:flex;flex-direction:column;border-radius:var(--r8);overflow:hidden;border:1px solid var(--border2)}
+   white). Round 12: background now the category tint (falls back to
+   transparent if a group has no matching data-cat rule above); left edge
+   gets a slightly heavier accent-coloured border as the category's second
+   visual cue alongside the tint. */
+.pipeline-group-boxes{display:flex;flex-direction:column;border-radius:var(--r8);overflow:hidden;border:1px solid var(--border2);border-left:4px solid var(--cat-accent,var(--border2));background:var(--cat-bg,transparent)}
 /* Items 14/15 (Round 2) — root cause of the column-misalignment complaint:
    each .stage-box is its OWN grid container (one per row), so an `auto`
    column (the old status-button slot) sizes itself independently per row
@@ -655,21 +736,29 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    column narrowed 1fr→130px (item 14, gives Notes the room it was
    competing for); Status column auto→100px (item 15/16 — also now the
    fixed-width slot the new fuller-width status bar fills, see .stage-btn). */
-.stage-box{display:grid;grid-template-columns:22px 130px 100px 90px 1fr;gap:10px;align-items:center;padding:8px 12px;background:transparent;border-bottom:1px solid var(--border2)}
+/* Round 12, item 2b (2026-08-12) — date column widened 90px→150px (David:
+   "date fields are too narrow"); Notes stays the trailing 1fr column, so it
+   automatically narrows by the same 60px the date column gained — the grid
+   rebalances itself, nothing else needed touching to keep the two in
+   proportion without breaking alignment. */
+.stage-box{display:grid;grid-template-columns:22px 130px 100px 150px 1fr;gap:10px;align-items:center;padding:8px 12px;background:transparent;border-bottom:1px solid var(--border2)}
 .stage-box:last-child{border-bottom:none}
 .stage-box-num{font-size:.72rem;color:var(--text3)}
 .stage-box-name{font-size:.85rem;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 /* Item 16 (Round 2) — status control redrawn as a low-height, fuller-width
    bar (fills its fixed 100px column) instead of a small centred pill, so
-   it reads as a status strip rather than a button; each of the 3 possible
-   statuses (Not Started/In Progress/Complete) keeps its own distinct
-   colour, now just more visually prominent. */
+   it reads as a status strip rather than a button; each status keeps its
+   own distinct colour, now just more visually prominent. */
 .stage-btn{width:100%;height:22px;padding:0 6px;border-radius:4px;border:1px solid transparent;cursor:pointer;font-size:.72rem;font-weight:700;font-family:var(--sans);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;transition:background .15s;display:flex;align-items:center;justify-content:center;text-transform:uppercase;letter-spacing:.03em}
 .stage-not-started{background:var(--neutral-bg);color:var(--neutral-border);border-color:var(--neutral-dot)}
 .stage-in-progress{background:var(--amber-bg);color:var(--amber-border);border-color:var(--amber-border)}
 .stage-complete{background:var(--sage-bg);color:var(--sage-border);border-color:var(--sage-border)}
-/* Expected date shrunk (7/26 item 27); Notes widened (7/26 item 28) via the
-   grid template above (90px vs 1fr). Item 9 (Round 2) — font size bumped
+/* Round 12, item 2d — 'Not Required', new 4th status. Identical styling to
+   .stage-complete (same sage/green) by explicit instruction: both mean
+   "nothing outstanding here" in the pipeline view. */
+.stage-not-required{background:var(--sage-bg);color:var(--sage-border);border-color:var(--sage-border)}
+/* Expected date widened (Round 12, item 2b, above); Notes narrows to match
+   via the grid template above. Item 9 (Round 2) — font size bumped
    slightly, same as every other text field. */
 /* Item 7 (Round 3) — bumped .85rem→.92rem, smaller step than the main
    field bump above (1.05rem) deliberately: these sit in the fixed-width

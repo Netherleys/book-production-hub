@@ -155,7 +155,10 @@ function calcAutoPrint(sd){ if(!sd) return ''; const d=new Date(sd); if(isNaN(d)
 // so these summary dots match the actual Production Pipeline box's own
 // "Not Started" stage colour (.stage-not-started, index.html) — David's ask
 // was specifically for the two to be consistent with each other.
-function dotColor(status){ if(status==='Complete') return 'var(--sage)'; if(status==='In Progress') return 'var(--amber)'; return '#9AA5B1'; }
+// Round 12, item 2d — 'Not Required' added; treated identically to
+// 'Complete' (same sage dot colour), per the "both mean nothing outstanding"
+// equivalence in the brief.
+function dotColor(status){ if(status==='Complete'||status==='Not Required') return 'var(--sage)'; if(status==='In Progress') return 'var(--amber)'; return '#9AA5B1'; }
 // 2026-07-26 bug fix (item 15): live Sheet data uses the literal string
 // "Completed" for status (confirmed live — 5 titles), not "Complete" as the
 // Add-Title dropdown writes — a pre-existing mismatch that meant already-
@@ -1180,7 +1183,9 @@ function getSectionStatus(t,key){
     case 'pipeline':{
       const now=new Date();now.setHours(0,0,0,0);
       if(t.pipeline.stages.some(s=>s.status==='In Progress'&&s.expectedDate&&new Date(s.expectedDate)<now))return 'overdue';
-      return t.pipeline.stages.every(s=>s.status==='Complete')?'complete':'partial';
+      // Round 12, item 2d — 'Not Required' counts as done here too, same
+      // "nothing outstanding" equivalence as dotColor()/renderCard() above.
+      return t.pipeline.stages.every(s=>s.status==='Complete'||s.status==='Not Required')?'complete':'partial';
     }
     case 'dates':{
       // 2026-08-11 (item 3 follow-up, caught in live testing) — this drives
@@ -1499,7 +1504,11 @@ function onDetailFieldChange(titleId,field,value){
   }
 }
 function renderCard(t){
-  const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention"></div>':'';
+  // Round 12, item 3a (2026-08-12) — bullet dot replaced with a diagonal
+  // corner ribbon (see .card-attention in index.html for the full
+  // reasoning/CSS). "!" glyph added so the ribbon carries a visible signal
+  // even for anyone not hovering for the title tooltip.
+  const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention">!</div>':'';
   // Real thumbnails, 2026-07-15 — investigated three options (see build
   // report): (A) Microsoft Graph API OAuth integration, (B) OneDrive's
   // anonymous-share thumbnail endpoint. Both dead-ended on the same
@@ -1523,7 +1532,10 @@ function renderCard(t){
   // fill only once actually published; otherwise a muted gold shows partial
   // completion, keeping green reserved for "done" per David's instruction.
   const totalStages=t.pipeline.stages.length;
-  const doneStages=t.pipeline.stages.filter(s=>s.status==='Complete').length;
+  // Round 12, item 2d — 'Not Required' counts toward the progress bar same
+  // as 'Complete' (same "nothing outstanding" equivalence, see cycleStage()
+  // comment above).
+  const doneStages=t.pipeline.stages.filter(s=>s.status==='Complete'||s.status==='Not Required').length;
   const pct=totalStages?Math.round(doneStages/totalStages*100):0;
   const barDone=isPublished(t);
   const progressHtml=`<div class="progress-wrap"><div class="progress-track"><div class="progress-fill ${barDone?'done':''}" style="width:${barDone?100:pct}%"></div></div><div class="progress-label">${barDone?'Published':doneStages+'/'+totalStages}</div></div>`;
@@ -2218,6 +2230,34 @@ function renderAuthor(t){const id=t.id;const a=t.authorInfo;
 // see PIPELINE_GROUPS comment above for exactly which rows that was read
 // from). Items 27/28 — Expected Date shrunk, Notes widened, via the
 // .stage-box grid-template-columns in index.html rather than equal columns.
+// Round 12, item 2e — legend/key, click-through order at a glance. Built
+// off PIPELINE_STAGE_STATUSES (the same array cycleStage() cycles through)
+// and reuses the real .stage-btn/.stage-* classes rather than hardcoding
+// swatch colours a second time, so the legend can never drift out of sync
+// with the actual button colours — if the status set or its colours ever
+// change again, this updates itself automatically. Non-interactive
+// (pointer-events:none via .legend-chip, see index.html) — it's a key, not
+// a control.
+function pipelineLegendHtml(){
+  const chips=PIPELINE_STAGE_STATUSES.map((s,i)=>{
+    const cls='stage-'+s.toLowerCase().replace(/ /g,'-');
+    const arrow = i<PIPELINE_STAGE_STATUSES.length-1 ? '<span class="pipeline-legend-arrow">&#8594;</span>' : '';
+    return `<span class="stage-btn legend-chip ${cls}">${esc(s)}</span>${arrow}`;
+  }).join('');
+  return `<div class="pipeline-legend"><span class="pipeline-legend-label">Click-through order:</span>${chips}</div>`;
+}
+// Round 12, item 2a — each PIPELINE_GROUPS category gets its own
+// background/accent tint (see .pipeline-group[data-cat] in index.html) via
+// a slug derived from the group's own label, so a future group
+// addition/rename in PIPELINE_GROUPS needs no parallel edit here — it just
+// falls back to the neutral default (--border2/transparent) until a
+// matching data-cat rule is added. Colours deliberately avoid the sage/
+// amber/terra hues already reserved for stage-status meaning (Complete/In
+// Progress/overdue) and the orange/teal imprint colours, so a category tint
+// can never be misread as a status or an imprint — see build report for the
+// exact palette + reasoning, flagged as a judgement call for David to
+// course-correct.
+function pipelineCatSlug(label){ return String(label).toLowerCase().replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,''); }
 function renderPipeline(t){const id=t.id;
   const byName={}; t.pipeline.stages.forEach((s,i)=>byName[s.name]={s,i});
   const groupsHtml=PIPELINE_GROUPS.map(g=>{
@@ -2233,9 +2273,9 @@ function renderPipeline(t){const id=t.id;
         <input type="text" class="stage-notes-input" value="${esc(s.notes)}" placeholder="Notes…" oninput="stageChange('${id}',${i},'notes',this.value)">
       </div>`;
     }).join('');
-    return `<div><div class="pipeline-group-label">${esc(g.label)}</div><div class="pipeline-group-boxes">${boxes}</div></div>`;
+    return `<div class="pipeline-group" data-cat="${pipelineCatSlug(g.label)}"><div class="pipeline-group-label">${esc(g.label)}</div><div class="pipeline-group-boxes">${boxes}</div></div>`;
   }).join('');
-  return `<div class="pipeline-chain">${groupsHtml}</div>`;}
+  return `<div class="pipeline-chain">${pipelineLegendHtml()}${groupsHtml}</div>`;}
 
 // Item 13 — day-count colour now driven by computeDayInfo()'s shared
 // tiering (item 13 bug fix — "X days" no longer shares the full-red alarm
@@ -2414,8 +2454,17 @@ function poInvoiceOpenLink(){
 // standalone Key Contacts block under the title header (see
 // renderKeyContacts()) — no longer rendered here.
 function renderPublicity(t){const id=t.id;const p=t.publicity;
+  // Round 12, item 1 (2026-08-12) — David's ask: rename this field's LABEL
+  // from "Publicity Statement" to "Selling Points". Label only — fieldKey
+  // ('pubStmt') and the underlying data path ('publicity.publicityStatement')
+  // are untouched, so no data migration/mapping needed. Flagged in the build
+  // report: Content & Marketing already has its own distinct field also
+  // labelled "Selling Points" (c.sellingPoints, a one-per-line list, see
+  // renderContent()) — this creates two same-named fields in different
+  // boxes. Built exactly as asked since the brief was explicit and literal;
+  // easy to pick a different label if this reads as confusing once live.
   return `<div class="field-grid">
-    ${frow('Publicity Statement',richTa(id,'pubStmt','publicity.publicityStatement',p.publicityStatement,''),'full')}
+    ${frow('Selling Points',richTa(id,'pubStmt','publicity.publicityStatement',p.publicityStatement,''),'full')}
     ${frow('Marketing Notes',richTa(id,'marketing','publicity.marketing',p.marketing,''),'full')}
     <p style="grid-column:1/-1;font-size:.78rem;color:var(--text3)">Amazon A+, PLS.ORG, Newsletter and Promo Film status now live in the Production Pipeline section above (they were duplicated in both places in the original app) — use each stage's Notes field for detail.</p>
   </div>`;}
@@ -2735,11 +2784,23 @@ function stageChange(titleId,idx,field,value){
   const t=getTitle(titleId);if(!t)return;
   t.pipeline.stages[idx][field]=value;debouncedSave(titleId);updateSectionHeaders(titleId);
 }
+// Round 12, item 2d (2026-08-12) — Production Pipeline stage status set
+// changed from 3 values to these exact 4, in this exact order, per David's
+// brief. 'Not Required' is new — styled identically to 'Complete' (same
+// sage/green, see .stage-not-required in index.html) since both mean
+// "nothing outstanding here" in the pipeline view, distinct from Not
+// Started/In Progress which still need attention. Every place elsewhere in
+// this file that reads pipeline stage status for "is this stage done"
+// purposes (dotColor, doneStages progress count in renderCard, the pipeline
+// section's overall-complete check in getSectionStatus) is updated
+// alongside this to treat 'Not Required' the same as 'Complete', per that
+// same stated equivalence — not just the button colour.
+const PIPELINE_STAGE_STATUSES=['Not Started','In Progress','Complete','Not Required'];
 function cycleStage(titleId,idx){
   const t=getTitle(titleId);if(!t)return;
-  const s=['Not Started','In Progress','Complete'];
+  const s=PIPELINE_STAGE_STATUSES;
   const cur=s.indexOf(t.pipeline.stages[idx].status);
-  t.pipeline.stages[idx].status=s[(cur+1)%3];
+  t.pipeline.stages[idx].status=s[(cur+1)%s.length];
   const btn=document.querySelector(`[data-stage-btn="${titleId}-${idx}"]`);
   if(btn){const ns=t.pipeline.stages[idx].status;btn.textContent=ns;btn.className='stage-btn stage-'+ns.toLowerCase().replace(/ /g,'-');}
   const strip=document.getElementById(`detail-strip-${titleId}`);
@@ -3169,7 +3230,10 @@ function getSectionExportFields(t,key,blockNameById){
       ];
     }
     case 'publicity': return [
-      ['Publicity Statement','html', t.publicity.publicityStatement],
+      // Round 12, item 1 — label matched to the renamed UI field (see
+      // renderPublicity() above) so exports read the same, same pattern as
+      // the Contributor(s) rename precedent (item 7, Round 11) above.
+      ['Selling Points','html', t.publicity.publicityStatement],
       ['Marketing Notes','html', t.publicity.marketing]
     ];
     case 'toc': return [
@@ -3435,12 +3499,15 @@ function openTodoistModal(){
     const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
     if(pd){
       const d=daysUntil(pd);
-      if(d!==null&&d<=60&&!t.pipeline.stages.every(s=>s.status==='Complete'))
+      // Round 12, item 2d — 'Not Required' counts as done here too, same
+      // "nothing outstanding" equivalence applied everywhere else stage
+      // completion is checked (see cycleStage() comment).
+      if(d!==null&&d<=60&&!t.pipeline.stages.every(s=>s.status==='Complete'||s.status==='Not Required'))
         lines.push(`[p1] PRINT DEADLINE: ${t.title} — ${d<0?'OVERDUE '+Math.abs(d)+' days':d+' days'}`);
     }
     if(t.dates.streetDate){
       const d=daysUntil(t.dates.streetDate);
-      if(d!==null&&d<=90&&!t.pipeline.stages.every(s=>s.status==='Complete'))
+      if(d!==null&&d<=90&&!t.pipeline.stages.every(s=>s.status==='Complete'||s.status==='Not Required'))
         lines.push(`[p2] STREET DATE APPROACHING: ${t.title} — ${formatDate(t.dates.streetDate)}`);
     }
     t.pipeline.stages.forEach(s=>{
