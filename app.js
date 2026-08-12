@@ -102,7 +102,17 @@ let data = { titles: [], isbns: [], blocks: [] };
 // debouncedSave()/flushPendingSave() comment block further down for why a
 // single shared timer was the root cause of a real data-loss bug.
 let view = 'titles', selectedId = null, syncStatus = 'none';
-let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', printTiming:'' }, isbnFilter = 'all';
+// Round 14 (2026-08-12), item 2 — 'sort' added to the existing filters
+// object (same session-only, in-memory pattern as every other filter key
+// here — no persistence needed, this is a display-order control, not data).
+// Default 'alpha': the All Titles view previously had no explicit sort at
+// all, just data.titles' raw array order (== Sheet row order == creation
+// order ascending, oldest-first, since confirmAddTitle() pushes new titles
+// onto the end — see addTitle's _row comment). Alphabetical is the more
+// useful default for a working list of this size, but 'recent' (below) gets
+// David back to something close to the old implicit order if he wants it,
+// just newest-first instead of oldest-first.
+let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', printTiming:'', sort:'alpha' }, isbnFilter = 'all';
 let isbnLocked = {}; // titleId -> {isbnPbk:bool, isbnHbk:bool, isbnEbk:bool} — true = locked (default). Item 18 lock mechanism, session-only by design (see build report).
 let qnOpen = false;
 // Item 6 (Round 3) — Active/Archived toggle state for the Quick Notes list
@@ -688,7 +698,7 @@ function rowToTitle(row){
     statusAuto: c.statusAuto==='' ? (c.status||'Not Scheduled')==='Not Scheduled' : toBool(c.statusAuto),
     planningSheet: c.planningSheet||'', bookBiblePresent: toBool(c.bookBiblePresent), lastUpdated: c.lastUpdated||'',
     blockId: c.blockId||'',
-    dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc), printStatusOverride: pn.printStatusOverride||'' },
+    dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc), printStatusOverride: normalizePrintStatusOverride(pn.printStatusOverride||'') },
     commercial: {
       isbnPbk: c.isbn_pbk||'', isbnHbk: c.isbn_hbk||'', isbnEbk: c.isbn_ebk||'',
       // Backup ISBN fields removed from the UI entirely (item 18 — see build
@@ -1114,7 +1124,7 @@ function hasAttention(t){
   // so a title David explicitly marked "In Print" would still flash the
   // attention dot from a Print Date that's since passed. "Delayed / On
   // Hold" is the one override value that SHOULD still flag attention.
-  if(t.dates.printStatusOverride) return t.dates.printStatusOverride==='Delayed / On Hold';
+  if(t.dates.printStatusOverride) return t.dates.printStatusOverride==='Delayed/On Hold';
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   if(pd){const d=daysUntil(pd);if(d!==null&&d<=60&&!isPublished(t))return true;}
   return false;
@@ -1147,10 +1157,37 @@ function hasAttention(t){
 // NOTE: this is the sensible-fix-first attempt the brief asked for, not a
 // confirmed exact match to David's mental model — flagged directly to him
 // in the build report to confirm this is the state model he actually wants.
+//
+// Round 14 (2026-08-12) — David: "we seem to have a couple of options that
+// effectively mean the same (In Print and Printed)" — collapsed the list to
+// exactly 4: Auto (from Print Date) / In Print / Delayed/On Hold / Out of
+// Print. 'Printed' is REMOVED as a selectable option (merged into 'In
+// Print', per David's own framing that they mean the same thing); 'Delayed
+// / On Hold' is renamed 'Delayed/On Hold' (no spaces, matching his exact
+// wording) — same meaning, same colour, label only. 'Out of Print' is
+// genuinely new (books that were printed but are no longer being kept in
+// print), given its own neutral/muted colour rather than reusing red —
+// deliberately not an "attention" state like overdue, just a settled one
+// (see hasAttention()/getSectionStatus('dates') below, neither of which
+// were told to treat it as urgent).
+//
+// Live-data safety check BEFORE this change (Marcus, 2026-08-12, direct
+// Sheets API read of Titles!productionNotes_json across all 27 real rows):
+// 25 rows Auto/blank, 2 rows already 'In Print', ZERO rows using 'Printed',
+// ZERO rows using 'Delayed / On Hold'. So there was nothing live to
+// migrate — but normalizePrintStatusOverride() below still defensively
+// remaps both old values on load (not just at the point of writing this),
+// in case a row is ever hand-edited in the Sheet with the old literal
+// values later. No ambiguous/unmapped values found live.
+function normalizePrintStatusOverride(v){
+  if(v==='Printed') return 'In Print';
+  if(v==='Delayed / On Hold') return 'Delayed/On Hold';
+  return v;
+}
 const PRINT_STATUS_OVERRIDES = {
   'In Print': {colorClass:'ok'},
-  'Printed': {colorClass:'published'},
-  'Delayed / On Hold': {colorClass:'notice'}
+  'Delayed/On Hold': {colorClass:'notice'},
+  'Out of Print': {colorClass:'neutral'}
 };
 function computeDayInfo(t){
   if(t.dates.printStatusOverride && PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride]){
@@ -1196,7 +1233,7 @@ function getSectionStatus(t,key){
       // left this stripe showing red/overdue regardless, a visible
       // contradiction confirmed live (dev-preview screenshot, same session).
       // Checked first, same override-wins priority as computeDayInfo().
-      if(t.dates.printStatusOverride) return t.dates.printStatusOverride==='Delayed / On Hold' ? 'overdue' : 'complete';
+      if(t.dates.printStatusOverride) return t.dates.printStatusOverride==='Delayed/On Hold' ? 'overdue' : 'complete';
       if(isPublished(t))return 'complete';
       if(!t.dates.streetDate)return 'partial';
       const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
@@ -1366,6 +1403,20 @@ function renderTitles(){
     }
     if(filters.search){const q=filters.search.toLowerCase();if(!t.title.toLowerCase().includes(q)&&!t.authors.toLowerCase().includes(q))return false;}
     return true;
+  });
+  // Round 14 (2026-08-12), item 2 — display-order toggle (no new data
+  // field). 'alpha' sorts on the title text itself (localeCompare, base
+  // sensitivity so case/accents don't split otherwise-identical titles
+  // apart). 'recent' uses t._row — the title's row position in the live
+  // Sheet — as the "created" proxy: new titles are always appended to the
+  // end of the Sheet (see confirmAddTitle/saveTitle's _row comment), so a
+  // higher _row reliably means a more recently created title without
+  // needing a new createdDate column. Sorted on a copy (.slice()) so the
+  // underlying data.titles array — and every _row index into it — is never
+  // reordered by a display choice.
+  titles = titles.slice().sort((a,b)=>{
+    if(filters.sort==='recent') return (b._row||0)-(a._row||0);
+    return a.title.localeCompare(b.title,undefined,{sensitivity:'base'});
   });
   const main=document.getElementById('main');
   if(!titles.length){main.innerHTML='<div class="empty-state"><h3>No titles found</h3><p>Try changing your filters, or add a new title. If this is a fresh sheet, Fred\'s Book Bible migration may not have landed yet.</p></div>';return;}
@@ -3044,6 +3095,7 @@ function onFilterStatus(v){filters.status=v;renderTitles();}
 function onFilterImprint(v){filters.imprint=v;renderTitles();}
 function onFilterBlock(v){filters.block=v;renderTitles();}
 function onFilterPrintTiming(v){filters.printTiming=v;renderTitles();}
+function onFilterSort(v){filters.sort=v;renderTitles();}
 
 // ─── ISBN LOCK MECHANISM (item 18 design decision) ───
 // Default state: LOCKED (readonly) for every live ISBN field, every time

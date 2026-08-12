@@ -973,6 +973,14 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
       <option value="overdue">Print Date Passed</option>
       <option value="published">Published</option>
     </select>
+    <!-- Round 14 (2026-08-12), item 2: display-order toggle, All Titles view
+         only — a pure sort control, not a filter, but styled/placed the same
+         as the filters above it since it lives in the same toolbar row and
+         David already knows this control language. -->
+    <select class="h-select" id="filter-sort" onchange="onFilterSort(this.value)">
+      <option value="alpha">Sort: A–Z</option>
+      <option value="recent">Sort: Most Recently Created</option>
+    </select>
   </div>
   <div class="h-actions">
     <button class="btn btn-primary btn-sm" id="btn-add-title" onclick="openAddTitle()">+ Add Title</button>
