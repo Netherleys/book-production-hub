@@ -151,15 +151,15 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .h-tab{padding:6px 14px;border-radius:var(--r4);font-size:.85rem;cursor:pointer;background:none;border:none;color:var(--text-oncream-dim);font-family:var(--sans)}
 .h-tab:hover{background:rgba(241,234,217,.08);color:var(--text-oncream)}
 .h-tab.active{background:var(--sage);color:#fff;font-weight:600}
-.h-search-wrap{display:flex;align-items:center;gap:8px;flex:1;min-width:0;flex-wrap:wrap}
-#hdr-search{flex:1;min-width:80px;max-width:220px;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;background:var(--surface);color:var(--text)}
-/* Item 2 (Round 2) — the three filter dropdowns had no width cap at all, so
-   they rendered at whatever their widest <option> text demanded (in
-   practice, close to the full available flex-row width) — confirmed live,
-   see screenshot referenced above. flex-shrink:0/flex-grow:0 stops them
-   stretching to fill the row; max-width caps their own natural size. */
-.h-select{padding:5px 8px;border:1px solid var(--border);border-radius:var(--r4);font-size:.82rem;background:var(--surface);color:var(--text);cursor:pointer;flex:0 0 auto;max-width:150px;text-overflow:ellipsis}
-#filter-imprint,#filter-block,#filter-printtiming{max-width:150px}
+/* Round 15 (2026-08-12) — .h-search-wrap/#hdr-search/.h-select (the old
+   header search+filter row's styling) are RETIRED here, superseded by
+   .filter-sidebar/.fs-search/.fs-select below (right after the header CSS
+   block) now that those controls live in the new sidebar, not the header.
+   Deliberately removed rather than left orphaned: #hdr-search was an ID
+   selector and would otherwise keep beating the new .fs-search class on
+   specificity for the exact same <input id="hdr-search"> element (its id
+   is unchanged, only relocated), silently reintroducing the old
+   flex/max-width:220px header sizing inside the new full-width sidebar. */
 .h-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
 .btn{padding:6px 14px;border-radius:var(--r4);border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:.82rem;cursor:pointer;font-family:var(--sans);transition:background .15s}
 .btn:hover{background:var(--bg2)}
@@ -195,7 +195,15 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 /* ── MAIN — width split by view (item 11: detail/box working area slimmer;
    item 2: overview grid spreads to full width) ── */
-#main{padding:20px 24px 40px}
+/* Round 15 (2026-08-12) — #main's own edge padding is RELOCATED onto
+   .layout-wrap (the new flex row wrapping the filter sidebar + #main, see
+   below) rather than living on #main itself — #main is now a flex child of
+   .layout-wrap on every view (the filter sidebar just hides itself via
+   #filter-panel-wrap's display:none on non-'titles' views, see render() in
+   app.js), so giving the WRAPPER the padding keeps every view's edge inset
+   pixel-identical to before, it's just applied one level up now. #main
+   itself drops to 0 padding so it doesn't double up. */
+#main{padding:0;flex:1;min-width:0}
 #main.main-titles{max-width:none}
 /* Item 8 (Round 2) — widened by exactly the sidebar's own footprint
    (170px width + 20px gap) so the detail-content column keeps its
@@ -204,6 +212,45 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 #main.main-detail{max-width:calc(var(--detail-width) + 190px);margin:0 auto}
 #main.main-isbns{max-width:1100px;margin:0 auto}
 #main.main-quicknotes{max-width:900px;margin:0 auto}
+/* ── FILTER SIDEBAR (Round 15, 2026-08-12) ──
+   David approved a mockup (dashboard_sidebar_filters_mockup_2026-08-12.html,
+   Project Build/Book Production Hub/_mockups/) moving the All Titles
+   search/filter controls out of the header into a new left-hand floating
+   sidebar. Ported here verbatim, with ONE deliberate correction versus the
+   mockup: the mockup's own preview wrapper used max-width:1500px+margin:0
+   auto (a centered container, sensible for a standalone one-off preview
+   file) — David does NOT want that live; he wants edge-to-edge, matching
+   the convention this app ALREADY uses everywhere else (#main.main-titles
+   above is max-width:none — full width, just the shared side padding — and
+   that's exactly what .layout-wrap replicates below: padding, no
+   max-width/margin:auto of its own. #main.main-detail/-isbns/-quicknotes
+   still center THEMSELVES within that full-width row exactly as they did
+   before, untouched).
+   Sidebar's own visual language is reused, not invented: dark #111 rounded
+   box, sticky under the header — the same treatment the detail page's own
+   jump-nav sidebar (.toc-sidenav below) already uses. */
+.layout-wrap{display:flex;align-items:flex-start;gap:20px;padding:20px 24px 40px}
+#filter-panel-wrap{display:contents} /* grouped only so render() can show/hide the toggle+sidebar together in one line; contents keeps both true flex-siblings of #main for layout/sibling-selector purposes */
+.filter-sidebar{position:sticky;top:calc(var(--hh) + 16px);z-index:40;width:236px;flex-shrink:0;background:#111;border-radius:var(--r8);padding:14px;display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto;transition:transform .2s ease}
+.filter-sidebar-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.45);font-weight:600;padding:0 2px 2px}
+.fs-search{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;background:var(--surface);color:var(--text)}
+.fs-select{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:var(--r4);font-size:.82rem;background:var(--surface);color:var(--text);cursor:pointer}
+/* Drawer toggle — hidden on desktop, shown only under the 900px breakpoint
+   below (same breakpoint .toc-sidenav's own responsive rule already uses,
+   for consistency — this is a DIFFERENT collapse behaviour than that one,
+   a slide-out drawer rather than a horizontal bar, flagged to David in the
+   mockup build report as a judgement call: filter selects + the search box
+   read poorly compressed into a horizontal strip the way toc-sidenav's
+   short nav-pill labels do). Pure-CSS checkbox toggle, no JS needed. */
+.filters-toggle-input{display:none}
+.filters-toggle-btn{display:none;position:sticky;top:calc(var(--hh) + 16px);align-self:flex-start;background:#111;color:#fff;border:1px solid rgba(255,255,255,.25);border-radius:var(--r8);padding:9px 14px;font-size:.82rem;font-weight:600;cursor:pointer;box-shadow:var(--shadow-md);z-index:41;white-space:nowrap}
+@media (max-width:900px){
+  .layout-wrap{flex-direction:column}
+  .filters-toggle-btn{display:inline-block}
+  .filter-sidebar{position:fixed;top:calc(var(--hh) + 8px);left:16px;transform:translateX(-130%);box-shadow:var(--shadow-lg)}
+  .filters-toggle-input:checked ~ .filter-sidebar{transform:translateX(0)}
+  #main{width:100%}
+}
 /* ── TITLES GRID ── */
 .titles-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;background:var(--bg-page2);border:1px solid rgba(241,234,217,.1);border-radius:var(--r8);padding:12px 14px}
 .titles-toolbar .h-select, .titles-toolbar input{background:var(--surface)}
@@ -947,41 +994,17 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
     <button class="h-tab" id="tab-quicknotes" onclick="gotoQuickNotesList()">Quick Notes</button>
     <button class="h-tab" id="tab-isbns" onclick="gotoISBNs()">ISBN Manager</button>
   </nav>
-  <div class="h-search-wrap" id="search-wrap">
-    <input type="text" id="hdr-search" placeholder="Search titles, authors…" oninput="onSearch(this.value)">
-    <select class="h-select" id="filter-status" onchange="onFilterStatus(this.value)">
-      <option value="">All Statuses</option>
-      <option value="In Progress">In Progress</option>
-      <option value="Not Scheduled">Not Scheduled</option>
-      <option value="Complete">Complete</option>
-      <option value="Released">Released</option>
-    </select>
-    <select class="h-select" id="filter-imprint" onchange="onFilterImprint(this.value)">
-      <option value="">All Imprints</option>
-      <option value="Headpress">Headpress</option>
-      <option value="Oil and Water Press">Oil and Water Press</option>
-    </select>
-    <!-- Item 4: filter by release-date Block (Blocks tab data) -->
-    <select class="h-select" id="filter-block" onchange="onFilterBlock(this.value)">
-      <option value="">All Blocks</option>
-    </select>
-    <!-- Item 14: filter by print-timing status (not scheduled / passed / X days) -->
-    <select class="h-select" id="filter-printtiming" onchange="onFilterPrintTiming(this.value)">
-      <option value="">All Print Timing</option>
-      <option value="notscheduled">Not Scheduled</option>
-      <option value="duesoon">X Days To Print</option>
-      <option value="overdue">Print Date Passed</option>
-      <option value="published">Published</option>
-    </select>
-    <!-- Round 14 (2026-08-12), item 2: display-order toggle, All Titles view
-         only — a pure sort control, not a filter, but styled/placed the same
-         as the filters above it since it lives in the same toolbar row and
-         David already knows this control language. -->
-    <select class="h-select" id="filter-sort" onchange="onFilterSort(this.value)">
-      <option value="alpha">Sort: A–Z</option>
-      <option value="recent">Sort: Most Recently Created</option>
-    </select>
-  </div>
+  <!-- Round 15 (2026-08-12) — the search/filter row that used to live here
+       (.h-search-wrap: search box + Status/Imprint/Block/Print Timing/Sort)
+       is REMOVED from the header. David approved a mockup moving all of it
+       into a new left-hand floating filter sidebar (see .filter-sidebar
+       below, right after </header>) so the top bar goes back to being just
+       branding + nav + actions — exactly the header treatment every OTHER
+       view (detail/ISBN Manager/Quick Notes) already has today, simply
+       applied to All Titles too now. Nothing here needed touching to get
+       that: the header was already this simple on every other view because
+       .h-search-wrap was display:none whenever view!=='titles' — this
+       change just makes that the permanent, only state, for every view. -->
   <div class="h-actions">
     <button class="btn btn-primary btn-sm" id="btn-add-title" onclick="openAddTitle()">+ Add Title</button>
     <button class="btn btn-sm" onclick="openTodoistModal()">Push to Todoist</button>
@@ -990,7 +1013,62 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
   </div>
 </header>
 
-<main id="main"></main>
+<!-- Round 15 (2026-08-12) — new floating filter sidebar, replacing the old
+     header search/filter row. #filter-panel-wrap groups the drawer-toggle
+     checkbox+label with the sidebar itself so render() can show/hide both
+     together with one line (display:contents when visible keeps them true
+     flex-siblings of #main for CSS purposes — see .layout-wrap below —
+     while still being one DOM node to toggle; display:none hides all three
+     children at once on every view except 'titles', same as
+     .h-search-wrap's old display:none/flex toggle did). All six controls
+     keep their EXACT original ids/onchange handlers from the header
+     version — this is a pure relocation, the filter/sort logic in app.js
+     (onFilterStatus/onFilterImprint/onFilterBlock/onFilterPrintTiming/
+     onFilterSort/onSearch, populateBlockFilter) is completely untouched.
+     Order is David's exact approved sequence from the mockup: Search →
+     Sort → Release Block → Imprint → Status → Print Timing. -->
+<div class="layout-wrap">
+  <div id="filter-panel-wrap">
+    <input type="checkbox" id="filtersToggle" class="filters-toggle-input">
+    <label for="filtersToggle" class="filters-toggle-btn">&#9776; Filters</label>
+    <aside class="filter-sidebar" id="filter-sidebar">
+      <div class="filter-sidebar-label">Filter &amp; Sort</div>
+      <!-- David: no numbered order badges in the live build (mockup had
+           them, dropped here) — fields stay in this same order regardless:
+           Search, Sort, Release Block, Imprint, Status, Print Timing. -->
+      <input type="text" id="hdr-search" class="fs-search" placeholder="Search titles, authors…" oninput="onSearch(this.value)">
+      <select class="fs-select" id="filter-sort" onchange="onFilterSort(this.value)">
+        <option value="alpha">Sort: A–Z</option>
+        <option value="recent">Sort: Most Recently Created</option>
+      </select>
+      <!-- Item 4: filter by release-date Block (Blocks tab data) -->
+      <select class="fs-select" id="filter-block" onchange="onFilterBlock(this.value)">
+        <option value="">All Blocks</option>
+      </select>
+      <select class="fs-select" id="filter-imprint" onchange="onFilterImprint(this.value)">
+        <option value="">All Imprints</option>
+        <option value="Headpress">Headpress</option>
+        <option value="Oil and Water Press">Oil and Water Press</option>
+      </select>
+      <select class="fs-select" id="filter-status" onchange="onFilterStatus(this.value)">
+        <option value="">All Statuses</option>
+        <option value="In Progress">In Progress</option>
+        <option value="Not Scheduled">Not Scheduled</option>
+        <option value="Complete">Complete</option>
+        <option value="Released">Released</option>
+      </select>
+      <!-- Item 14: filter by print-timing status (not scheduled / passed / X days) -->
+      <select class="fs-select" id="filter-printtiming" onchange="onFilterPrintTiming(this.value)">
+        <option value="">All Print Timing</option>
+        <option value="notscheduled">Not Scheduled</option>
+        <option value="duesoon">X Days To Print</option>
+        <option value="overdue">Print Date Passed</option>
+        <option value="published">Published</option>
+      </select>
+    </aside>
+  </div>
+  <main id="main"></main>
+</div>
 
 <!-- Quick Note capture (item 32) — fast, low-friction jot against any title,
      no formal edit flow. Floating button + small panel, always available

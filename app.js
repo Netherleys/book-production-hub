@@ -1309,7 +1309,16 @@ function render(){
   document.getElementById('tab-titles').classList.toggle('active',view==='titles');
   document.getElementById('tab-isbns').classList.toggle('active',view==='isbns');
   const qnTab=document.getElementById('tab-quicknotes'); if(qnTab) qnTab.classList.toggle('active',view==='quicknotes');
-  document.getElementById('search-wrap').style.display=view==='titles'?'flex':'none';
+  // Round 15 (2026-08-12) — the old header search/filter row (#search-wrap)
+  // moved into the new left-hand filter sidebar (see #filter-panel-wrap in
+  // index.html, right after </header>). Same show-only-on-'titles' toggle
+  // as before, just retargeted: 'contents' (not 'flex') because
+  // #filter-panel-wrap's own two children (the drawer-toggle button + the
+  // sidebar itself) need to stay true flex-siblings of #main inside
+  // .layout-wrap for the flex layout/CSS sibling-selector (drawer toggle)
+  // to work — display:contents makes the wrapper invisible to layout
+  // without pulling it out of the DOM, so one line still shows/hides both.
+  document.getElementById('filter-panel-wrap').style.display=view==='titles'?'contents':'none';
   document.getElementById('btn-add-title').style.display=view==='titles'?'inline-block':'none';
   const main=document.getElementById('main');
   main.className='main-'+view; // item 11/2 — width split by view (titles=full width, detail=slimmer, isbns=medium)
@@ -1324,12 +1333,14 @@ function render(){
   populateQuickNoteTitles();
   // Items 1/2 (Round 2) — header is no longer a fixed height (see
   // #app-header in index.html), so its real rendered height is re-measured
-  // on every render (the filter row only exists in the 'titles' view, so
-  // the header's actual height genuinely changes between views) and synced
-  // into --hh, which body padding-top and everything else keyed to --hh
-  // reads from. This is what actually prevents the header from ever
-  // overlapping the content below it, regardless of how many rows the
-  // filter toolbar wraps to.
+  // on every render and synced into --hh, which body padding-top and
+  // everything else keyed to --hh reads from. Round 15 (2026-08-12): the
+  // filter row that used to live in the header (and could wrap to extra
+  // rows, changing the header's real height between views) has moved out
+  // to the new sidebar — the header is now just logo+nav+actions on every
+  // view, so its height is effectively constant now. Left this re-measure
+  // in place regardless (harmless, still correct if the header ever wraps
+  // for some other reason, e.g. a narrow window squeezing the nav tabs).
   syncHeaderHeight();
 }
 // 2026-08-11 — every navigation-away path flushes the CURRENTLY selected
