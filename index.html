@@ -1045,10 +1045,19 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
       <select class="fs-select" id="filter-block" onchange="onFilterBlock(this.value)">
         <option value="">All Blocks</option>
       </select>
+      <!-- Round 16 (2026-08-12) — BUG FIX: option value corrected from the
+           wrong "Oil and Water Press" to the correct "Oil On Water Press"
+           (see project memory on this exact recurring naming mix-up). Note
+           this alone would NOT have fixed David's reported bug (the one
+           live Oil On Water Press title is stored as the short code
+           'OOWP', not either spelled-out variant) — the real fix is the
+           filter comparison in renderTitles() now going through
+           imprintKey() to normalise both sides, same helper the card
+           accent colour/imprint dot already use for this exact reason. -->
       <select class="fs-select" id="filter-imprint" onchange="onFilterImprint(this.value)">
         <option value="">All Imprints</option>
         <option value="Headpress">Headpress</option>
-        <option value="Oil and Water Press">Oil and Water Press</option>
+        <option value="Oil On Water Press">Oil On Water Press</option>
       </select>
       <select class="fs-select" id="filter-status" onchange="onFilterStatus(this.value)">
         <option value="">All Statuses</option>
@@ -1138,9 +1147,13 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
     <div class="modal-field"><label>Subtitle</label><input type="text" id="new-subtitle" placeholder="Subtitle"></div>
     <div class="modal-field"><label>Author(s)</label><input type="text" id="new-authors" placeholder="Author name(s)"></div>
     <div class="modal-field"><label>Imprint</label>
+      <!-- Round 16 (2026-08-12) — corrected "Oil and Water Press" to the
+           correct "Oil On Water Press" (see filter-imprint's comment for
+           the full story). New titles created via this modal now write
+           the correct name into the imprint field going forward. -->
       <select id="new-imprint">
         <option value="Headpress">Headpress</option>
-        <option value="Oil and Water Press">Oil and Water Press</option>
+        <option value="Oil On Water Press">Oil On Water Press</option>
       </select>
     </div>
     <div class="modal-field"><label>Status</label>

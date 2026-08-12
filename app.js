@@ -861,7 +861,7 @@ function loadDevSampleData(){
         {id:'qn-sample-1c', ts:new Date(Date.now()-6*86400000).toISOString(), text:'Old note — already dealt with.', archived:true, archivedTs:new Date(Date.now()-3*86400000).toISOString()}
       ]
     }),
-    defTitle({id:'sample-2', title:'Sample Not Scheduled Title', authors:'Jane Author', status:'Not Scheduled', imprint:'Oil and Water Press'}),
+    defTitle({id:'sample-2', title:'Sample Not Scheduled Title', authors:'Jane Author', status:'Not Scheduled', imprint:'Oil On Water Press'}), // Round 16 (2026-08-12) — was 'Oil and Water Press' (wrong name), fixed for consistency
     // Round 10, items 1/2 dev-preview fixture — status still auto-managed
     // (statusAuto:true, the defTitle() default, not overridden here) but its
     // Street Date is already 10 days in the past, so the normalisation pass
@@ -1402,7 +1402,27 @@ function populateBlockFilter(){
 function renderTitles(){
   let titles=data.titles.filter(t=>{
     if(filters.status&&t.status!==filters.status)return false;
-    if(filters.imprint&&t.imprint!==filters.imprint)return false;
+    // Round 16 (2026-08-12) — BUG FIX. This used to be a raw strict-equality
+    // check (t.imprint!==filters.imprint) against whatever literal text the
+    // filter dropdown's selected <option value> holds. Confirmed live
+    // (direct Sheets API read of Titles!imprint): 26 rows are literally
+    // 'Headpress', but the one real Oil On Water Press title ("Song Over
+    // the Bones", row 19) is stored as the short code 'OOWP' — NOT any
+    // spelled-out variant. So selecting "Oil On Water Press"/"Oil and Water
+    // Press" in the filter could never have matched that row by raw string
+    // equality regardless of which spelling the dropdown used — David's
+    // reported bug ("Oil On Water Press filter finds nothing") reproduces
+    // with either spelling, confirmed before touching anything. The wrong
+    // "and" spelling (see imprintEditSelect()/Add Title modal below, also
+    // fixed this round) was a real, separate mislabeling, but fixing the
+    // words alone would NOT have fixed this filter — it would still be
+    // comparing full text against the raw 'OOWP' short code and still find
+    // nothing. Real fix: compare through imprintKey(), the same
+    // normalisation helper the card accent colour/imprint dot/edit-select
+    // "selected" state already use elsewhere in this file specifically
+    // because the raw Sheet data is inconsistent ('OOWP' vs a full name) —
+    // this is the ONE place that was still doing a raw comparison instead.
+    if(filters.imprint&&imprintKey(t.imprint)!==imprintKey(filters.imprint))return false;
     if(filters.block){
       if(filters.block==='__unassigned__'){ if(t.blockId)return false; }
       else if(t.blockId!==filters.block)return false;
@@ -1443,8 +1463,9 @@ function imprintName(imprint){ return imprintKey(imprint)==='oowp' ? 'Oil On Wat
 // view only ever rendered it as a plain read-only <span>. Confirmed live
 // there was genuinely no edit path anywhere, so this is a new control, not
 // a discoverability fix. Values match the Add Title modal's options
-// exactly ("Headpress" / "Oil and Water Press") so round-tripping through
-// the Sheet's imprint column is unaffected.
+// exactly ("Headpress" / "Oil On Water Press" — corrected Round 16,
+// 2026-08-12, was the wrong "Oil AND Water Press" before; see build report)
+// so round-tripping through the Sheet's imprint column is unaffected.
 function imprintEditSelect(t){
   const ik=imprintKey(t.imprint);
   // Round 10, item 5 — data-imprint drives the per-imprint accent-colour CSS
@@ -1452,7 +1473,7 @@ function imprintEditSelect(t){
   // attribute/pattern .book-card already uses for its own imprint accent.
   return `<select class="imprint-edit-select" data-imprint="${ik}" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
     <option value="Headpress" ${ik==='headpress'?'selected':''}>Headpress</option>
-    <option value="Oil and Water Press" ${ik==='oowp'?'selected':''}>Oil and Water Press</option>
+    <option value="Oil On Water Press" ${ik==='oowp'?'selected':''}>Oil On Water Press</option>
   </select>`;
 }
 function onImprintChange(titleId,value){
