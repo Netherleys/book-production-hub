@@ -1506,9 +1506,12 @@ function onDetailFieldChange(titleId,field,value){
 function renderCard(t){
   // Round 12, item 3a (2026-08-12) — bullet dot replaced with a diagonal
   // corner ribbon (see .card-attention in index.html for the full
-  // reasoning/CSS). "!" glyph added so the ribbon carries a visible signal
-  // even for anyone not hovering for the title tooltip.
-  const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention">!</div>':'';
+  // reasoning/CSS).
+  // Round 13 (2026-08-12) — "!" glyph removed per David: the hover tooltip
+  // already says "Needs attention", so the icon was redundant. Ribbon is
+  // now a plain empty coloured band (title attribute kept, so the tooltip
+  // still works on hover).
+  const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention"></div>':'';
   // Real thumbnails, 2026-07-15 — investigated three options (see build
   // report): (A) Microsoft Graph API OAuth integration, (B) OneDrive's
   // anonymous-share thumbnail endpoint. Both dead-ended on the same
@@ -1549,10 +1552,16 @@ function renderCard(t){
   if(t.dates.streetDate) cardDateParts.push(`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`);
   if(t.dates.softDate) cardDateParts.push(`<span>Soft: ${esc(formatDate(t.dates.softDate))}</span>`);
   const cardDatesHtml = cardDateParts.length ? `<div class="card-dates">${cardDateParts.join('')}</div>` : '';
+  // Round 13 (2026-08-12) — card-view imprint dot removed entirely per
+  // David (not shrunk back down, gone). The .imprint-dot CLASS itself is
+  // untouched and still used in the detail view's title row below (this was
+  // scoped to the Dashboard card only, see index.html's .imprint-dot
+  // comment). The 5px top-border imprint colour bar (index.html, item 6's
+  // other half) is a separate element and stays.
   return `<div class="book-card" data-imprint="${ik}" onclick="gotoDetail('${t.id}')">${attn}
     <div class="book-cover">${cover}</div>
     <div class="card-info">
-      <div class="card-title-row"><span class="imprint-dot" title="${esc(imprintName(t.imprint))}"></span><span class="card-title">${esc(t.title)}</span></div>
+      <div class="card-title-row"><span class="card-title">${esc(t.title)}</span></div>
       ${t.authors?`<div class="card-author">${esc(contributorLabel(t))}</div>`:''}
       ${cardDatesHtml}
       ${deadlineHtml}
@@ -1609,7 +1618,15 @@ function renderDetail(){
   // function's comment for why a plain href alone wasn't enough.
   // data-section-key lets the scroll-spy (item 9a, setupSectionScrollSpy())
   // find/mark the right sidebar item without re-deriving it from the DOM.
-  const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav">${SECTION_KEYS.map(k=>`<a class="toc-side-item" data-section-key="${k}" href="#asec-${t.id}-${k}" onclick="jumpToSection('${t.id}','${k}');return false;">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`).join('')}</nav>`;
+  // Round 13 (2026-08-12) — "Top" entry added as the first/topmost sidebar
+  // item, per David: the top box (cover/title/author/etc) wasn't reachable
+  // from the sidebar before, only the numbered sections below it. Not part
+  // of SECTION_KEYS/renderAccordionSection() — it's not a collapsible
+  // accordion section, just a plain scroll target — so it's a separate
+  // hand-written <a> prepended to the same nav, sharing the identical
+  // click-to-scroll/active-highlight mechanics via jumpToTop() and the
+  // 'top' data-section-key (see jumpToTop()/updateSectionScrollSpy() below).
+  const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav"><a class="toc-side-item" data-section-key="top" href="#dtop-${t.id}" onclick="jumpToTop('${t.id}');return false;">Top</a>${SECTION_KEYS.map(k=>`<a class="toc-side-item" data-section-key="${k}" href="#asec-${t.id}-${k}" onclick="jumpToSection('${t.id}','${k}');return false;">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`).join('')}</nav>`;
   main.innerHTML=`
     <div class="detail-header-row">
       <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
@@ -1618,7 +1635,7 @@ function renderDetail(){
     <div class="detail-layout">
       ${tocNavHtml}
       <div class="detail-content">
-        <div class="detail-top">
+        <div class="detail-top" id="dtop-${t.id}">
           <div class="detail-cover" title="Set the Cover Image URL below to show a real thumbnail here">${coverHtml}</div>
           <div class="detail-info">
             <div class="detail-title-row"><span class="imprint-dot" data-imprint="${imprintKey(t.imprint)}" style="background:var(--imprint-${imprintKey(t.imprint)==='oowp'?'oowp':'headpress'})" title="${esc(imprintName(t.imprint))}"></span><input type="text" class="detail-title-input" id="f-${t.id}-title" value="${esc(t.title)}" placeholder="Title" oninput="onDetailFieldChange('${t.id}','title',this.value)"></div>
@@ -1655,7 +1672,11 @@ function renderDetail(){
   // e.g. navigating away and back) and hasn't been fetched yet; the normal
   // first-open case is handled by toggleAccord() itself.
   if(isOpen(t.id,'poTracker') && !poTrackerLoadedFor[t.id]){ poTrackerLoadedFor[t.id]=true; loadPoTrackerFor(t.id); }
-  setActiveSideNavItem(SECTION_KEYS[0]); // sensible default until the first scroll tick fires
+  // Round 13 (2026-08-12) — was SECTION_KEYS[0] ('dates'); the detail view
+  // actually opens scrolled to the top box, not "Dates & Scheduling", so
+  // 'top' is the correct initial highlight now that it's a real sidebar
+  // entry (matches what updateSectionScrollSpy()'s own fallback does).
+  setActiveSideNavItem('top'); // sensible default until the first scroll tick fires
 }
 
 // New fields from brief §3: images folder link + working folder link
@@ -2002,6 +2023,15 @@ function jumpToSection(tid,key){
   if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
   setActiveSideNavItem(key);
 }
+// Round 13 (2026-08-12) — sidebar's new "Top" entry. No accordion section to
+// force open here (.detail-top isn't collapsible, it's always visible), so
+// this is just the scroll+highlight half of jumpToSection() above, aimed at
+// #dtop-${tid} instead of an asec-* section.
+function jumpToTop(tid){
+  const el=document.getElementById(`dtop-${tid}`);
+  if(el) el.scrollIntoView({behavior:'smooth',block:'start'});
+  setActiveSideNavItem('top');
+}
 // Item 9a (2026-08-11) — scroll-spy active-state highlighting for the
 // floating sidebar. The .toc-side-item.active CSS rule (index.html) already
 // existed — it was written for this same feature but never actually wired
@@ -2036,7 +2066,13 @@ function updateSectionScrollSpy(){
   const markerY=(parseInt(getComputedStyle(document.documentElement).getPropertyValue('--hh'))||60)+50;
   let best=null;
   headers.forEach(h=>{ if(h.getBoundingClientRect().top<=markerY) best=h; });
-  if(!best) best=headers[0];
+  // Round 13 (2026-08-12) — used to fall back to headers[0] ("Dates &
+  // Scheduling") whenever no header had scrolled past the marker yet, which
+  // was ANY time David was still looking at the top box, since it had no
+  // sidebar entry of its own to fall back to instead. Now that it does
+  // (jumpToTop()/the 'top' entry above), that's the correct highlight for
+  // this case, not a false-positive "Dates & Scheduling".
+  if(!best){ setActiveSideNavItem('top'); return; }
   const akey=best.getAttribute('data-accord-header'); // `${titleId}-${key}`
   if(!selectedId||!akey.startsWith(selectedId+'-')) return;
   setActiveSideNavItem(akey.slice(selectedId.length+1));

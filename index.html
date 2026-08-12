@@ -49,7 +49,13 @@
      same colour means the same thing whichever app David is looking at. */
   --sage:#4B6E53;--sage-bg:#E9EEE4;--sage-border:#3F5D42;      /* accent / complete / published */
   --amber:#E0A868;--amber-bg:#FBF0DE;--amber-border:#C98A3E;   /* "X days to print" — present, NOT alarming */
-  --terra:#A34430;--terra-bg:#F7E6E1;--terra-border:#8a3626;   /* passed/overdue — the one true alarm colour */
+  /* Round 13 (2026-08-12) — David wants the ribbon and the overdue indicator
+     switched to exact pure red. They already shared this one token (see
+     .card-attention / .card-deadline.overdue below), so the value just
+     changes here once — both stay identical to each other automatically,
+     same as before. Was #A34430 (a muted terracotta); -bg/-border tints left
+     alone, only the base alarm colour itself moves to #ff0000. */
+  --terra:#ff0000;--terra-bg:#F7E6E1;--terra-border:#8a3626;   /* passed/overdue — the one true alarm colour */
   --neutral-dot:#9AA5B1;--neutral-bg:#EEF0F2;--neutral-border:#7c8792; /* Not Scheduled */
 
   /* Imprint colour-code (item 6) — deliberately subtle, NOT text-on-card.
@@ -224,8 +230,23 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    the ribbon lands in the cover's corner exactly as asked. Kept genuinely
    simple (solid colour band + one glyph, no gradients/multi-layer pseudo-
    elements) specifically because David said it's fine to skip if a ribbon
-   gets tricky to implement cleanly — this reads as clean enough to ship. */
-.card-attention{position:absolute;top:14px;right:-36px;width:130px;padding:4px 0;background:var(--terra);color:#fff;text-align:center;font-size:1rem;font-weight:800;line-height:1;transform:rotate(45deg);box-shadow:0 2px 6px rgba(17,17,17,.35);border-top:1px solid rgba(255,255,255,.6);border-bottom:1px solid rgba(255,255,255,.6);z-index:3}
+   gets tricky to implement cleanly — this reads as clean enough to ship.
+   Round 13 (2026-08-12) — three refinements per David, "otherwise great
+   job": (1) the "!" glyph is gone (see renderCard() in app.js) — the hover
+   tooltip already says "Needs attention", the icon was redundant, so this
+   is now an empty coloured band. Dropped font-size/font-weight/line-height
+   accordingly (nothing to size type for) and replaced with an explicit
+   height that's noticeably thinner than the old ~26px effective band
+   (4px+4px padding + 16px line-height + 2×1px border) — down to 16px total.
+   width:130px is left untouched on purpose: that's the ribbon's LENGTH
+   along the diagonal (not its thickness), and per the comment above it has
+   to stay wider than the card for .book-card's overflow:hidden to clip it
+   cleanly — shortening it would reopen exactly the clipping problem this
+   technique was built to avoid. (2) Colour now comes from --terra, which
+   itself moved to exact #ff0000 this round (see the variable's definition)
+   — same token as card-deadline.overdue, so the two stay identical to each
+   other automatically, no separate hardcoded hex here. */
+.card-attention{position:absolute;top:14px;right:-36px;width:130px;height:16px;padding:0;background:var(--terra);color:#fff;text-align:center;transform:rotate(45deg);box-shadow:0 2px 6px rgba(17,17,17,.35);border-top:1px solid rgba(255,255,255,.6);border-bottom:1px solid rgba(255,255,255,.6);z-index:3}
 /* Imprint colour-code (item 6; made more prominent Round 12, item 3b,
    2026-08-12 — separately from 3a above, not conditional on it. David: "a
    little more prominent," not a redesign — bar thickened 3px→5px, dot
@@ -233,7 +254,17 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    deliberate marker against the card's cream/white surface rather than a
    flat colour patch. Still no label text, per the original "never text"
    design intent. Two imprints only: Headpress (warm orange) / Oil On Water
-   Press (teal). */
+   Press (teal).
+   Round 13 (2026-08-12) — David's decided he doesn't want the dot at all on
+   the card, full stop (not "shrink it back" — gone). Removed the
+   card-title-row's <span class="imprint-dot"> in renderCard() (app.js);
+   the .imprint-dot CLASS itself stays defined here because it's still used
+   in the detail view's title row (renderDetail(), .detail-title-row) which
+   wasn't part of this ask and is a different context (David's actively
+   editing the title there, imprint is useful to see). The 5px top-border
+   colour bar just below is a separate element (item 6's OTHER half) and is
+   untouched — David only asked about "the small coloured circle", not the
+   bar. */
 .book-card{border-top:5px solid var(--imprint-accent, var(--card-border))}
 .book-card[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
 .book-card[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
@@ -255,11 +286,24 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    fixed height. width is fixed (card width / 140px detail), height is now
    auto so each cover renders at its own true aspect ratio — a tall cover is
    visibly taller, a square one visibly square. min/max-height keep the
-   grid from breaking on extreme outliers; object-fit:contain is kept only
-   as a safety net for anything hitting that max-height ceiling, not as the
-   primary sizing mechanism anymore. */
+   grid from breaking on extreme outliers; object-fit:contain was kept as a
+   safety net for anything hitting that max-height ceiling.
+   Round 13 (2026-08-12) — that safety net turned out to BE the bug David
+   flagged: verified live against "Hollywood Haunts The World" (a tall
+   600×958 cover) via getBoundingClientRect() — its card box is 163×230,
+   but at width:100% the image's natural height (≈261px) clears the 230px
+   cap, so object-fit:contain was shrinking the whole image down to fit
+   inside that height, pillarboxing ~10px of the card's own background on
+   each side rather than actually filling the box — exactly the visible
+   gap David's screenshot showed. object-fit:cover fixes it the same way
+   this same file already treats the same tradeoff on the safety-net path:
+   width always stays 100% of the box (edge-to-edge, no side gap), any
+   overflow is cropped top/bottom instead of shrunk-and-padded. Only bites
+   on covers extreme enough to hit max-height in the first place — most
+   covers render exactly as before, box height still auto-sized to the
+   image's own aspect ratio with no cropping at all. */
 .book-cover{min-height:110px;max-height:230px;background:linear-gradient(135deg,#e8e0d0 0%,#d8cfc0 100%);display:flex;align-items:center;justify-content:center;overflow:hidden;flex-shrink:0}
-.book-cover img{width:100%;height:auto;max-height:230px;object-fit:contain;display:block;background:#EDE6D3}
+.book-cover img{width:100%;height:auto;max-height:230px;object-fit:cover;display:block;background:#EDE6D3}
 .cover-ph{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:110px;width:100%;padding:10px;text-align:center;gap:4px}
 .cover-ph-h{font-family:var(--serif);font-size:1.5rem;color:var(--border2);opacity:.6}
 .cover-ph-title{font-family:var(--serif);font-size:.72rem;color:var(--text2);line-height:1.25;word-break:break-word}
@@ -312,8 +356,12 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .btn-delete-title:hover{background:var(--terra);color:var(--text-oncream)}
 /* Item 13 (Round 2, cream box standard) — background swapped from
    --surface (white) to --surface2 (the same cream tint the Commercial box
-   already used) so this box matches every other box in the detail view. */
-.detail-top{display:grid;grid-template-columns:140px 1fr;gap:22px;margin-bottom:16px;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);padding:18px;box-shadow:var(--shadow-sm)}
+   already used) so this box matches every other box in the detail view.
+   scroll-margin-top added same round as the sidebar's new "Top" entry
+   (David, 2026-08-12) — same value as .accord-section below uses, so
+   jumpToTop()'s scrollIntoView() clears the fixed header the same way every
+   other sidebar jump target already does. */
+.detail-top{scroll-margin-top:calc(var(--hh) + 46px);display:grid;grid-template-columns:140px 1fr;gap:22px;margin-bottom:16px;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);padding:18px;box-shadow:var(--shadow-sm)}
 /* Item 3 (Round 2) — same fix as .book-cover above: fixed width (matches
    the detail-top grid's 140px column), natural height instead of a forced
    200px crop-box, min/max-height clamp only for extreme outliers. */
