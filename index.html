@@ -660,6 +660,25 @@ label.field-label{font-size:.78rem;color:var(--text3);font-weight:600;text-trans
 input[type=text],input[type=date],input[type=number],input[type=url],input[type=email],select,textarea{width:100%;padding:6px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:1.05rem;font-family:var(--sans);color:var(--text);background:var(--surface);transition:border-color .15s}
 input[type=text]:focus,input[type=date]:focus,input[type=number]:focus,input[type=url]:focus,input[type=email]:focus,select:focus,textarea:focus{outline:none;border-color:var(--sage)}
 input[readonly]{background:var(--bg);color:var(--text3);cursor:default}
+/* Round 17 (2026-08-13) — Dates & Scheduling long-format date display.
+   Native <input type="date"> renders its own closed-state text using the
+   OS/browser locale (short numeric, e.g. "05/11/2026") — there's no CSS
+   way to make it print custom text like "5 November 2026" instead.
+   Standard fix: hide the input's own rendered text (color:transparent)
+   and lay a non-interactive formatted <span> on top of it
+   (pointer-events:none, so clicks and the calendar-picker icon still
+   reach the real input underneath). On focus the real short-format text
+   reveals again (so typing/keyboard entry stays visible) and reverts to
+   the long-format overlay on blur. Value/data flow (fc(),
+   onStreetDateChange(), ISO yyyy-mm-dd storage) is untouched — paint-only.
+   Scoped to .date-long-display (Soft/Street/Print Date only) so the
+   separate Production Pipeline stage-date-input is unaffected. */
+.date-long-wrap{position:relative}
+.date-long-wrap input.date-long-display{color:transparent}
+.date-long-wrap input.date-long-display:focus{color:var(--text)}
+.date-long-overlay{position:absolute;left:11px;top:0;height:100%;display:flex;align-items:center;pointer-events:none;font-size:1.05rem;font-family:var(--sans);color:var(--text);white-space:nowrap;overflow:hidden;max-width:calc(100% - 34px)}
+.date-long-overlay.is-empty{color:var(--text3)}
+.date-long-wrap input.date-long-display:focus + .date-long-overlay{opacity:0}
 /* Round 12, item 2c (2026-08-12) — app-wide placeholder de-emphasis.
    David's ask: placeholder text (e.g. "Notes…") reads too dark/prominent
    everywhere it appears, "roughly half its current darkness/opacity". One

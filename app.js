@@ -156,6 +156,30 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 function getTitle(id){ return data.titles.find(t=>t.id===id)||null; }
 function daysUntil(ds){ if(!ds) return null; const d=new Date(ds); if(isNaN(d)) return null; d.setHours(0,0,0,0); const t=new Date(); t.setHours(0,0,0,0); return Math.round((d-t)/86400000); }
 function formatDate(ds){ if(!ds) return ''; const d=new Date(ds); if(isNaN(d)) return ds; return d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); }
+// Round 17 (2026-08-13, David request) — long-form date display for the
+// Dates & Scheduling section (Soft/Street/Print Date): "5 November 2026"
+// instead of the native date input's short numeric display (e.g.
+// "05/11/2026"). Same {day:'numeric',month:'long',year:'numeric'} en-GB
+// options already used for the "created" date in rtfFooterGroup()'s Word
+// export footer — reused rather than inventing a second long-date
+// convention. Display-only: underlying stored value/format (ISO
+// yyyy-mm-dd, read/written via fc()/onStreetDateChange()) is untouched.
+function formatDateLong(ds){ if(!ds) return ''; const d=new Date(ds); if(isNaN(d)) return ds; return d.toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'}); }
+// Keeps a Dates & Scheduling long-format overlay (see renderDates()) in
+// sync with its paired native <input type="date">'s current value. Needed
+// beyond the input's own onchange in two situations: (1) live-updating as
+// the user types/picks, since onchange only fires on commit — wired via
+// oninput; (2) the two places Print Date's value is set programmatically
+// (onStreetDateChange()/onAutoPrint(), when auto-calculate is on), which
+// don't fire input/change events on the element they assign to.
+function syncDateDisplay(inputEl){
+  if(!inputEl) return;
+  const overlay=inputEl.parentElement && inputEl.parentElement.querySelector('.date-long-overlay');
+  if(!overlay) return;
+  const val=inputEl.value;
+  overlay.textContent = val ? formatDateLong(val) : '';
+  overlay.classList.toggle('is-empty', !val);
+}
 function calcAutoPrint(sd){ if(!sd) return ''; const d=new Date(sd); if(isNaN(d)) return ''; d.setDate(d.getDate()-60); return d.toISOString().slice(0,10); }
 // Item 7 (Round 2) — default "Not Started" colour changed from the old
 // neutral grey to white per the brief (dots are now squares too, see
@@ -2419,9 +2443,9 @@ function renderDates(t){const id=t.id;const d=t.dates;
   // instead — functionally identical, but no longer disturbs row alignment.
   return `<div class="field-grid">
     ${frow('Release Block',releaseBlockSelectHtml(`f-${id}-releaseBlock`,id,t.blockId))}
-    ${frow('Soft Date',`<input type="date" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)">`)}
-    ${frow('Street Date',`<input type="date" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)">`)}
-    ${frow('Print Date',`<input type="date" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)"><label style="font-size:.72rem;color:var(--text3);display:flex;align-items:center;gap:4px;margin-top:4px"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label>`)}
+    ${frow('Soft Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${d.softDate?'':' is-empty'}">${esc(d.softDate?formatDateLong(d.softDate):'')}</span></div>`)}
+    ${frow('Street Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${d.streetDate?'':' is-empty'}">${esc(d.streetDate?formatDateLong(d.streetDate):'')}</span></div>`)}
+    ${frow('Print Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${pdVal?'':' is-empty'}">${esc(pdVal?formatDateLong(pdVal):'')}</span></div><label style="font-size:.72rem;color:var(--text3);display:flex;align-items:center;gap:4px;margin-top:4px"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label>`)}
     ${frow('Print Status',`<div id="f-${id}-daysToprint" style="padding:6px 0 2px;font-size:.9rem">${ddHtml}</div><select id="f-${id}-printStatusOverride" style="margin-top:2px" onchange="onPrintStatusOverrideChange('${id}',this.value)"><option value="" ${!d.printStatusOverride?'selected':''}>Auto (from Print Date)</option>${Object.keys(PRINT_STATUS_OVERRIDES).map(v=>`<option value="${esc(v)}" ${d.printStatusOverride===v?'selected':''}>${esc(v)}</option>`).join('')}</select><div style="font-size:.7rem;color:var(--text3);margin-top:3px">Leave on Auto to derive from Print Date; pick a value here to lock it — it won't be overridden back to Overdue automatically.</div>`)}
   </div>`;}
 
@@ -2951,7 +2975,7 @@ function onStreetDateChange(titleId,value){
   if(t.dates.autoPrintDate){
     t.dates.printDate='';
     const pdInput=document.getElementById(`f-${titleId}-printDate`);
-    if(pdInput)pdInput.value=calcAutoPrint(value);
+    if(pdInput){pdInput.value=calcAutoPrint(value);syncDateDisplay(pdInput);}
     updateDaysDisplay(titleId);
   }
   debouncedSave(titleId);updateSectionHeaders(titleId);
@@ -2960,7 +2984,7 @@ function onAutoPrint(titleId,checked){
   const t=getTitle(titleId);if(!t)return;
   t.dates.autoPrintDate=checked;
   const pdInput=document.getElementById(`f-${titleId}-printDate`);
-  if(pdInput){pdInput.readOnly=checked;if(checked)pdInput.value=calcAutoPrint(t.dates.streetDate);}
+  if(pdInput){pdInput.readOnly=checked;if(checked){pdInput.value=calcAutoPrint(t.dates.streetDate);syncDateDisplay(pdInput);}}
   updateDaysDisplay(titleId);debouncedSave(titleId);
 }
 // 2026-08-11 (item 3 fix) — this used to carry its OWN separate, simpler
