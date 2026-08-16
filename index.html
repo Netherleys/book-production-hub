@@ -696,6 +696,12 @@ input[readonly]{background:var(--bg);color:var(--text3);cursor:default}
 input::placeholder,textarea::placeholder{opacity:.5}
 textarea{resize:vertical;min-height:80px;line-height:1.5}
 textarea.tall{min-height:130px}
+/* Printer Estimate Request generator (Print & Distribution) — plain flat
+   text block by design (see buildDefaultPrinterRequestText()/
+   copyPrinterRequest() in app.js): no styled label/value distinction here
+   on purpose, so what David sees on screen matches exactly what pastes
+   into an email. */
+.printer-req-textarea{min-height:320px;line-height:1.6;font-size:.95rem}
 /* Auto-expanding "word-processor surface" fields (items 20/22 — Content &
    Marketing, Author boxes): grow to fit content instead of scrolling in a
    small fixed frame. field-sizing:content is the native CSS mechanism where

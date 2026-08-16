@@ -147,11 +147,51 @@
    * is the normal case for as long as the tab stays open. Does NOT fall
    * back to an interactive prompt; callers decide what to do if this fails
    * (see ensureFreshToken/reconnect below).
+   *
+   * 2026-08-16 fix (Marcus Webb) — "Matching Print Est." / "Matching
+   * POs/INV" stuck-on-Loading incident:
+   * requestAccessToken({prompt:''}) has a documented Google Identity
+   * Services limitation — if the silent flow is blocked (popup suppressed,
+   * or the request wasn't triggered by a direct user gesture, which is
+   * exactly what scheduleKeepAlive()'s setTimeout-driven background call
+   * is) the library can fail to invoke EITHER callback at all. No error,
+   * no success — nothing (see google/google-api-javascript-client#816).
+   * Before this fix, that left ensureFreshToken()'s Promise permanently
+   * unsettled, which hung authHeaders() -> sheetsGet() -> withAuthRetry()
+   * forever with no rejection ever reaching the calling code's try/catch —
+   * so loadPrintEstimatesFor()/loadPoInvoiceTrackerFor() in app.js never
+   * got a chance to replace their "Loading…" placeholder with either real
+   * data or the (already well-built) error message. Every OTHER Sheets
+   * read in the app fetches once immediately after the initial, real,
+   * user-clicked "consent" popup (which reliably fires a callback either
+   * way) — the PO Tracker panels are the only calls that can still be
+   * mid-flight when a LATER silent refresh is needed, which is why only
+   * they were ever seen stuck.
+   * Fix: a hard timeout races the callback. If neither fires in time, we
+   * synthesize a rejection so callers (ensureFreshToken/reconnect) always
+   * settle — turning a silent infinite hang into the ordinary, already-
+   * handled "auth expired, needs reconnect" failure path.
    */
   function silentRefresh(onSuccess, onError) {
     try {
       const client = ensureTokenClient();
-      client.callback = (resp) => onTokenResponse(resp, onSuccess, onError);
+      let settled = false;
+      const SILENT_TIMEOUT_MS = 8000;
+      const timer = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        onError && onError(new Error(
+          "Silent token refresh timed out after " + (SILENT_TIMEOUT_MS / 1000) +
+          "s — Google never responded (likely a suppressed silent popup). " +
+          "Interactive sign-in required."
+        ));
+      }, SILENT_TIMEOUT_MS);
+      client.callback = (resp) => {
+        if (settled) return; // timeout already fired — ignore a late response
+        settled = true;
+        clearTimeout(timer);
+        onTokenResponse(resp, onSuccess, onError);
+      };
       client.requestAccessToken({ prompt: "" });
     } catch (e) {
       onError && onError(e);

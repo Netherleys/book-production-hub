@@ -2463,7 +2463,106 @@ function renderPrint(t){const id=t.id;const p=t.print;
       <div class="printer-contacts">${contactRows}</div>
       <button class="btn btn-sm" style="margin-top:8px" onclick="addPrinterContact('${id}')">+ Add Printer Contact</button>
     </div>
+    <div class="field-group full"><label class="field-label">Printer Estimate Request — copy to email</label>
+      <div style="font-size:.72rem;color:var(--text3);margin-bottom:6px">Title/ISBN auto-filled below (and Trim/Page count too, where already set in Commercial). Everything else is a *** placeholder — type straight over any of it, this whole block is plain editable text, then hit Copy and paste into your email to the printer.</div>
+      <textarea id="f-${id}-printerReq" class="printer-req-textarea" rows="17" spellcheck="false" oninput="onPrinterReqInput('${id}',this.value)">${esc(getPrinterRequestText(t))}</textarea>
+      <div style="margin-top:8px">
+        <button class="btn btn-sm" id="f-${id}-printerReqCopyBtn" onclick="copyPrinterRequest('${id}')">Copy</button>
+      </div>
+    </div>
   </div>`;}
+
+// Printer Estimate Request generator (2026-08-16, David's request, Part 2
+// of the same round as the PO Tracker Loading-hang fix). Per-title so it
+// can auto-populate Title + paperback ISBN — deliberately a single flat
+// plain-text <textarea>, NOT a form of separate locked/unlocked fields and
+// NOT contenteditable with styled label spans: David was explicit that
+// this must paste cleanly into an email body with the "Title:"/"Trim:"/etc
+// labels reading as ordinary inline text, same weight as everything else,
+// no heading/bold markup riding along on copy. A <textarea> can only ever
+// hold plain text, so that requirement is structurally guaranteed rather
+// than something to remember to strip later.
+// Binding: Paperback / Cover: Matte / the Qty list are fixed constants per
+// David's literal brief — checked the rest of the Hub first (Print
+// Estimate/Quotes free-text field, PO Tracker's PO Log sheet) for any sign
+// these actually vary per title; found none, so they stay hardcoded as
+// given, not made configurable.
+// "Spine thickness: *** PLEASE ADVISE" is kept as literal trailing template
+// text, per David's note that this is a genuine question TO the printer
+// (spine thickness depends on their own stock/page-count calc), not a
+// field for David to fill in himself.
+// Trim/Page count DEVIATION, flagged here and in the delivery report: the
+// brief said these have "no obvious structured home" in the Hub and should
+// just be blank *** — but Commercial already has real per-title "Trim
+// Size" (commercial.trimSize, e.g. "198x129mm") and "Pages"
+// (commercial.pages) fields that are exactly this data, not a coincidental
+// namesake. Auto-filling from them when set (falling back to *** when a
+// title has neither yet) avoids making David retype data the Hub already
+// holds, and doesn't reduce editability — the textarea stays fully
+// overtype-able either way. Bleeds/Insides/Images/Delivery were checked
+// the same way and have no existing match anywhere in the app, so those
+// stay plain *** as specified.
+// Persistence: localStorage only, per-device, same documented tradeoff
+// already established for Contacts (see CONTACTS_LS_KEY above) — this is a
+// one-off drafting scratchpad for an outbound email, not shared record-of-
+// truth data, so it doesn't warrant a new Titles-sheet column (which would
+// need a live Sheet schema change David/Marcus would have to coordinate,
+// for something this disposable). If a title's saved draft is ever wiped
+// (cleared browser storage, different device), reopening the section just
+// regenerates a fresh default from Title/ISBN/Trim/Pages again.
+const PRINTER_REQ_LS_PREFIX = 'bookHub_printerReqText_v1_';
+function buildDefaultPrinterRequestText(t){
+  const isbn=((t.commercial&&t.commercial.isbnPbk)||'').trim();
+  const titleLine=(t.title||'')+(isbn?' — ISBN '+isbn:'');
+  const trim=((t.commercial&&t.commercial.trimSize)||'').trim();
+  const pagesRaw=t.commercial&&t.commercial.pages;
+  const pages=(pagesRaw!==undefined&&pagesRaw!==null&&String(pagesRaw).trim()!=='')?String(pagesRaw).trim():'';
+  return `Title: ${titleLine}
+
+Trim: ${trim||'***'}
+
+Bleeds:  ***
+
+Page count:  ${pages||'***'}
+
+Insides:  ***
+
+Images: Colour *** / b&w ***
+
+Binding: Paperback
+
+Cover: Matte
+
+Qty: please offer prices for the following:
+
+Qty (1) 50, (2) 200 (3) 300 (4) 700
+
+Delivery: ***
+
+Spine thickness: *** PLEASE ADVISE`;
+}
+function getPrinterRequestText(t){
+  try{
+    if(typeof localStorage!=='undefined'){
+      const saved=localStorage.getItem(PRINTER_REQ_LS_PREFIX+t.id);
+      if(saved!=null) return saved;
+    }
+  }catch(e){}
+  return buildDefaultPrinterRequestText(t);
+}
+function onPrinterReqInput(titleId,value){
+  try{ if(typeof localStorage!=='undefined') localStorage.setItem(PRINTER_REQ_LS_PREFIX+titleId,value); }catch(e){}
+}
+function copyPrinterRequest(titleId){
+  const ta=document.getElementById('f-'+titleId+'-printerReq');
+  if(!ta) return;
+  const btn=document.getElementById('f-'+titleId+'-printerReqCopyBtn');
+  const showCopied=()=>{ if(btn){const orig=btn.textContent;btn.textContent='Copied!';setTimeout(()=>{btn.textContent=orig;},1500);} };
+  navigator.clipboard.writeText(ta.value).then(showCopied).catch(()=>{
+    ta.select();
+    try{ document.execCommand('copy'); showCopied(); }catch(e){}
+  });
+}
 
 // Item 29 design decision (full reasoning in the build report): this box
 // now surfaces THREE things side by side rather than picking just one:
@@ -2543,7 +2642,16 @@ async function loadPrintEstimatesFor(titleId){
     }).join('');
     container.innerHTML = `<label class="field-label">Matching Print Estimates (Printer_Quotes_Per_Title_Complete)</label><table class="po-table"><thead><tr><th>Date</th><th>Printer</th><th>Qty</th><th>PO Number</th><th>Total Value</th><th>Status</th><th>Balance</th></tr></thead><tbody>${rows}</tbody></table>`+printEstimateOpenLink();
   }catch(e){
-    container.innerHTML='<div class="po-empty">Could not load print-estimate tracker data: '+esc(e.message)+'</div>'+printEstimateOpenLink();
+    // 2026-08-16 — a plain "Retry" button, not just "reopen this section":
+    // the once-per-title-per-session load gate (poTrackerLoadedFor, set at
+    // open time regardless of outcome) means toggling the accordion closed
+    // and open again does NOT actually re-trigger the fetch after a
+    // failure — only a direct call to this function does.
+    container.innerHTML='<div class="po-empty">Could not load print-estimate tracker data: '+esc(e.message)+' <button class="btn btn-sm" onclick="loadPrintEstimatesFor(\''+titleId+'\')">Retry</button></div>'+printEstimateOpenLink();
+    // Surface the same site-wide Reconnect banner every other auth failure
+    // already uses (saveTitle/saveIsbn/loadAllData) — was previously the
+    // one auth-failure path in the app that didn't do this.
+    if(isAuthFailure(e)) showReconnect('Print-estimate lookup failed: signed out / token expired. Click Reconnect, then use Retry on the section.', true);
     console.error(e);
   }
 }
@@ -2585,7 +2693,10 @@ async function loadPoInvoiceTrackerFor(titleId){
     }).join('');
     container.innerHTML = label+`<table class="po-table"><thead><tr><th>Date Recv'd</th><th>Supplier</th><th>Invoice #</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`+poInvoiceOpenLink();
   }catch(e){
-    container.innerHTML='<div class="po-empty">Could not load PO &amp; Invoice Tracker data: '+esc(e.message)+'</div>'+poInvoiceOpenLink();
+    // Same real-Retry fix as loadPrintEstimatesFor above — the once-per-
+    // session load gate means "reopen the section" alone wouldn't re-fetch.
+    container.innerHTML='<div class="po-empty">Could not load PO &amp; Invoice Tracker data: '+esc(e.message)+' <button class="btn btn-sm" onclick="loadPoInvoiceTrackerFor(\''+titleId+'\')">Retry</button></div>'+poInvoiceOpenLink();
+    if(isAuthFailure(e)) showReconnect('PO & Invoice Tracker lookup failed: signed out / token expired. Click Reconnect, then use Retry on the section.', true);
     console.error(e);
   }
 }
