@@ -1355,6 +1355,11 @@ function render(){
   else if(view==='isbns')renderISBNs();
   else if(view==='quicknotes')renderQuickNotesList();
   populateQuickNoteTitles();
+  // Round 20 (2026-08-19) — header dropdown lives outside #main (it's part
+  // of the persistent #app-header, never touched by the innerHTML swaps
+  // above), so it needs its own explicit refresh here rather than picking
+  // up changes "for free" the way the per-view content does.
+  renderRecentlyViewed();
   // Items 1/2 (Round 2) — header is no longer a fixed height (see
   // #app-header in index.html), so its real rendered height is re-measured
   // on every render and synced into --hh, which body padding-top and
@@ -1681,6 +1686,17 @@ function renderCard(t){
 function renderDetail(){
   const t=getTitle(selectedId);
   if(!t){gotoTitles();return;}
+  // Round 20 (2026-08-19) — every real detail-page open re-records this
+  // title at the top of Recently Viewed (see the RECENTLY VIEWED block
+  // below toggleAccord() for the full feature). Deliberately unconditional
+  // here (not just on first open) — renderDetail() only runs once per
+  // navigation-in (gotoDetail()->render()), never on the debounced field
+  // edits that happen while already viewing a title, so this can't spam the
+  // list. recordRecentlyViewed() resets this title's stored section/offset
+  // back to 'top' on every fresh open, which is correct for a normal open —
+  // openFromRecentlyViewed() (below) overrides that back to the saved
+  // position immediately afterward for the one case that needs it.
+  recordRecentlyViewed(t);
   const main=document.getElementById('main');
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   const info=computeDayInfo(t);
@@ -2113,7 +2129,18 @@ function setAccordOpen(tid,key,openState){
     loadPoTrackerFor(tid);
   }
 }
-function toggleAccord(tid,key){ setAccordOpen(tid,key,!isOpen(tid,key)); }
+function toggleAccord(tid,key){
+  const opening=!isOpen(tid,key);
+  setAccordOpen(tid,key,opening);
+  // Round 20 (2026-08-19) — David expanding a section (without necessarily
+  // scrolling any further) is itself a meaningful "this is what I'm looking
+  // at" signal for Recently Viewed's position-restore — see
+  // updateRecentlyViewedPosition() below. Only on OPEN, not close: closing
+  // a section isn't "I want to come back here", and the scroll-spy listener
+  // (updateSectionScrollSpy()) will immediately supersede this with a more
+  // precise offset anyway once David actually scrolls.
+  if(opening) updateRecentlyViewedPosition(tid,key,0);
+}
 // Item 9b (2026-08-11) — clicking a sidebar item used to be a plain <a
 // href="#asec-...">, which relies on the browser's native anchor-scroll —
 // it scrolls to the section's OUTER box just fine, but does nothing to open
@@ -2179,10 +2206,26 @@ function updateSectionScrollSpy(){
   // sidebar entry of its own to fall back to instead. Now that it does
   // (jumpToTop()/the 'top' entry above), that's the correct highlight for
   // this case, not a false-positive "Dates & Scheduling".
-  if(!best){ setActiveSideNavItem('top'); return; }
+  if(!best){
+    setActiveSideNavItem('top');
+    // Round 20 (2026-08-19) — same "how far past its scroll-margin-anchored
+    // top edge" measurement as the section case below, aimed at the fixed
+    // #dtop-<id> box instead of an .accord-header, so Recently Viewed can
+    // restore David to the exact scroll depth even when he left the page
+    // scrolled somewhere inside the top box (before any accordion section).
+    const dtop=selectedId&&document.getElementById(`dtop-${selectedId}`);
+    updateRecentlyViewedPosition(selectedId,'top', dtop?Math.max(0,markerY-dtop.getBoundingClientRect().top):0);
+    return;
+  }
   const akey=best.getAttribute('data-accord-header'); // `${titleId}-${key}`
   if(!selectedId||!akey.startsWith(selectedId+'-')) return;
-  setActiveSideNavItem(akey.slice(selectedId.length+1));
+  const key=akey.slice(selectedId.length+1);
+  setActiveSideNavItem(key);
+  // Round 20 (2026-08-19) — pixels scrolled PAST this section's top edge
+  // (beyond the marker line), so restoring later can reproduce roughly the
+  // same visual depth into the section, not just "section is open". See
+  // updateRecentlyViewedPosition()/restoreDetailPosition() below.
+  updateRecentlyViewedPosition(selectedId,key,Math.max(0,markerY-best.getBoundingClientRect().top));
 }
 let scrollSpyTicking=false;
 window.addEventListener('scroll', function(){
@@ -2190,6 +2233,202 @@ window.addEventListener('scroll', function(){
   scrollSpyTicking=true;
   requestAnimationFrame(()=>{ updateSectionScrollSpy(); scrollSpyTicking=false; });
 }, {passive:true});
+
+// ─── RECENTLY VIEWED (Round 20, 2026-08-19) ───
+// David's problem: he's deep in a title, jumps to ISBN Manager/Quick Notes
+// to check something, and has no way back except re-finding it via All
+// Titles. Header dropdown (#rv-wrap, index.html — sits in the persistent
+// #app-header, next to the nav tabs) lists the last few titles opened on
+// this device and jumps straight back to one, INCLUDING the section/scroll
+// depth David was actually looking at, not just the top of the title page.
+// David-approved mockup: _mockups/recently_viewed_nav_mockup_2026-08-19.html.
+//
+// Same localStorage-per-device pattern already established for
+// Contacts/Release Blocks/Printer Request text (see CONTACTS_LS_KEY /
+// PRINTER_REQ_LS_PREFIX above) — a personal nav aid, not synced
+// record-of-truth data, same accepted tradeoff: won't follow David to a
+// different browser/device.
+//
+// JUDGEMENT CALL (flagged, not silently assumed) on how "position" is
+// captured: this app's title detail page (renderDetail()) is ONE long
+// scrolling page made of collapsible accordion sections (SECTION_KEYS),
+// not separate tabs/routes — so "where David was" is really two things
+// together: (a) which section was open/current, and (b) how far scrolled
+// into it. Round 13 already built a scroll-spy (updateSectionScrollSpy())
+// that knows the current section on every scroll tick, and a marker-line
+// measurement it uses to find it — this piggybacks on both rather than
+// adding a second, competing scroll-tracking mechanism:
+//   - `section`: the SECTION_KEYS key (or 'top') the scroll-spy currently
+//     considers active, updated live while viewing (updateSectionScrollSpy())
+//     AND the instant a section is opened by hand (toggleAccord(), opening
+//     only) so an expand-without-scrolling still counts as "this is what
+//     I'm looking at".
+//   - `offset`: pixels scrolled PAST that section's own top edge (same
+//     scroll-margin-top marker line the scroll-spy already uses), so a
+//     restore can land at roughly the same depth into a long section
+//     (e.g. Content & Marketing), not just its header. Deliberately
+//     RELATIVE to the section's own top rather than an absolute page
+//     scrollY — absolute pixel offsets aren't reliable here because the
+//     accordion's layout shifts depending on which OTHER sections happen
+//     to be open above it; an offset anchored to the target section itself
+//     survives that.
+// Restoring is therefore: force the saved section open (or scroll to the
+// fixed top box for 'top'), let one frame of layout settle, scrollIntoView
+// to the section's top, then scroll the extra saved offset. Not
+// pixel-perfect if the underlying content has changed length since (e.g.
+// David added a paragraph then came back later), but "same section,
+// same-ish depth" is a solid, honest approximation — see restoreDetail
+// Position() below.
+const RV_LS_KEY = 'bookHub_recentlyViewed_v1';
+const RV_MAX = 8; // David's ask: "last 5-8 titles" — capped at the top of that range
+
+function getRecentlyViewed(){
+  try{
+    if(typeof localStorage==='undefined') return [];
+    const raw = localStorage.getItem(RV_LS_KEY);
+    if(raw){ const arr=JSON.parse(raw); if(Array.isArray(arr)) return arr; }
+  }catch(e){}
+  return [];
+}
+function saveRecentlyViewed(list){
+  try{ if(typeof localStorage!=='undefined') localStorage.setItem(RV_LS_KEY, JSON.stringify(list)); }catch(e){}
+}
+// Called once per real navigation-in (renderDetail(), above). Dedupes by
+// title id — re-opening a title moves it to the top rather than creating a
+// second entry, per David's explicit ask — and resets THIS entry's
+// section/offset back to 'top'/0, since a fresh open genuinely does start
+// at the top; live viewing then updates it via updateRecentlyViewedPosition().
+function recordRecentlyViewed(t){
+  if(!t||!t.id) return;
+  let list=getRecentlyViewed().filter(e=>e.id!==t.id);
+  list.unshift({
+    id:t.id, title:t.title||'(untitled)', authors:t.authors||'',
+    imprint:imprintKey(t.imprint), section:'top', offset:0, viewedAt:Date.now()
+  });
+  if(list.length>RV_MAX) list.length=RV_MAX;
+  saveRecentlyViewed(list);
+  renderRecentlyViewed();
+}
+// Live position tracking while a title is open — see the big comment block
+// above for why section+offset, not absolute scrollY. Deliberately does NOT
+// call renderRecentlyViewed() (no visible dropdown content depends on
+// section/offset) so this stays cheap enough to call from a scroll listener.
+function updateRecentlyViewedPosition(titleId,section,offset){
+  if(!titleId) return;
+  const list=getRecentlyViewed();
+  const idx=list.findIndex(e=>e.id===titleId);
+  if(idx===-1) return; // not tracked yet (shouldn't happen — recordRecentlyViewed() runs on every open first)
+  list[idx].section=section;
+  list[idx].offset=Math.max(0,Math.round(offset||0));
+  saveRecentlyViewed(list);
+}
+function rvTimeAgo(ts){
+  if(!ts) return '';
+  const minutes=Math.floor((Date.now()-ts)/60000);
+  if(minutes<1) return 'Just now';
+  if(minutes<60) return minutes+'m ago';
+  const hours=Math.floor(minutes/60);
+  if(hours<24) return hours+'h ago';
+  const days=Math.floor(hours/24);
+  if(days===1) return 'Yesterday';
+  if(days<7) return days+'d ago';
+  return formatDate(new Date(ts).toISOString().slice(0,10)); // same date format as the rest of the app
+}
+// Repopulates the header dropdown (#rv-wrap/#rvDropdown, index.html). Called
+// from render() (runs on every navigation) since the dropdown lives in the
+// persistent #app-header, outside the #main innerHTML swaps everything else
+// re-renders through.
+function renderRecentlyViewed(){
+  const wrap=document.getElementById('rv-wrap'), dd=document.getElementById('rvDropdown');
+  if(!wrap||!dd) return;
+  let list=getRecentlyViewed();
+  // Prune entries for titles that no longer exist (Delete Title, Round 9) —
+  // only once real data is actually loaded (data.titles starts empty before
+  // sign-in/load completes — see init()'s pre-auth render() call — so
+  // pruning against an empty array here would otherwise wipe the list on
+  // every cold load before it ever got a chance to populate).
+  if(data.titles && data.titles.length){
+    const pruned=list.filter(e=>getTitle(e.id));
+    if(pruned.length!==list.length){ list=pruned; saveRecentlyViewed(list); }
+  }
+  if(!list.length){ wrap.style.display='none'; dd.innerHTML=''; return; }
+  wrap.style.display='flex';
+  dd.innerHTML = `<div class="rv-dropdown-label">Recently Viewed</div>` +
+    list.map(e=>`<button class="rv-item" data-imprint="${esc(e.imprint)}" onclick="openFromRecentlyViewed('${e.id}','${e.section||'top'}',${e.offset||0})">
+      <span class="rv-item-accent"></span>
+      <span class="rv-item-body">
+        <span class="rv-item-title">${esc(e.title)}</span>
+        <span class="rv-item-meta"><span class="rv-item-author">${esc(e.authors)}</span><span class="rv-item-time">${esc(rvTimeAgo(e.viewedAt))}</span></span>
+      </span>
+    </button>`).join('') +
+    `<div class="rv-divider"></div><div class="rv-footnote">Last ${list.length} title${list.length===1?'':'s'} opened on this device &middot; not synced, same as Contacts/Release Blocks</div>`;
+}
+function toggleRV(e){
+  if(e) e.stopPropagation();
+  const trigger=document.getElementById('rvTrigger'), dd=document.getElementById('rvDropdown');
+  if(!trigger||!dd) return;
+  trigger.classList.toggle('open');
+  dd.classList.toggle('open');
+}
+document.addEventListener('click', function(e){
+  const wrap=document.getElementById('rv-wrap');
+  if(!wrap || wrap.contains(e.target)) return;
+  const trigger=document.getElementById('rvTrigger'), dd=document.getElementById('rvDropdown');
+  if(trigger) trigger.classList.remove('open');
+  if(dd) dd.classList.remove('open');
+});
+// Clicking a Recently Viewed item: navigate there normally (gotoDetail()
+// itself re-records/re-opens the title, which resets its stored
+// section/offset to 'top'/0 — see recordRecentlyViewed()), then restore the
+// SAVED position on top of that. gotoDetail() is fully synchronous — it
+// runs render()->renderDetail(), which assigns main.innerHTML directly, so
+// by the time gotoDetail() returns the new DOM is already live and
+// getBoundingClientRect()/scrollIntoView() below will force-compute correct
+// layout even with no paint frame yet. This deliberately mirrors the
+// existing jumpToSection()/jumpToTop() pattern above (same synchronous
+// open-then-scroll, no rAF) rather than introducing a second, different
+// timing mechanism — and for good reason found in testing: an earlier
+// version of this function used nested requestAnimationFrame() calls to
+// "wait for layout to settle", which turned out to be the FLAKY choice, not
+// the safe one — rAF callbacks can be throttled/delayed by the browser
+// (backgrounded tab, extension-driven automation, etc.), which intermittently
+// left the restore never firing at all. Plain synchronous DOM work, same as
+// the rest of this app's navigation, is what's actually reliable.
+function openFromRecentlyViewed(id,section,offset){
+  const trigger=document.getElementById('rvTrigger'), dd=document.getElementById('rvDropdown');
+  if(trigger) trigger.classList.remove('open');
+  if(dd) dd.classList.remove('open');
+  gotoDetail(id);
+  restoreDetailPosition(id,section,offset);
+}
+function restoreDetailPosition(id,section,offset){
+  if(selectedId!==id) return; // navigated away again before this ran — don't fight whatever's on screen now
+  if(!section || section==='top'){
+    // Deliberately NOT jumpToTop() here — it scrollIntoView()s with
+    // behavior:'smooth', and stacking an immediate scrollBy() on top of a
+    // still-animating smooth scroll fights the browser's own animation
+    // (observed as a visible stutter/overshoot in testing). Instant scroll,
+    // same as the section branch below, so the two calls land cleanly.
+    const dtop=document.getElementById(`dtop-${id}`);
+    if(dtop) dtop.scrollIntoView({behavior:'auto',block:'start'});
+    if(offset>20) window.scrollBy(0,offset);
+    setActiveSideNavItem('top');
+    updateRecentlyViewedPosition(id,'top',offset||0);
+    return;
+  }
+  if(!isOpen(id,section)) setAccordOpen(id,section,true);
+  const el=document.getElementById(`asec-${id}-${section}`);
+  if(!el){ // stale/unknown section key (shouldn't happen — fail safe to top rather than do nothing)
+    const dtop=document.getElementById(`dtop-${id}`);
+    if(dtop) dtop.scrollIntoView({behavior:'auto',block:'start'});
+    setActiveSideNavItem('top');
+    return;
+  }
+  el.scrollIntoView({behavior:'auto',block:'start'});
+  if(offset>20) window.scrollBy(0,offset);
+  setActiveSideNavItem(section);
+  updateRecentlyViewedPosition(id,section,offset||0);
+}
 
 // ─── SECTION RENDERS ───
 function frow(label,inputHtml,cls=''){return `<div class="field-group ${cls}"><label class="field-label">${label}</label>${inputHtml}</div>`;}

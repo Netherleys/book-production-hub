@@ -151,6 +151,30 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .h-tab{padding:6px 14px;border-radius:var(--r4);font-size:.85rem;cursor:pointer;background:none;border:none;color:var(--text-oncream-dim);font-family:var(--sans)}
 .h-tab:hover{background:rgba(241,234,217,.08);color:var(--text-oncream)}
 .h-tab.active{background:var(--sage);color:#fff;font-weight:600}
+/* Round 20 (2026-08-19) — "Recently Viewed" header dropdown. Styling/tokens
+   carried over verbatim from the David-approved mockup (_mockups/
+   recently_viewed_nav_mockup_2026-08-19.html) — not re-derived. */
+.rv-wrap{position:relative;margin-left:4px}
+.rv-trigger{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--r4);border:1px solid rgba(241,234,217,.2);background:rgba(241,234,217,.06);color:var(--text-oncream-dim);font-size:.82rem;cursor:pointer;font-family:var(--sans);transition:background .15s,color .15s}
+.rv-trigger:hover,.rv-trigger.open{background:rgba(241,234,217,.14);color:var(--text-oncream)}
+.rv-trigger .rv-ico{font-size:.9rem;line-height:1}
+.rv-trigger .rv-caret{font-size:.62rem;opacity:.7;transition:transform .15s}
+.rv-trigger.open .rv-caret{transform:rotate(180deg)}
+.rv-dropdown{position:absolute;top:calc(100% + 8px);left:0;width:300px;background:#111;border-radius:var(--r8);box-shadow:var(--shadow-lg);padding:10px;display:none;flex-direction:column;gap:2px;z-index:150;border:1px solid rgba(255,255,255,.08)}
+.rv-dropdown.open{display:flex}
+.rv-dropdown-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.45);font-weight:600;padding:2px 8px 6px}
+.rv-item{display:flex;align-items:stretch;gap:9px;padding:6px 8px;border-radius:6px;cursor:pointer;transition:background .12s;border:none;background:none;width:100%;text-align:left;font-family:var(--sans)}
+.rv-item:hover,.rv-item:focus-visible{background:rgba(255,255,255,.10);outline:none}
+.rv-item-accent{width:3px;border-radius:2px;flex-shrink:0;background:var(--imprint-accent,var(--neutral-dot))}
+.rv-item[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
+.rv-item[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
+.rv-item-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.rv-item-title{font-size:.82rem;font-weight:600;color:#fff;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-item-meta{display:flex;justify-content:space-between;gap:8px;font-size:.68rem;color:rgba(255,255,255,.5)}
+.rv-item-author{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.rv-item-time{flex-shrink:0}
+.rv-divider{height:1px;background:rgba(255,255,255,.08);margin:6px 2px}
+.rv-footnote{font-size:.68rem;color:rgba(255,255,255,.35);padding:4px 8px 0;line-height:1.4}
 /* Round 15 (2026-08-12) — .h-search-wrap/#hdr-search/.h-select (the old
    header search+filter row's styling) are RETIRED here, superseded by
    .filter-sidebar/.fs-search/.fs-select below (right after the header CSS
@@ -1019,6 +1043,26 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
     <button class="h-tab" id="tab-quicknotes" onclick="gotoQuickNotesList()">Quick Notes</button>
     <button class="h-tab" id="tab-isbns" onclick="gotoISBNs()">ISBN Manager</button>
   </nav>
+  <!-- Round 20 (2026-08-19, David-approved mockup: _mockups/
+       recently_viewed_nav_mockup_2026-08-19.html) — "Recently Viewed" nav
+       aid. David's problem: deep in a title's production sheet, jumps to
+       ISBN Manager/Quick Notes to check something, then has no way back
+       except re-finding it via All Titles. Deliberately placed here, right
+       after the nav tabs and OUTSIDE .h-actions — reads as a 4th nav item
+       (somewhere you jump FROM/TO), not a utility action like "+ Add
+       Title". It's also in the shared header chrome (not the All-Titles-
+       only filter sidebar) specifically so it's reachable from every view,
+       which is the whole point — see the mockup's placement-reasoning note
+       for the sidebar alternative David floated and why it was dropped.
+       #rv-wrap starts hidden (inline style) — renderRecentlyViewed() in
+       app.js shows it only once there's at least one entry to show; no
+       point offering an empty dropdown before David has opened a title. -->
+  <div class="rv-wrap" id="rv-wrap" style="display:none">
+    <button class="rv-trigger" id="rvTrigger" onclick="toggleRV(event)">
+      <span class="rv-ico">&#128337;</span> Recently Viewed <span class="rv-caret">&#9660;</span>
+    </button>
+    <div class="rv-dropdown" id="rvDropdown"></div>
+  </div>
   <!-- Round 15 (2026-08-12) — the search/filter row that used to live here
        (.h-search-wrap: search box + Status/Imprint/Block/Print Timing/Sort)
        is REMOVED from the header. David approved a mockup moving all of it
