@@ -988,8 +988,28 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    Hub rather than introducing a second, slightly different red/amber pair —
    flagged in the build report. ── */
 .rpt-page-head{margin-bottom:14px}
-.rpt-page-sub{color:var(--text-oncream-dim);font-size:.85rem;margin-top:4px;max-width:680px;line-height:1.5}
-.rpt-summary-line{margin-top:12px;font-size:.85rem;font-weight:700;color:var(--text-oncream);display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+/* .rpt-page-sub (the descriptive blurb under the title) removed 2026-08-20
+   per David feedback — too obvious once looking at the actual table. */
+.rpt-summary-line{margin:18px 0;font-size:.85rem;font-weight:700;color:var(--text-oncream);display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+/* Round 25 (2026-08-20) — Progress Report popout window. Body class added
+   by init() only in the separate popout window (see app.js
+   isPopoutReport/openReportPopout()); strips the Hub's persistent
+   header/footer/nav/quick-note chrome so the popout reads as a clean,
+   stripped-down reference window — just the report's own title/filters/
+   summary/table, per David's confirmed spec. #main no longer needs to
+   reserve space for the (now-hidden) fixed header/footer via padding, so
+   those are reset directly rather than relying on --hh (which stays at its
+   normal value here since the header element itself is merely hidden, not
+   resized to 0). */
+body.popout-mode{padding-top:20px;padding-bottom:20px}
+body.popout-mode #app-header,
+body.popout-mode #app-footer,
+body.popout-mode #quick-note-fab,
+body.popout-mode #quick-note-panel,
+body.popout-mode .rv-wrap,
+body.popout-mode #filter-panel-wrap{display:none!important}
+body.popout-mode #reconnect-banner{position:static}
+body.popout-mode .layout-wrap{padding:0 20px 30px}
 .rpt-summary-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(241,234,217,.07);border:1px solid rgba(241,234,217,.18);border-radius:20px;padding:5px 12px 5px 10px}
 .rpt-summary-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
 .rpt-overdue-dot{background:var(--terra)}
@@ -1133,7 +1153,6 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
   body{background:#fff!important;color:#000!important;padding:0!important}
   .layout-wrap{padding:0}
   #main{padding:0}
-  .rpt-page-sub{display:none}
   .rpt-summary-line{color:#000}
   .rpt-summary-chip{border:1px solid #000;background:#fff}
   .rpt-table-card{box-shadow:none;border:1px solid #000}

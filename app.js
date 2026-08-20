@@ -102,6 +102,16 @@ let data = { titles: [], isbns: [], blocks: [] };
 // debouncedSave()/flushPendingSave() comment block further down for why a
 // single shared timer was the root cause of a real data-loss bug.
 let view = 'titles', selectedId = null, syncStatus = 'none';
+// Round 25 (2026-08-20, David request) — Progress Report popout window.
+// isPopoutReport is true only in the SEPARATE browser window opened by
+// openReportPopout() below (this same page, loaded again with
+// ?popout=report on the URL) — never in the main Hub window. Read once at
+// script-load time since the query string never changes over a page's
+// lifetime. See init() (forces view='report' + adds the popout-mode body
+// class that hides header/footer/nav chrome via CSS) and
+// openReportPopout()/refreshPopoutReport() further down for the rest of
+// this feature.
+const isPopoutReport = new URLSearchParams(location.search).get('popout') === 'report';
 // Round 14 (2026-08-12), item 2 — 'sort' added to the existing filters
 // object (same session-only, in-memory pattern as every other filter key
 // here — no persistence needed, this is a display-order control, not data).
@@ -4389,7 +4399,6 @@ function renderReport(){
   main.innerHTML = `
     <div class="rpt-page-head">
       <h2 style="font-family:var(--serif);font-weight:normal;font-size:1.3rem">Progress Report</h2>
-      <p class="rpt-page-sub">One row per title. Outstanding dated pipeline items, Print Deadline and Street Date at a glance. Titles are clickable — jump straight to that title's record. Overdue dates are red, dates 30 days or fewer out are amber.</p>
       <div class="rpt-summary-line" id="rpt-summary-line">${reportSummaryHtml()}</div>
     </div>
     <div class="rpt-toolbar">
@@ -4407,6 +4416,9 @@ function renderReport(){
       <div class="rpt-toolbar-right">
         <button class="btn btn-primary btn-sm" onclick="openReportExport()">Copy / Export</button>
         <button class="btn btn-sm" onclick="window.print()">Print</button>
+        ${isPopoutReport
+          ? `<button class="btn btn-sm" id="rpt-popout-refresh-btn" onclick="refreshPopoutReport()">&#8635; Refresh</button>`
+          : `<button class="btn btn-sm" onclick="openReportPopout()">Open in New Window</button>`}
       </div>
     </div>
     <div class="rpt-table-card">
@@ -4496,10 +4508,54 @@ function copyReportExport(){
   }).catch(()=>{ document.execCommand('copy'); });
 }
 
+// ─── PROGRESS REPORT POPOUT WINDOW (Round 25, 2026-08-20, David request) ───
+// David wants the Progress Report visible in its own window alongside the
+// main Hub (e.g. second monitor / split-screen) while he works through
+// individual title records. Implementation: the popout is this exact same
+// page, reopened in a new browser window with ?popout=report on the URL —
+// NOT a second, parallel rendering path. init() above detects that flag,
+// forces view='report' and adds the popout-mode body class (CSS below
+// hides #app-header/#app-footer/nav/quick-note fab so it reads as a clean
+// reference window). This means the popout gets every future report change
+// "for free" — it can never drift out of sync with the real
+// renderReport()/reportRows() logic the way a hand-duplicated version could.
+// Manual refresh ONLY, per David's explicit confirmation — no
+// polling/auto-sync between the two windows. Deliberately simple: the
+// Refresh button just re-runs the same loadAllData() the main window uses.
+function openReportPopout(){
+  const url = location.origin + location.pathname + '?popout=report';
+  const left = Math.max(0, (window.screenX||0) + 80);
+  const top = Math.max(0, (window.screenY||0) + 60);
+  const w = window.open(url, 'bookhub-progress-report-popout',
+    `width=1000,height=760,left=${left},top=${top},resizable=yes,scrollbars=yes`);
+  if(!w){
+    alert('This browser blocked the popout window. Please allow popups for this site (Book Production Hub) and try again.');
+  } else {
+    w.focus();
+  }
+}
+async function refreshPopoutReport(){
+  const btn = document.getElementById('rpt-popout-refresh-btn');
+  if(btn){ btn.disabled = true; btn.innerHTML = '&#8635; Refreshing…'; }
+  await loadAllData(); // re-pulls Sheets data + calls render() -> renderReport()
+  const freshBtn = document.getElementById('rpt-popout-refresh-btn'); // re-query: loadAllData()'s render() rebuilt #main
+  if(freshBtn){ freshBtn.disabled = false; freshBtn.innerHTML = '&#8635; Refresh'; }
+}
+
 // ─── INIT ───
 window.addEventListener('DOMContentLoaded', init);
 function init(){
   setSyncStatus('none');
+  // Round 25 (2026-08-20) — popout window: strip the Hub chrome and land
+  // straight on the report. The auth overlay/sign-in flow underneath is
+  // untouched — this is a genuinely separate window with its own JS memory
+  // (google-auth.js's token is deliberately never persisted, see that
+  // file's header comment), so it signs in independently of the main
+  // window. That's expected, not a bug — flagged in the delivery report.
+  if(isPopoutReport){
+    document.body.classList.add('popout-mode');
+    view = 'report';
+  }
   if(!CFG.GOOGLE_CLIENT_ID){
     document.getElementById('auth-error').style.display='block';
     document.getElementById('auth-error').textContent = 'GOOGLE_CLIENT_ID is not set in config.js yet — sign-in is disabled until David creates the OAuth Web application Client ID in Google Cloud Console (see MARCUS_BookProductionHubInfra_2026-07-10.md §3) and pastes it in. Use "Load sample data" below to preview the UI in the meantime.';
