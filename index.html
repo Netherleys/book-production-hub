@@ -236,6 +236,9 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 #main.main-detail{max-width:calc(var(--detail-width) + 190px);margin:0 auto}
 #main.main-isbns{max-width:1100px;margin:0 auto}
 #main.main-quicknotes{max-width:900px;margin:0 auto}
+/* Round 24 (2026-08-20) — Progress Report, same width treatment as ISBN
+   Manager (a report/table view, not a card grid). */
+#main.main-report{max-width:1100px;margin:0 auto}
 /* ── FILTER SIDEBAR (Round 15, 2026-08-12) ──
    David approved a mockup (dashboard_sidebar_filters_mockup_2026-08-12.html,
    Project Build/Book Production Hub/_mockups/) moving the All Titles
@@ -975,6 +978,50 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .isbn-badge-ebk{background:#e0eef8;color:#2a5a8a}
 .isbn-badge-hbk{background:#f0ece0;color:#6a5a2a}
 .isbn-badge-other{background:var(--bg2);color:var(--text3)}
+/* ── PROGRESS REPORT (Round 24, 2026-08-20) — replaces "Push To Todoist"
+   entirely. Built to match the David-approved mockup: _mockups/
+   ProgressReport_Mockup_2026-08-20_v3.html. One deliberate divergence from
+   that file: date colours reuse the app's own --terra (pure red,
+   "the one true alarm colour")/--amber-border tokens instead of the
+   mockup's own separate --date-overdue/--date-warn shades, so red/amber
+   means exactly the same thing here as on every other status badge in the
+   Hub rather than introducing a second, slightly different red/amber pair —
+   flagged in the build report. ── */
+.rpt-page-head{margin-bottom:14px}
+.rpt-page-sub{color:var(--text-oncream-dim);font-size:.85rem;margin-top:4px;max-width:680px;line-height:1.5}
+.rpt-summary-line{margin-top:12px;font-size:.85rem;font-weight:700;color:var(--text-oncream);display:flex;gap:14px;flex-wrap:wrap;align-items:center}
+.rpt-summary-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(241,234,217,.07);border:1px solid rgba(241,234,217,.18);border-radius:20px;padding:5px 12px 5px 10px}
+.rpt-summary-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.rpt-overdue-dot{background:var(--terra)}
+.rpt-warn-dot{background:var(--amber-border)}
+.rpt-toolbar{display:flex;gap:10px;margin:18px 0 20px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.rpt-toolbar-right{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.filter-group{display:inline-flex;background:rgba(241,234,217,.06);border:1px solid rgba(241,234,217,.2);border-radius:8px;padding:3px;gap:2px}
+.filter-btn{font:inherit;font-family:var(--sans);font-weight:700;font-size:.78rem;letter-spacing:.02em;padding:7px 14px;border-radius:6px;border:none;background:transparent;color:var(--text-oncream-dim);cursor:pointer;white-space:nowrap}
+.filter-btn:hover{color:var(--text-oncream)}
+.filter-btn.active{background:var(--sage);color:#fff}
+.rpt-table-card{background:var(--surface);border:1.5px solid var(--card-border);border-radius:var(--r12);overflow:hidden;box-shadow:var(--shadow-md)}
+.rpt-table-scroll{overflow-x:auto}
+table.report-table{width:100%;border-collapse:collapse;min-width:680px}
+table.report-table thead th{background:var(--surface2);color:var(--text2);text-align:left;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:11px 16px;border-bottom:1.5px solid var(--card-border);white-space:nowrap}
+table.report-table tbody td{padding:12px 16px;border-bottom:1px solid var(--border);color:var(--text);font-size:.85rem;vertical-align:top}
+table.report-table tbody tr:last-child td{border-bottom:none}
+table.report-table tbody tr:hover{background:var(--surface2)}
+tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:9px 16px;border-bottom:1px solid var(--border2)}
+.rpt-col-title{white-space:nowrap;width:1%}
+.rpt-col-notes{color:var(--text2);line-height:1.5;min-width:260px}
+.rpt-note-line{margin-bottom:4px}
+.rpt-note-line:last-child{margin-bottom:0}
+.rpt-col-date{white-space:nowrap;font-weight:700;width:1%}
+.rpt-dash{color:var(--text-muted);font-weight:400}
+.rpt-overdue{color:var(--terra)}
+.rpt-warn{color:var(--amber-border)}
+.rpt-normal{color:var(--text)}
+.rpt-date-sub{display:block;font-weight:600;font-size:.66rem;text-transform:uppercase;letter-spacing:.04em;margin-top:1px}
+.rpt-item-title{background:none;border:none;padding:0;font:inherit;font-family:var(--sans);font-weight:700;font-size:.85rem;color:var(--sage-border);cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color .12s}
+.rpt-item-title:hover{text-decoration-color:var(--sage-border)}
+.rpt-empty{padding:26px 18px;color:var(--text-muted);font-size:.85rem;font-style:italic;text-align:center}
+#report-export-text{width:100%;min-height:320px;font-family:'SFMono-Regular',Consolas,monospace;font-size:.8rem;line-height:1.55;background:var(--bg);border:1px solid var(--border);border-radius:var(--r4);padding:12px;color:var(--text);resize:vertical}
 /* ── QUICK NOTES — LIST/INDEX VIEW (item 5, Round 2) — a visible list of
    every title that has at least one quick note, most-recently-noted first,
    with a preview snippet of the latest note, so David can see at a glance
@@ -1072,6 +1119,30 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 /* ── EMPTY STATE ── */
 .empty-state{text-align:center;padding:60px 20px;color:var(--text-oncream-dim)}
 .empty-state h3{font-family:var(--serif);font-weight:600;font-size:1.1rem;margin-bottom:8px;color:var(--text-oncream)}
+/* ── PRINT (Round 24, 2026-08-20) — new, this app had no print stylesheet
+   before the Progress Report's Print button needed one. Scoped generically
+   (hide chrome, show #main) rather than to the report view specifically, so
+   it degrades sanely if David ever prints from another view too. One
+   deliberate simplification vs the approved mockup's print CSS: skipped its
+   "::after{content:' (OVERDUE)'}" annotation on date cells, since the
+   visible sub-label already spells out "OVERDUE 46 DAYS"/"IN 77 DAYS" in
+   full — adding the suffix too would have doubled up on the exact same
+   words in monochrome print. ── */
+@media print{
+  #app-header,#reconnect-banner,#quick-note-fab,#quick-note-panel,.rpt-toolbar,.rv-wrap,#app-footer,.modal-overlay,#filter-panel-wrap{display:none!important}
+  body{background:#fff!important;color:#000!important;padding:0!important}
+  .layout-wrap{padding:0}
+  #main{padding:0}
+  .rpt-page-sub{display:none}
+  .rpt-summary-line{color:#000}
+  .rpt-summary-chip{border:1px solid #000;background:#fff}
+  .rpt-table-card{box-shadow:none;border:1px solid #000}
+  table.report-table thead th{background:#fff!important;color:#000!important}
+  tr.rpt-group-divider td{background:#fff!important;color:#000!important}
+  table.report-table tbody tr{break-inside:avoid}
+  .rpt-item-title{color:#000;font-weight:700;text-decoration:none;cursor:default}
+  .rpt-overdue,.rpt-warn{color:#000!important;font-weight:800}
+}
 </style>
 </head>
 <body>
@@ -1090,6 +1161,11 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
          which titles have notes without opening each one individually. -->
     <button class="h-tab" id="tab-quicknotes" onclick="gotoQuickNotesList()">Quick Notes</button>
     <button class="h-tab" id="tab-isbns" onclick="gotoISBNs()">ISBN Manager</button>
+    <!-- Round 24 (2026-08-20) — Progress Report, replacing "Push To Todoist"
+         entirely (see the removed button in .h-actions below, and
+         openTodoistModal/copyTodoist removed from app.js). Same nav-tab
+         pattern as Quick Notes/ISBN Manager. -->
+    <button class="h-tab" id="tab-report" onclick="gotoReport()">Progress Report</button>
   </nav>
   <!-- Round 20 (2026-08-19, David-approved mockup: _mockups/
        recently_viewed_nav_mockup_2026-08-19.html) — "Recently Viewed" nav
@@ -1124,7 +1200,6 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
        change just makes that the permanent, only state, for every view. -->
   <div class="h-actions">
     <button class="btn btn-primary btn-sm" id="btn-add-title" onclick="openAddTitle()">+ Add Title</button>
-    <button class="btn btn-sm" onclick="openTodoistModal()">Push to Todoist</button>
     <span id="whoami" style="font-size:.78rem;color:var(--text3)"></span>
     <span class="sync-dot none" id="sync-dot" title="Sync status"></span>
   </div>
@@ -1234,15 +1309,16 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
   </div>
 </div>
 
-<!-- Todoist modal -->
-<div id="todoist-modal" class="modal-overlay hidden">
+<!-- Progress Report — Copy/Export modal (Round 24, 2026-08-20). Replaces the
+     old Todoist modal entirely — see app.js openReportExport()/
+     closeReportExport()/copyReportExport()/buildReportExportText(). -->
+<div id="report-export-modal" class="modal-overlay hidden">
   <div class="modal">
-    <h3>Items to add to Todoist</h3>
-    <p style="font-size:.82rem;color:var(--text3);margin-bottom:10px">Copy and paste into Todoist — priority noted in brackets.</p>
-    <textarea id="todoist-text" readonly style="width:100%;min-height:220px;font-family:var(--sans);font-size:.85rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--r4);padding:12px;color:var(--text);resize:vertical"></textarea>
+    <h3>Copy / Export — Progress Report</h3>
+    <textarea id="report-export-text" readonly></textarea>
     <div class="modal-footer">
-      <button class="btn" onclick="copyTodoist()">Copy to Clipboard</button>
-      <button class="btn btn-primary" onclick="document.getElementById('todoist-modal').classList.add('hidden')">Close</button>
+      <button class="btn" onclick="closeReportExport()">Close</button>
+      <button class="btn btn-primary" onclick="copyReportExport()">Copy to Clipboard</button>
     </div>
   </div>
 </div>

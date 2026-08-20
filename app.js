@@ -257,9 +257,9 @@ function applyStatusAutoRules(t){
   // Item 2 — Street Date passed: title counts as Complete/Published, full
   // stop. Checked ahead of item 1 so an already-released title can never be
   // left sitting on a stale auto-'In Progress' value. Reuses daysUntil() —
-  // the same date-comparison helper computeDayInfo() (and the Todoist
-  // reminder export further down) already use for this exact "has this date
-  // passed" question — rather than a new one-off date parser.
+  // the same date-comparison helper computeDayInfo() (and the Progress
+  // Report further down, Round 24) already use for this exact "has this
+  // date passed" question — rather than a new one-off date parser.
   if(!isPublished(t)){
     const d=daysUntil(t.dates.streetDate);
     if(d!==null && d<0){ t.status='Complete'; changed=true; }
@@ -1390,6 +1390,7 @@ function render(){
   document.getElementById('tab-titles').classList.toggle('active',view==='titles');
   document.getElementById('tab-isbns').classList.toggle('active',view==='isbns');
   const qnTab=document.getElementById('tab-quicknotes'); if(qnTab) qnTab.classList.toggle('active',view==='quicknotes');
+  const rptTab=document.getElementById('tab-report'); if(rptTab) rptTab.classList.toggle('active',view==='report');
   // Round 15 (2026-08-12) — the old header search/filter row (#search-wrap)
   // moved into the new left-hand filter sidebar (see #filter-panel-wrap in
   // index.html, right after </header>). Same show-only-on-'titles' toggle
@@ -1411,6 +1412,7 @@ function render(){
   else if(view==='detail')renderDetail();
   else if(view==='isbns')renderISBNs();
   else if(view==='quicknotes')renderQuickNotesList();
+  else if(view==='report')renderReport();
   populateQuickNoteTitles();
   // Round 20 (2026-08-19) — header dropdown lives outside #main (it's part
   // of the persistent #app-header, never touched by the innerHTML swaps
@@ -1436,6 +1438,7 @@ function render(){
 // there's nothing pending or titleId is null).
 function gotoTitles(){flushPendingSave(selectedId);view='titles';selectedId=null;render();}
 function gotoISBNs(){flushPendingSave(selectedId);view='isbns';render();}
+function gotoReport(){flushPendingSave(selectedId);view='report';render();}
 function gotoDetail(id){if(selectedId&&selectedId!==id)flushPendingSave(selectedId);view='detail';selectedId=id;render();}
 function gotoQuickNotesList(){flushPendingSave(selectedId);view='quicknotes';render();}
 // Item 1 (Round 2) — see render()'s comment above for why this exists.
@@ -4255,42 +4258,242 @@ function downloadWordFile(titleId){
   setTimeout(()=>URL.revokeObjectURL(url), 4000);
 }
 
-// ─── TODOIST MODAL (unchanged from headpress.html — deliberately still a
-// copy-paste summary, not a live API push, per the original brief's
-// browser-standalone reasoning) ───
-function openTodoistModal(){
-  const now=new Date();now.setHours(0,0,0,0);
-  const lines=[];
-  data.titles.forEach(t=>{
-    const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
-    if(pd){
-      const d=daysUntil(pd);
-      // Round 12, item 2d — 'Not Required' counts as done here too, same
-      // "nothing outstanding" equivalence applied everywhere else stage
-      // completion is checked (see cycleStage() comment).
-      if(d!==null&&d<=60&&!t.pipeline.stages.every(s=>s.status==='Complete'||s.status==='Not Required'))
-        lines.push(`[p1] PRINT DEADLINE: ${t.title} — ${d<0?'OVERDUE '+Math.abs(d)+' days':d+' days'}`);
-    }
-    if(t.dates.streetDate){
-      const d=daysUntil(t.dates.streetDate);
-      if(d!==null&&d<=90&&!t.pipeline.stages.every(s=>s.status==='Complete'||s.status==='Not Required'))
-        lines.push(`[p2] STREET DATE APPROACHING: ${t.title} — ${formatDate(t.dates.streetDate)}`);
-    }
-    t.pipeline.stages.forEach(s=>{
-      if(s.status==='In Progress'&&s.expectedDate&&new Date(s.expectedDate)<now)
-        lines.push(`[p2] OVERDUE: ${t.title} — ${s.name} (expected ${formatDate(s.expectedDate)})`);
-    });
-  });
-  const ta=document.getElementById('todoist-text');
-  ta.value=lines.length?lines.join('\n'):'No urgent items found. All titles are on track.';
-  document.getElementById('todoist-modal').classList.remove('hidden');
+// ─── PROGRESS REPORT (Round 24, 2026-08-20) — replaces "Push To Todoist"
+// entirely, per David's explicit ask (old feature was noisy/not useful).
+// Built to match the David-approved mockup: _mockups/
+// ProgressReport_Mockup_2026-08-20_v3.html — one row per title (Book Title /
+// Pipeline Notes / Print Deadline / Street Date), Street-Date-primary sort
+// with a Print-Deadline fallback, dated titles grouped above a divider from
+// pipeline-note-only titles, 4-way filter, colour-coded overdue/soon dates,
+// and Copy/Export + Print.
+//
+// Deliberately reuses this app's OWN daysUntil()/formatDate()/
+// calcAutoPrint()/isPublished() rather than a second, parallel
+// implementation (the mockup used its own pure-UTC date math to sidestep
+// the known live calcAutoPrint() timezone/DST edge case — see that
+// function's own history — without fixing the underlying bug). Using the
+// same helpers here means this report's day-counts always agree with the
+// same title's badge everywhere else in the Hub, including inheriting that
+// same known edge case rather than quietly diverging with a second "more
+// correct" version just for this one screen. Flagged in the build report,
+// not silently fixed here either.
+//
+// Inclusion/exclusion: a title is excluded outright if isPublished(t) is
+// true (Complete/Completed/Released — the same equivalence used everywhere
+// else already). Note this means a title whose Street Date has passed can
+// vanish from this report the moment applyStatusAutoRules() auto-flips its
+// status to 'Complete' on next load, even if it still has real outstanding
+// pipeline notes — that's existing app-wide behaviour (not new here), but
+// worth knowing if a title unexpectedly disappears.
+let reportFilter = 'all';
+
+function reportRows(){
+  return data.titles
+    .filter(t => !isPublished(t))
+    .map(t => {
+      const effPrint = t.dates.autoPrintDate ? calcAutoPrint(t.dates.streetDate) : t.dates.printDate;
+      const pipelineDated = (t.pipeline.stages||[])
+        .filter(s => s.status!=='Complete' && s.status!=='Not Required' && s.expectedDate)
+        .slice()
+        .sort((a,b) => a.expectedDate<b.expectedDate?-1:a.expectedDate>b.expectedDate?1:0);
+      const pipelineNotes = pipelineDated.map(s => s.notes ? `${formatDate(s.expectedDate)} – ${s.name} – ${s.notes}` : `${formatDate(s.expectedDate)} – ${s.name}`);
+      const earliestPipelineDate = pipelineDated.length ? pipelineDated[0].expectedDate : null;
+      return {
+        id: t.id, title: t.title,
+        printDate: effPrint, printAuto: !!t.dates.autoPrintDate, printDays: daysUntil(effPrint),
+        streetDate: t.dates.streetDate, streetDays: daysUntil(t.dates.streetDate),
+        pipelineNotes, earliestPipelineDays: daysUntil(earliestPipelineDate)
+      };
+    })
+    .filter(r => r.printDate || r.streetDate || r.pipelineNotes.length);
 }
-function copyTodoist(){
-  const ta=document.getElementById('todoist-text');
+
+function reportByTitle(a,b){ return a.title.localeCompare(b.title); }
+
+function getReportRows(filter){
+  const rows = reportRows();
+  if(filter==='street'){
+    return { flat: rows.filter(r=>r.streetDate).sort((a,b)=>a.streetDays-b.streetDays||reportByTitle(a,b)) };
+  }
+  if(filter==='print'){
+    return { flat: rows.filter(r=>r.printDate).sort((a,b)=>a.printDays-b.printDays||reportByTitle(a,b)) };
+  }
+  if(filter==='pipeline'){
+    return { flat: rows.filter(r=>r.pipelineNotes.length).sort((a,b)=>a.earliestPipelineDays-b.earliestPipelineDays||reportByTitle(a,b)) };
+  }
+  // all — Group A: has Street and/or Print Deadline, Street-Date-primary
+  // sort (overdue floats to top, Print Deadline used as fallback placement
+  // when no Street Date). Group B: no Street/Print date but has an
+  // outstanding pipeline note — sorts to the bottom, by that note's own
+  // date, soonest/most-overdue first.
+  const groupA = rows.filter(r => r.streetDate || r.printDate).sort((a,b) => {
+    const ka = a.streetDate ? a.streetDays : a.printDays;
+    const kb = b.streetDate ? b.streetDays : b.printDays;
+    return ka - kb || reportByTitle(a,b);
+  });
+  const groupB = rows.filter(r => !r.streetDate && !r.printDate && r.pipelineNotes.length)
+    .sort((a,b) => a.earliestPipelineDays - b.earliestPipelineDays || reportByTitle(a,b));
+  return { groupA, groupB };
+}
+
+function reportDateColorClass(days){
+  if(days===null) return '';
+  if(days<0) return 'rpt-overdue';
+  if(days<=30) return 'rpt-warn';
+  return 'rpt-normal';
+}
+function reportDayWord(n){ return n===1 ? 'DAY' : 'DAYS'; }
+function reportRelLabel(days){
+  if(days===null) return '';
+  if(days<0){ const n=Math.abs(days); return `OVERDUE ${n} ${reportDayWord(n)}`; }
+  if(days===0) return 'TODAY';
+  if(days===1) return 'TOMORROW';
+  return `IN ${days} ${reportDayWord(days)}`;
+}
+function reportDateCell(dateStr, days, auto){
+  if(!dateStr) return '<span class="rpt-dash">—</span>';
+  const cls = reportDateColorClass(days);
+  const sub = days!==null ? `<span class="rpt-date-sub">${esc(reportRelLabel(days))}</span>` : '';
+  const autoNote = auto ? ' <span class="rpt-dash" style="font-style:italic;font-weight:400">(auto-calc)</span>' : '';
+  return `<span class="${cls}">${esc(formatDate(dateStr))}${autoNote}${sub}</span>`;
+}
+function reportNotesCell(notes){
+  if(!notes || !notes.length) return '<span class="rpt-dash">—</span>';
+  return notes.map(n => `<div class="rpt-note-line">${esc(n)}</div>`).join('');
+}
+function reportRowHtml(r){
+  return `<tr>
+      <td class="rpt-col-title"><button class="rpt-item-title" onclick="gotoDetail('${esc(r.id)}')">${esc(r.title)}</button></td>
+      <td class="rpt-col-notes">${reportNotesCell(r.pipelineNotes)}</td>
+      <td class="rpt-col-date">${reportDateCell(r.printDate, r.printDays, r.printAuto)}</td>
+      <td class="rpt-col-date">${reportDateCell(r.streetDate, r.streetDays, false)}</td>
+    </tr>`;
+}
+function reportSummaryHtml(){
+  // Headline count is scoped to titles with a Print Deadline and/or Street
+  // Date (the two colour-coded columns) — pipeline-only titles (Group B)
+  // aren't reflected here since neither of their columns is colour-coded.
+  const dated = reportRows().filter(r => r.streetDate || r.printDate);
+  let overdue = 0, soon = 0;
+  dated.forEach(r => {
+    const days = [r.printDays, r.streetDays].filter(d => d !== null);
+    if(days.some(d => d < 0)) overdue++;
+    else if(days.some(d => d >= 0 && d <= 30)) soon++;
+  });
+  return `<span class="rpt-summary-chip"><span class="rpt-summary-dot rpt-overdue-dot"></span>${overdue} overdue</span>`+
+    `<span class="rpt-summary-chip"><span class="rpt-summary-dot rpt-warn-dot"></span>${soon} within 30 days</span>`;
+}
+
+function renderReport(){
+  const main=document.getElementById('main');
+  main.innerHTML = `
+    <div class="rpt-page-head">
+      <h2 style="font-family:var(--serif);font-weight:normal;font-size:1.3rem">Progress Report</h2>
+      <p class="rpt-page-sub">One row per title. Outstanding dated pipeline items, Print Deadline and Street Date at a glance. Titles are clickable — jump straight to that title's record. Overdue dates are red, dates 30 days or fewer out are amber.</p>
+      <div class="rpt-summary-line" id="rpt-summary-line">${reportSummaryHtml()}</div>
+    </div>
+    <div class="rpt-toolbar">
+      <div class="filter-group" role="group" aria-label="Filter">
+        <!-- Order per David's explicit confirmation (2026-08-20): All,
+             Street Date, Print Deadline, Pipeline Notes — All leftmost.
+             Differs from the v3 mockup file's own button order
+             (Street/Print/All/Pipeline); this live build follows David's
+             later word over the mockup. -->
+        <button class="filter-btn ${reportFilter==='all'?'active':''}" onclick="setReportFilter('all')">All</button>
+        <button class="filter-btn ${reportFilter==='street'?'active':''}" onclick="setReportFilter('street')">Street Date</button>
+        <button class="filter-btn ${reportFilter==='print'?'active':''}" onclick="setReportFilter('print')">Print Deadline</button>
+        <button class="filter-btn ${reportFilter==='pipeline'?'active':''}" onclick="setReportFilter('pipeline')">Pipeline Notes</button>
+      </div>
+      <div class="rpt-toolbar-right">
+        <button class="btn btn-primary btn-sm" onclick="openReportExport()">Copy / Export</button>
+        <button class="btn btn-sm" onclick="window.print()">Print</button>
+      </div>
+    </div>
+    <div class="rpt-table-card">
+      <div class="rpt-table-scroll">
+        <table class="report-table">
+          <thead>
+            <tr><th>Book Title</th><th>Pipeline Notes</th><th>Print Deadline</th><th>Street Date</th></tr>
+          </thead>
+          <tbody id="rpt-tbody"></tbody>
+        </table>
+      </div>
+      <div id="rpt-empty" class="rpt-empty" style="display:none">Nothing matches this filter right now.</div>
+    </div>`;
+  renderReportTable();
+}
+function setReportFilter(f){ reportFilter=f; renderReport(); }
+function renderReportTable(){
+  const result = getReportRows(reportFilter);
+  const tbody = document.getElementById('rpt-tbody');
+  const empty = document.getElementById('rpt-empty');
+  let bodyRows = [];
+  let totalCount = 0;
+  if(result.flat){
+    totalCount = result.flat.length;
+    bodyRows = result.flat.map(reportRowHtml);
+  } else {
+    totalCount = result.groupA.length + result.groupB.length;
+    bodyRows = result.groupA.map(reportRowHtml);
+    if(result.groupB.length){
+      bodyRows.push(`<tr class="rpt-group-divider"><td colspan="4">No Street/Print Date — by Pipeline Note</td></tr>`);
+      bodyRows = bodyRows.concat(result.groupB.map(reportRowHtml));
+    }
+  }
+  if(!totalCount){
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+  empty.style.display = 'none';
+  tbody.innerHTML = bodyRows.join('');
+}
+
+// ── Copy / Export ──
+function reportExportLine(r){
+  const lines = [];
+  lines.push(r.title);
+  if(r.pipelineNotes.length) r.pipelineNotes.forEach(n => lines.push('  Pipeline: ' + n));
+  else lines.push('  Pipeline: —');
+  lines.push('  Print Deadline: ' + (r.printDate ? `${formatDate(r.printDate)}${r.printDays<0?' (OVERDUE)':r.printDays<=30?' (soon)':''}${r.printAuto?' (auto-calc)':''}` : '—'));
+  lines.push('  Street Date: ' + (r.streetDate ? `${formatDate(r.streetDate)}${r.streetDays<0?' (OVERDUE)':r.streetDays<=30?' (soon)':''}` : '—'));
+  lines.push('');
+  return lines;
+}
+function buildReportExportText(){
+  const filterLabel = {all:'All', street:'Street Date', print:'Print Deadline', pipeline:'Pipeline Notes'}[reportFilter];
+  const lines = [];
+  lines.push('BOOK PRODUCTION HUB — PROGRESS REPORT');
+  lines.push('As of ' + formatDate(new Date().toDateString()));
+  lines.push('Filter: ' + filterLabel);
+  lines.push('');
+  const result = getReportRows(reportFilter);
+  if(result.flat){
+    if(!result.flat.length){ lines.push('(nothing matches this filter)'); return lines.join('\n'); }
+    result.flat.forEach(r => lines.push(...reportExportLine(r)));
+  } else {
+    if(!result.groupA.length && !result.groupB.length){ lines.push('(nothing matches this filter)'); return lines.join('\n'); }
+    result.groupA.forEach(r => lines.push(...reportExportLine(r)));
+    if(result.groupB.length){
+      lines.push('-- NO STREET/PRINT DATE — BY PIPELINE NOTE --');
+      lines.push('');
+      result.groupB.forEach(r => lines.push(...reportExportLine(r)));
+    }
+  }
+  return lines.join('\n');
+}
+function openReportExport(){
+  document.getElementById('report-export-text').value = buildReportExportText();
+  document.getElementById('report-export-modal').classList.remove('hidden');
+}
+function closeReportExport(){ document.getElementById('report-export-modal').classList.add('hidden'); }
+function copyReportExport(){
+  const ta = document.getElementById('report-export-text');
+  ta.select();
   navigator.clipboard.writeText(ta.value).then(()=>{
-    const btn=document.querySelector('#todoist-modal .modal-footer button');
-    if(btn){const orig=btn.textContent;btn.textContent='Copied!';setTimeout(()=>btn.textContent=orig,1500);}
-  }).catch(()=>{ta.select();document.execCommand('copy');});
+    const btn = document.querySelector('#report-export-modal .modal-footer .btn-primary');
+    if(btn){ const orig = btn.textContent; btn.textContent = 'Copied!'; setTimeout(()=>btn.textContent=orig,1500); }
+  }).catch(()=>{ document.execCommand('copy'); });
 }
 
 // ─── INIT ───
