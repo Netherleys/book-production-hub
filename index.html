@@ -580,7 +580,22 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
    (.export-hint) is deleted outright per the brief; buttons made a little
    bigger (.btn-export, replacing .btn-sm — see below). */
 .export-actions-row{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-bottom:16px}
-.btn-export{padding:8px 18px;font-size:.9rem}
+/* Round 22, item 3/4 — David: Images Folder/Working Folder/View HTML
+   Output/View Word File "don't read strongly enough as clickable buttons."
+   .btn-export previously just borrowed plain .btn (thin border, flat
+   --surface fill, no shadow) at a slightly bigger size — visually closer to
+   a quiet text field than an action. Given a real, solid fill using the
+   same --sage-bg/--sage-border/--sage token trio already established
+   elsewhere in this app for "this needs attention / click me" emphasis
+   (e.g. .lock-btn.unlocked's terra equivalent), inverting to solid sage on
+   hover — the same solid-fill idiom .btn-primary already uses for "this is
+   unambiguously a button" elsewhere in the Hub, kept a shade lighter here
+   since these four are useful secondary actions, not primary/destructive
+   ones. Applies to all four (View HTML Output/View Word File/Open Images
+   Folder/Reveal in Explorer) plus the new "View on GitHub" cover button —
+   one consistent button family, per David's ask. */
+.btn-export{padding:10px 20px;font-size:.88rem;font-weight:600;background:var(--sage-bg);border:1.5px solid var(--sage-border);color:var(--sage-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);transition:background .15s,color .15s,box-shadow .15s,transform .15s}
+.btn-export:hover{background:var(--sage);color:#fff;box-shadow:var(--shadow-md);transform:translateY(-1px)}
 
 /* ── COVER & FOLDER LINKS STRIP (Round 10, item 6) — new standalone box,
    same visual pattern as .key-contacts-box just above: its own bordered/
@@ -619,7 +634,8 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
 /* "No link set yet" state for the Open/Reveal pill buttons — dashed border,
    muted label, distinct from the solid-bordered "ready to click" look of a
    real set link, same real-vs-placeholder differentiation as item 2b above. */
-.btn.btn-export.is-empty{border-style:dashed;border-color:var(--border2);color:var(--text-muted);font-weight:500}
+.btn.btn-export.is-empty{background:transparent;border-style:dashed;border-color:var(--border2);color:var(--text-muted);font-weight:500;box-shadow:none}
+.btn.btn-export.is-empty:hover{background:var(--surface);color:var(--text-muted);box-shadow:none;transform:none}
 /* Round 10, item 9 — short inline help note under Cover Image URL,
    documenting the GitHub-upload workflow David now uses himself. */
 .field-help{font-size:.7rem;color:var(--text3);line-height:1.4;margin-top:1px}
@@ -820,6 +836,17 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .lock-btn{background:none;border:1px solid var(--border2);border-radius:var(--r4);cursor:pointer;padding:4px 8px;font-size:.85rem;flex-shrink:0;line-height:1}
 .lock-btn.locked{color:var(--text3)}
 .lock-btn.unlocked{color:var(--terra-border);border-color:var(--terra-border);background:var(--terra-bg)}
+/* Round 22, item 1 — Cover & Folder Links lock mechanism (Cover Image URL /
+   Images Folder / Working Folder), replicating the exact ISBN lock pattern
+   above (same .lock-btn/.locked/.unlocked classes, same readonly-greys-out
+   input treatment, same confirm()-gated unlock) rather than building a new
+   look. Only real difference from ISBN: these three default UNLOCKED while
+   empty (nothing to protect on a brand-new title) and lock automatically
+   the first time a real value is present — see linkLockRow() in app.js. */
+.link-lock-row{display:flex;align-items:center;gap:6px}
+.link-lock-row .link-value-edit{flex:1;min-width:0}
+.link-value-edit[readonly]{background:var(--bg);color:var(--text3);cursor:default}
+.link-value-edit[readonly]:hover{border-color:transparent;background:var(--bg)}
 /* ── CHECKLIST ── */
 .checklist{display:flex;flex-direction:column;gap:6px}
 .check-item{display:flex;align-items:flex-start;gap:8px;padding:4px 0}

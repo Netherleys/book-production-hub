@@ -114,6 +114,14 @@ let view = 'titles', selectedId = null, syncStatus = 'none';
 // just newest-first instead of oldest-first.
 let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', printTiming:'', sort:'alpha' }, isbnFilter = 'all';
 let isbnLocked = {}; // titleId -> {isbnPbk:bool, isbnHbk:bool, isbnEbk:bool} — true = locked (default). Item 18 lock mechanism, session-only by design (see build report).
+// Round 22, item 1 — same lock mechanism, applied to Cover & Folder Links'
+// three fields (coverThumbnailFile, imagesFolderLink, workingFolderLink).
+// Session-only, same as isbnLocked above, but with a different DEFAULT: a
+// field only starts locked once it actually holds a value (see
+// linkLockRow()) — an empty field on a brand-new title has nothing to
+// protect yet and needs to stay freely typeable without an extra unlock
+// click first.
+let linksLocked = {}; // titleId -> {coverThumbnailFile:bool, imagesFolderLink:bool, workingFolderLink:bool}
 let qnOpen = false;
 // Item 6 (Round 3) — Active/Archived toggle state for the Quick Notes list
 // view. Session-only (not persisted) — always opens back on Active, same
@@ -1938,13 +1946,29 @@ function renderLinksStrip(t){
   const id=t.id;
   const imgSet=!!(t.imagesFolderLink&&t.imagesFolderLink.trim());
   const wfSet=!!(t.workingFolderLink&&t.workingFolderLink.trim());
+  const coverSet=!!(t.coverThumbnailFile&&t.coverThumbnailFile.trim());
+  // Round 22, item 1 — lock state for all three fields, computed per-render
+  // (see linkLockRow(): defaults to locked once a value exists, unlocked
+  // while genuinely empty). Round 22, item 2 — real github.com link for the
+  // cover, built from whatever's actually in coverThumbnailFile right now.
+  const coverLocked=linkLockRow(id,'coverThumbnailFile',coverSet);
+  const imgLocked=linkLockRow(id,'imagesFolderLink',imgSet);
+  const wfLocked=linkLockRow(id,'workingFolderLink',wfSet);
+  const ghUrl=coverGithubUrl(t.coverThumbnailFile);
+  const lockBtn=(field,locked)=>`<button class="lock-btn ${locked?'locked':'unlocked'}" title="${locked?'Locked — click to unlock and edit':'Unlocked — click to lock again'}" onclick="toggleLinkLock('${id}','${field}')">${locked?'&#128274;':'&#128275;'}</button>`;
   return `<div class="links-strip-box">
     <div class="links-strip-label">Cover &amp; Folder Links</div>
     <div class="folder-links-row">
       <div class="folder-link-group">
         <label class="field-label">Cover Image URL</label>
-        <input type="text" class="link-value-edit" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" placeholder="Not set — paste covers/title-id.jpg or a direct image URL" oninput="onCoverUrlChange('${id}',this.value)">
+        <div class="link-lock-row">
+          <input type="text" class="link-value-edit" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" ${coverLocked?'readonly':''} placeholder="Not set — paste covers/title-id.jpg or a direct image URL" oninput="onCoverUrlChange('${id}',this.value)">
+          ${lockBtn('coverThumbnailFile',coverLocked)}
+        </div>
         <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
+        <div class="link-action-row">
+          <button class="btn btn-export ${ghUrl?'':'is-empty'}" type="button" onclick="openCoverGithubPage('${id}')">${ghUrl?'View on GitHub':'No Cover Set Yet'} &#8599;</button>
+        </div>
         <div class="field-help">To add a new cover: go to this repo's <code>covers</code> folder on github.com &rarr; "Add file" &rarr; "Upload files" &rarr; drag the image in &rarr; commit &rarr; paste the resulting <code>covers/&lt;filename&gt;</code> path in above.</div>
       </div>
       <div class="folder-link-group">
@@ -1952,14 +1976,20 @@ function renderLinksStrip(t){
         <div class="link-action-row">
           <button class="btn btn-export ${imgSet?'':'is-empty'}" type="button" onclick="openImagesFolder('${id}')">${imgSet?'Open Images Folder':'No Images Folder Set'} &#8599;</button>
         </div>
-        <input type="url" class="link-value-edit" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" placeholder="Not set — paste a OneDrive folder link" oninput="fc('${id}','imagesFolderLink',this.value)">
+        <div class="link-lock-row">
+          <input type="url" class="link-value-edit" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" ${imgLocked?'readonly':''} placeholder="Not set — paste a OneDrive folder link" oninput="fc('${id}','imagesFolderLink',this.value)">
+          ${lockBtn('imagesFolderLink',imgLocked)}
+        </div>
       </div>
       <div class="folder-link-group">
         <label class="field-label">Working Folder (local)</label>
         <div class="link-action-row">
           <button class="btn btn-export ${wfSet?'':'is-empty'}" type="button" onclick="revealWorkingFolder('${id}')">${wfSet?'Reveal in Explorer':'No Working Folder Set'} &#128269;</button>
         </div>
-        <input type="text" class="link-value-edit" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" placeholder="Not set — paste D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
+        <div class="link-lock-row">
+          <input type="text" class="link-value-edit" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" ${wfLocked?'readonly':''} placeholder="Not set — paste D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
+          ${lockBtn('workingFolderLink',wfLocked)}
+        </div>
       </div>
     </div>
   </div>`;
@@ -2040,6 +2070,41 @@ function onCoverUrlChange(titleId,value){
 function openImagesFolder(titleId){
   const t=getTitle(titleId);if(!t||!t.imagesFolderLink){alert('No images folder link set for this title yet.');return;}
   window.open(t.imagesFolderLink,'_blank','noopener');
+}
+// Round 22, item 2 — David's own words: "a plain URL to the github page in
+// question would be 100 times better" than what the Cover Image URL field
+// currently gives him. Checked live first: coverThumbnailFile is already
+// (per Round 10 item 9's own field-help text, and the actual live data —
+// e.g. covers/Awaiting Cover - 600.jpg, covers/last-orgy-by-the-cemetery.jpg)
+// almost always a path relative to THIS repo's own /covers/ folder, which
+// David uploads to by hand via github.com's web UI — so the one thing
+// missing was a direct link to that file's real github.com page (where he
+// can actually see/replace/manage it), as opposed to only ever seeing it
+// rendered as an <img> or as a raw unclickable path string. This repo (see
+// `git remote -v`) is Netherleys/book-production-hub, deployed off `main`.
+const GITHUB_REPO='Netherleys/book-production-hub';
+const GITHUB_REPO_BRANCH='main';
+function coverGithubUrl(val){
+  const v=String(val||'').trim();
+  if(!v) return '';
+  // Already a raw.githubusercontent.com URL (the direct-bytes form of a
+  // file in this same repo) — rewrite to the browsable github.com/.../blob
+  // page rather than linking straight at the raw bytes.
+  const raw=v.match(/^https?:\/\/raw\.githubusercontent\.com\/([^\/]+\/[^\/]+)\/([^\/]+)\/(.+)$/i);
+  if(raw) return `https://github.com/${raw[1]}/blob/${raw[2]}/${raw[3]}`;
+  // Any other absolute URL (an externally-hosted direct-image link, not in
+  // this repo at all) — nothing to rewrite; it's already "a plain URL",
+  // just not a github.com one, so open it as-is rather than guessing.
+  if(/^https?:\/\//i.test(v)) return v;
+  // The normal case: a repo-relative path like covers/<filename> — build
+  // the real github.com blob page for it.
+  return `https://github.com/${GITHUB_REPO}/blob/${GITHUB_REPO_BRANCH}/${v.replace(/^\/+/,'')}`;
+}
+function openCoverGithubPage(titleId){
+  const t=getTitle(titleId);if(!t)return;
+  const url=coverGithubUrl(t.coverThumbnailFile);
+  if(!url){alert('No cover image set for this title yet.');return;}
+  window.open(url,'_blank','noopener');
 }
 // Reveal-in-Explorer, same fetch pattern as Photo Gallery's
 // revealInExplorer() in js/gallery.js (1.2s timeout, GET ?path=, treat any
@@ -3692,6 +3757,35 @@ function toggleIsbnLock(titleId,field){
   }
   if(!isbnLocked[titleId])isbnLocked[titleId]={};
   isbnLocked[titleId][field]=currentlyLocked?false:true;
+  renderDetail();
+}
+
+// ─── COVER & FOLDER LINKS LOCK MECHANISM (Round 22, item 1) ───
+// Same pattern as the ISBN lock above — session-only state, explicit
+// unlock-toggle button, confirm()-gated when locking-to-unlocked — applied
+// to Cover Image URL / Images Folder / Working Folder. The one deliberate
+// difference from isbnLockRow(): ISBNs are always default-locked (a blank
+// ISBN field is still something you'd want to deliberately unlock before
+// typing into, per the original item-18 reasoning); these three link
+// fields instead default to UNLOCKED while genuinely empty (a brand-new
+// title needs to be able to just type/paste a first value straight in) and
+// only flip to locked automatically once a real value is present — "once a
+// value is set/established... it should lock", per David's ask this round.
+function linkLockRow(titleId,field,hasValue){
+  const row=linksLocked[titleId];
+  if(row && row[field]!==undefined) return row[field];
+  return !!hasValue;
+}
+function toggleLinkLock(titleId,field){
+  const t=getTitle(titleId);if(!t)return;
+  const hasValue=!!String(t[field]||'').trim();
+  const currentlyLocked=linkLockRow(titleId,field,hasValue);
+  if(currentlyLocked){
+    const ok=confirm('This value is already set. Unlock to edit it?\n\nOnly do this if you specifically mean to change it.');
+    if(!ok)return;
+  }
+  if(!linksLocked[titleId])linksLocked[titleId]={};
+  linksLocked[titleId][field]=currentlyLocked?false:true;
   renderDetail();
 }
 
