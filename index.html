@@ -259,6 +259,12 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .filter-sidebar-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.45);font-weight:600;padding:0 2px 2px}
 .fs-search{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;background:var(--surface);color:var(--text)}
 .fs-select{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:var(--r4);font-size:.82rem;background:var(--surface);color:var(--text);cursor:pointer}
+/* Item 4 (2026-08-20 round) — small text-link trigger for the Manage
+   Release Blocks modal, styled to sit quietly under the Block select rather
+   than compete with it (same rgba(255,255,255,…) treatment
+   .filter-sidebar-label already uses for secondary sidebar text). */
+.fs-manage-blocks-link{background:none;border:none;color:rgba(255,255,255,.5);font-size:.72rem;text-decoration:underline;text-align:left;cursor:pointer;padding:0 2px;margin-top:-4px;font-family:var(--sans)}
+.fs-manage-blocks-link:hover{color:rgba(255,255,255,.85)}
 /* Drawer toggle — hidden on desktop, shown only under the 900px breakpoint
    below (same breakpoint .toc-sidenav's own responsive rule already uses,
    for consistency — this is a DIFFERENT collapse behaviour than that one,
@@ -278,7 +284,18 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* ── TITLES GRID ── */
 .titles-toolbar{display:flex;gap:10px;align-items:center;margin-bottom:18px;flex-wrap:wrap;background:var(--bg-page2);border:1px solid rgba(241,234,217,.1);border-radius:var(--r8);padding:12px 14px}
 .titles-toolbar .h-select, .titles-toolbar input{background:var(--surface)}
+/* Item 3 (2026-08-20 round) — active-Block-filter readout, sitting between
+   the header and the grid (see the placement note in renderTitles() in
+   app.js for why here rather than inside .filter-sidebar). Deliberately
+   modest — sized/weighted a step down from .h-logo's 1.25rem, not a banner. */
+.active-filter-label{font-family:var(--sans);font-size:1.02rem;font-weight:500;color:var(--text-oncream-dim);margin:0 0 14px;padding:0 2px}
+.active-filter-label strong{color:var(--text-oncream);font-weight:600}
 .titles-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:16px}
+/* Manage Release Blocks modal (item 4) */
+.manage-block-row{display:flex;align-items:center;gap:10px;padding:9px 4px;border-bottom:1px solid var(--border)}
+.manage-block-row:last-child{border-bottom:none}
+.manage-block-name{flex:1;font-size:.88rem;color:var(--text)}
+.manage-block-count{font-size:.78rem;color:var(--text3);white-space:nowrap}
 /* ── BOOK CARD ── */
 .book-card{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-md);overflow:hidden;cursor:pointer;transition:box-shadow .2s,transform .15s,border-color .2s;position:relative;display:flex;flex-direction:column}
 .book-card:hover{box-shadow:var(--shadow-lg);transform:translateY(-2px);border-color:var(--card-border-hover)}
@@ -1110,10 +1127,19 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
         <option value="alpha">Sort: A–Z</option>
         <option value="recent">Sort: Most Recently Created</option>
       </select>
-      <!-- Item 4: filter by release-date Block (Blocks tab data) -->
+      <!-- Item 4: filter by release-date Block (Blocks tab data).
+           2026-08-20 round: default option relabelled "All Books" (item 2,
+           text only — value="" still just clears the filter); options are
+           now populated newest-first (item 1, see blockSortKey/
+           sortBlocksNewestFirst in app.js) instead of the old plain string
+           sort. The "Manage Release Blocks…" link (item 4) opens a modal
+           listing every block — including ones with zero titles, which
+           never appear in this dropdown at all since it's only ever
+           populated from blocks actually in use on a title. -->
       <select class="fs-select" id="filter-block" onchange="onFilterBlock(this.value)">
-        <option value="">All Blocks</option>
+        <option value="">All Books</option>
       </select>
+      <button type="button" class="fs-manage-blocks-link" onclick="openManageBlocks()">Manage Release Blocks&hellip;</button>
       <!-- Round 16 (2026-08-12) — BUG FIX: option value corrected from the
            wrong "Oil and Water Press" to the correct "Oil On Water Press"
            (see project memory on this exact recurring naming mix-up). Note
@@ -1204,6 +1230,21 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
     <div id="isbn-pool-list" style="max-height:300px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r4)"></div>
     <div class="modal-footer">
       <button class="btn" onclick="document.getElementById('isbn-pool-modal').classList.add('hidden')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<!-- Manage Release Blocks modal (item 4, 2026-08-20 round). Lists every
+     block from the live Blocks tab (not just ones with titles — see
+     renderManageBlocksList() in app.js) with its current title count. A
+     block can only be deleted once it has zero titles assigned. -->
+<div id="manage-blocks-modal" class="modal-overlay hidden">
+  <div class="modal">
+    <h3>Manage Release Blocks</h3>
+    <p style="font-size:.82rem;color:var(--text3);margin-bottom:12px">A release block can only be deleted once every title has been moved off it.</p>
+    <div id="manage-blocks-list"></div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeManageBlocks()">Close</button>
     </div>
   </div>
 </div>
