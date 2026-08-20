@@ -1931,7 +1931,7 @@ function renderDetail(){
 // title block. David chose this over relocating them into the jump-nav
 // sidebar (flagged as impractical live: too narrow/dark for real text
 // inputs, and collapses under 900px).
-// Round 10, item 9 — a short inline help note now sits under the Cover
+// Round 10, item 9 — a short inline help note used to sit under the Cover
 // Image URL field, documenting the GitHub-upload workflow David uses
 // himself (repo's covers/ folder → Add file → Upload files → commit → paste
 // the resulting covers/<filename> path back in here).
@@ -1942,6 +1942,21 @@ function renderDetail(){
 // edit in index.html for the full reasoning. Functionality unchanged: same
 // fc()/onCoverUrlChange() handlers, same openImagesFolder()/
 // revealWorkingFolder() actions, same field ids.
+// Round 23, item 1 (2026-08-20) — all three groups now share the exact same
+// internal order (button/action row on top, editable link/path value below
+// it) so the three-across row reads as one consistent pattern instead of
+// Cover Image URL being the odd one out (it used to lead with the input,
+// button underneath). Images Folder/Working Folder were already button-on-
+// top; only Cover Image URL's internal order changed here — its handlers,
+// ids and .folder-links-row/.folder-link-group CSS (already a 3-up flex
+// row, gap:16px, wraps under 900px) are untouched.
+// Round 23, item 2 — David's own words: multi-step instructions like the old
+// "go to covers folder → Add file → Upload files → drag → commit → paste
+// the path back in" note aren't something he'll remember/follow from a
+// tooltip. Replaced with a single plain clickable link straight to this
+// repo's live /covers/ folder page on github.com (build it the same way
+// coverGithubUrl() builds a per-file blob link, just pointed at the folder
+// itself via /tree/<branch>/covers rather than a specific file).
 function renderLinksStrip(t){
   const id=t.id;
   const imgSet=!!(t.imagesFolderLink&&t.imagesFolderLink.trim());
@@ -1955,21 +1970,22 @@ function renderLinksStrip(t){
   const imgLocked=linkLockRow(id,'imagesFolderLink',imgSet);
   const wfLocked=linkLockRow(id,'workingFolderLink',wfSet);
   const ghUrl=coverGithubUrl(t.coverThumbnailFile);
+  const coversFolderUrl=`https://github.com/${GITHUB_REPO}/tree/${GITHUB_REPO_BRANCH}/covers`;
   const lockBtn=(field,locked)=>`<button class="lock-btn ${locked?'locked':'unlocked'}" title="${locked?'Locked — click to unlock and edit':'Unlocked — click to lock again'}" onclick="toggleLinkLock('${id}','${field}')">${locked?'&#128274;':'&#128275;'}</button>`;
   return `<div class="links-strip-box">
     <div class="links-strip-label">Cover &amp; Folder Links</div>
     <div class="folder-links-row">
       <div class="folder-link-group">
         <label class="field-label">Cover Image URL</label>
+        <div class="link-action-row">
+          <button class="btn btn-export ${ghUrl?'':'is-empty'}" type="button" onclick="openCoverGithubPage('${id}')">${ghUrl?'View on GitHub':'No Cover Set Yet'} &#8599;</button>
+        </div>
         <div class="link-lock-row">
           <input type="text" class="link-value-edit" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" ${coverLocked?'readonly':''} placeholder="Not set — paste covers/title-id.jpg or a direct image URL" oninput="onCoverUrlChange('${id}',this.value)">
           ${lockBtn('coverThumbnailFile',coverLocked)}
         </div>
         <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
-        <div class="link-action-row">
-          <button class="btn btn-export ${ghUrl?'':'is-empty'}" type="button" onclick="openCoverGithubPage('${id}')">${ghUrl?'View on GitHub':'No Cover Set Yet'} &#8599;</button>
-        </div>
-        <div class="field-help">To add a new cover: go to this repo's <code>covers</code> folder on github.com &rarr; "Add file" &rarr; "Upload files" &rarr; drag the image in &rarr; commit &rarr; paste the resulting <code>covers/&lt;filename&gt;</code> path in above.</div>
+        <div class="field-help">To add a new cover, upload it here: <a href="${coversFolderUrl}" target="_blank" rel="noopener">${coversFolderUrl}</a></div>
       </div>
       <div class="folder-link-group">
         <label class="field-label">Images Folder (OneDrive)</label>

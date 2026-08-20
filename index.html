@@ -636,10 +636,14 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
    real set link, same real-vs-placeholder differentiation as item 2b above. */
 .btn.btn-export.is-empty{background:transparent;border-style:dashed;border-color:var(--border2);color:var(--text-muted);font-weight:500;box-shadow:none}
 .btn.btn-export.is-empty:hover{background:var(--surface);color:var(--text-muted);box-shadow:none;transform:none}
-/* Round 10, item 9 — short inline help note under Cover Image URL,
-   documenting the GitHub-upload workflow David now uses himself. */
-.field-help{font-size:.7rem;color:var(--text3);line-height:1.4;margin-top:1px}
+/* Round 10, item 9 — short inline help note under Cover Image URL.
+   Round 23, item 2 (2026-08-20) — swapped from multi-step instructions to a
+   single plain clickable link to the repo's /covers/ folder; word-break so
+   the raw URL text (deliberately shown in full, not just "here", so it's
+   scannable/copyable at a glance) doesn't blow out the ~220px column. */
+.field-help{font-size:.7rem;color:var(--text3);line-height:1.4;margin-top:1px;overflow-wrap:break-word}
 .field-help code{font-size:.95em;background:var(--surface);border:1px solid var(--border);border-radius:3px;padding:0 3px}
+.field-help a{word-break:break-all}
 /* Round 6, item 1 — real visible feedback when the Cover Image URL fails to
    load (was completely silent before — the <img> just quietly swapped to
    the generic placeholder). onCoverImgError() in app.js picks between the
