@@ -68,7 +68,7 @@ const ISBN_COLS = ['isbn','format','assignedToTitleId','assignedToTitleName','ni
 // visible gap between groups, matching the blank spacer rows in that sheet.
 const PIPELINE_GROUPS = [
   { label:'Setup', stages:['Contract','Publicity Statement'] },
-  { label:'Production', stages:['Cover','Cover Templates','Manuscript','Images','Proofing','Layout','Index'] },
+  { label:'Production', stages:['Cover','Cover Templates','Manuscript','PerfectIt','Images','Proofing','Layout','Index'] },
   { label:'Payment', stages:['Author Payment','Author Copies'] },
   { label:'Marketing Detail', stages:['Info Turnaround','Info SCB','Product Page','Promo Film'] },
   { label:'Formats', stages:['Print Estimate','eBook','Audiobook'] },
