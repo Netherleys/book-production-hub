@@ -223,21 +223,40 @@ function dotColor(status){ if(status==='Complete'||status==='Not Required') retu
 // is the single source of truth used everywhere a status check happens now,
 // so both the string-mismatch and the NaN-fallthrough are fixed at the root
 // rather than patched at each call site.
-function isPublished(t){ return t.status==='Complete' || t.status==='Completed' || t.status==='Released'; }
-// Round 9, item 1 — the values status can hold. Matches the Add Title
-// modal's new-status options (Not Scheduled/In Progress/Complete/Released)
-// PLUS 'Completed' — the literal legacy string already live on 5 real
-// titles (see the item-15 comment above) that the Add Title modal never
-// actually offers but which real data already contains, so the edit
-// control has to be able to display/keep it, not just the 4 the modal
-// writes.
-const STATUS_VALUES=['Not Scheduled','In Progress','Complete','Completed','Released'];
+// Round 27 (2026-08-21) — David's ask: Complete/Completed/Released were
+// three literal strings meaning exactly the same "done" thing (this
+// function already treated them as equivalent, see the item-15 history
+// above), so the dropdown is consolidated down to one label. 'Complete' was
+// picked over 'Completed'/'Released' for consistency with the per-stage
+// status vocabulary (PIPELINE_STAGE_STATUSES below already uses 'Complete').
+// normalizeStatus() (right below STATUS_VALUES) remaps any legacy literal
+// still sitting in the Sheet the moment a row loads, so this check never
+// needs to look for the old strings again — see that function for the
+// self-healing migration.
+function isPublished(t){ return t.status==='Complete'; }
+// Round 27 — legacy-value remap, same self-healing pattern
+// normalizePrintStatusOverride() (further down) already uses for its own
+// old-literal-value cleanup: applied once, at load (rowToTitle), so any
+// title still carrying the old 'Completed'/'Released' literal from before
+// this round is silently corrected to the new canonical 'Complete' in
+// memory — and the very next save (titleToRow always writes back whatever's
+// currently in memory) rewrites the Sheet cell to match too, no separate
+// one-off script/backfill needed.
+function normalizeStatus(v){
+  if(v==='Completed' || v==='Released') return 'Complete';
+  return v;
+}
+// Round 9, item 1 — the values status can hold. Round 27 (2026-08-21):
+// consolidated Complete/Completed/Released into a single 'Complete' value
+// per David, and added 'On Hold/Cancelled' as a new distinct status (a
+// title that's stalled/dead, not simply "not yet scheduled").
+const STATUS_VALUES=['Not Scheduled','In Progress','Complete','On Hold/Cancelled'];
 // Single source of truth for the badge/edit-control colour class, factored
 // out of renderDetail() so the same logic backs both the read-only card
 // badge and the new editable one (statusEditSelect below) — previously
 // this was inlined once, in renderDetail only.
 function statusBadgeClass(status){
-  return isPublished({status}) ? (status==='Released'?'badge-released':'badge-complete') : ({'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled'}[status]||'badge-notscheduled');
+  return isPublished({status}) ? 'badge-complete' : ({'In Progress':'badge-inprogress','Not Scheduled':'badge-notscheduled','On Hold/Cancelled':'badge-onhold'}[status]||'badge-notscheduled');
 }
 function toBool(v){ return v===true || v==='TRUE' || v==='true' || v===1 || v==='1'; }
 function fromBool(v){ return v ? 'TRUE' : 'FALSE'; }
@@ -253,9 +272,9 @@ function safeJson(str, fallback){ if(!str) return fallback; try{ const p=JSON.pa
 // matter what the pipeline stages or Street Date do afterwards.
 //
 // Build note on wording: the brief asks for the auto value "In Production",
-// which isn't one of STATUS_VALUES above (only Not Scheduled/In
-// Progress/Complete/Completed/Released exist — matching the Add Title modal
-// and real Sheet data). Read this as shorthand for the existing "actively
+// which isn't one of STATUS_VALUES above (only Not Scheduled/In Progress/
+// Complete/On Hold/Cancelled exist as of Round 27 — matching the Add Title
+// modal and real Sheet data). Read this as shorthand for the existing "actively
 // being worked on" state rather than a brand-new 6th status value/Sheet
 // schema change, and mapped it onto 'In Progress' — already styled
 // (badge-inprogress), already what the dropdown offers for exactly this
@@ -744,7 +763,14 @@ function rowToTitle(row){
   // productionNotes_json blob, no new Sheet column needed. Free text only,
   // David's own reference notes (e.g. "front matter i-iv; body of book
   // 1-172") — never parsed/computed against anywhere else.
-  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',printStatusOverride:''}, safeJson(c.productionNotes_json, {}));
+  // Round 27 (2026-08-21), item 3 — releaseNote added the same way
+  // printStatusOverride/pagesBreakdown were before it: a new key inside the
+  // existing productionNotes_json blob, no new Sheet column needed. Free
+  // text David uses to capture why/what's happening when a title misses its
+  // scheduled release date; conceptually a Dates & Scheduling field (see
+  // t.dates.releaseNote below) even though, like printStatusOverride, it
+  // physically lives in this JSON blob.
+  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',printStatusOverride:'',releaseNote:''}, safeJson(c.productionNotes_json, {}));
   let illustrationsText = pn.illustrationsText;
   if(!illustrationsText && pn.illustrations && pn.illustrationCount) illustrationsText = String(pn.illustrationCount)+' illustrations';
   let checklist = pn.checklist && pn.checklist.length ? pn.checklist.map(x=>({text:x.item||x.text||'',checked:!!x.checked})) : PROD_CHECKLIST.map(t=>({text:t,checked:false}));
@@ -769,7 +795,7 @@ function rowToTitle(row){
   return {
     id: c.title_id, _row: null,
     title: c.title||'', subtitle: c.subtitle||'', authors: c.author||'',
-    authorLiaison: c.authorLiaison||'David', imprint: c.imprint||'Headpress', status: c.status||'Not Scheduled',
+    authorLiaison: c.authorLiaison||'David', imprint: c.imprint||'Headpress', status: normalizeStatus(c.status||'Not Scheduled'),
     // Round 10, items 1/2 — statusAuto is a new column, so it's blank ('',
     // see rowToTitle's c[k]=row[i]!==undefined?row[i]:'' default above) on
     // every row until this app next saves it. Blank is read as "derive from
@@ -783,7 +809,7 @@ function rowToTitle(row){
     statusAuto: c.statusAuto==='' ? (c.status||'Not Scheduled')==='Not Scheduled' : toBool(c.statusAuto),
     planningSheet: c.planningSheet||'', bookBiblePresent: toBool(c.bookBiblePresent), lastUpdated: c.lastUpdated||'',
     blockId: c.blockId||'',
-    dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc), printStatusOverride: normalizePrintStatusOverride(pn.printStatusOverride||'') },
+    dates: { releaseBlock: c.releaseBlock||'', softDate: c.softDate||'', streetDate: c.streetDate||'', printDate: c.printDate||'', autoPrintDate: toBool(c.printDateAutoCalc), printStatusOverride: normalizePrintStatusOverride(pn.printStatusOverride||''), releaseNote: pn.releaseNote||'' },
     commercial: {
       isbnPbk: c.isbn_pbk||'', isbnHbk: c.isbn_hbk||'', isbnEbk: c.isbn_ebk||'',
       // Backup ISBN fields removed from the UI entirely (item 18 — see build
@@ -834,7 +860,8 @@ function titleToRow(t){
     lsiNotes: t.print.forLsiNotes||'', scbEbookCover: t.print.scbEbookCoverSpec||'', printerEstimates: t.print.printEstimate||'',
     futureEditionNotes: t.futureEdition.infoAndChanges||'', printReadyFiles: t.futureEdition.printReadyFilesStatus||'Not Ready',
     illustrationsText: t.commercial.illustrationsText||'', poManualNotes: t.poManualNotes||'',
-    pagesBreakdown: t.commercial.pagesBreakdown||'', printStatusOverride: t.dates.printStatusOverride||''
+    pagesBreakdown: t.commercial.pagesBreakdown||'', printStatusOverride: t.dates.printStatusOverride||'',
+    releaseNote: t.dates.releaseNote||''
   });
   const printerContacts_json = JSON.stringify({ contacts: t.print.printerContacts||[] });
   const filesLinks_json = JSON.stringify({ links: t.filesLinks.links||[] });
@@ -895,7 +922,7 @@ function defTitle(o={}){
     // David picks a value himself via statusEditSelect/onStatusChange.
     statusAuto:true,
     planningSheet:'', bookBiblePresent:false, lastUpdated:'', blockId:'',
-    dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false,printStatusOverride:''},
+    dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false,printStatusOverride:'',releaseNote:''},
     commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:'',pagesBreakdown:''},
     // Round 11, item 4a (2026-08-11) — pbkUSD kept in the data model (still
     // read/written round-trip) even though its UI field is gone — see the
@@ -1814,10 +1841,11 @@ function renderDetail(){
   // those still render exactly as before.
   const suppressGenericNoDate = info.kind==='nodate' && !info.hasStreet;
   const daysHtml = suppressGenericNoDate ? '' : `<span class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
-  // Badge: 'Completed' (the literal live-data string, see isPublished()) now
-  // maps onto the same badge-complete style as 'Complete' — item 15's
-  // underlying status-string mismatch fix. (Round 9: factored into
-  // statusBadgeClass() so statusEditSelect() below can share it.)
+  // Badge: any legacy 'Completed'/'Released' literal is remapped to
+  // 'Complete' at load (normalizeStatus(), Round 27) so this always sees the
+  // single canonical value; badge-complete is the one style for "done".
+  // (Round 9: factored into statusBadgeClass() so statusEditSelect() below
+  // can share it.)
   // 2026-07-15: real thumbnail if a Cover Image URL is set (see renderCard()
   // for why this is a pasted direct URL rather than a Graph API fetch),
   // same onerror fallback pattern as the card grid.
@@ -2862,6 +2890,7 @@ function renderDates(t){const id=t.id;const d=t.dates;
     ${frow('Soft Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${d.softDate?'':' is-empty'}">${esc(d.softDate?formatDateLong(d.softDate):'')}</span></div>`)}
     ${frow('Street Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${d.streetDate?'':' is-empty'}">${esc(d.streetDate?formatDateLong(d.streetDate):'')}</span></div>`)}
     ${frow('Print Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${pdVal?'':' is-empty'}">${esc(pdVal?formatDateLong(pdVal):'')}</span></div><label style="font-size:.72rem;color:var(--text3);display:flex;align-items:center;gap:4px;margin-top:4px"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label>`)}
+    ${frow('Release Note',inp(`f-${id}-releaseNote`,d.releaseNote,'Why a date moved / what’s happening…',`fc('${id}','dates.releaseNote',this.value)`),'full')}
     ${frow('Print Status',`<div id="f-${id}-daysToprint" style="padding:6px 0 2px;font-size:.9rem">${ddHtml}</div><select id="f-${id}-printStatusOverride" style="margin-top:2px" onchange="onPrintStatusOverrideChange('${id}',this.value)"><option value="" ${!d.printStatusOverride?'selected':''}>Auto (from Print Date)</option>${Object.keys(PRINT_STATUS_OVERRIDES).map(v=>`<option value="${esc(v)}" ${d.printStatusOverride===v?'selected':''}>${esc(v)}</option>`).join('')}</select><div style="font-size:.7rem;color:var(--text3);margin-top:3px">Leave on Auto to derive from Print Date; pick a value here to lock it — it won't be overridden back to Overdue automatically.</div>`)}
   </div>`;}
 
@@ -3934,6 +3963,7 @@ function getSectionExportFields(t,key,blockNameById){
         ['Soft Date','text', formatDate(t.dates.softDate)],
         ['Street Date','text', formatDate(t.dates.streetDate)],
         ['Print Date','text', formatDate(pd)+(t.dates.autoPrintDate&&pd?' (auto-calculated: street date minus 60 days)':'')],
+        ['Release Note','text', t.dates.releaseNote||''],
         ['Print Status','text', info.label]
       ];
     }
@@ -4289,8 +4319,9 @@ function downloadWordFile(titleId){
 // not silently fixed here either.
 //
 // Inclusion/exclusion: a title is excluded outright if isPublished(t) is
-// true (Complete/Completed/Released — the same equivalence used everywhere
-// else already). Note this means a title whose Street Date has passed can
+// true (status==='Complete' — legacy 'Completed'/'Released' literals are
+// remapped to it at load, see normalizeStatus(), Round 27). Note this means
+// a title whose Street Date has passed can
 // vanish from this report the moment applyStatusAutoRules() auto-flips its
 // status to 'Complete' on next load, even if it still has real outstanding
 // pipeline notes — that's existing app-wide behaviour (not new here), but

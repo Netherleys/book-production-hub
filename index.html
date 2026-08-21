@@ -542,7 +542,20 @@ input[type=text].detail-author-input:focus{border-color:var(--sage);background:v
 .badge-inprogress{background:var(--amber-bg);color:var(--amber-border)}
 .badge-notscheduled{background:var(--neutral-bg);color:var(--neutral-border)}
 .badge-complete{background:var(--sage-bg);color:var(--sage-border)}
-.badge-released{background:var(--sage-bg);color:var(--sage-border)}
+/* Round 27 (2026-08-21) — 'On Hold/Cancelled' is a new distinct status
+   (David's ask): a title that's stalled/dead, not simply unscheduled yet
+   (badge-notscheduled) nor actively moving (badge-inprogress). Reuses
+   --terra-bg/--terra-border, this app's existing "needs attention" warning
+   tone (already used for delete/danger/reconnect chrome elsewhere), rather
+   than introducing a brand-new colour token for one badge. Note --terra
+   itself is reserved as "the one true alarm colour" for passed/overdue
+   dates (see the --terra definition above) — this badge only ever uses the
+   softer -bg/-border tints, never the raw --terra red, so it stays visually
+   distinct from an actual overdue date.
+   'Released' consolidated into 'Complete' this same round (see
+   STATUS_VALUES/normalizeStatus() in app.js) — badge-released removed as no
+   longer referenced anywhere. */
+.badge-onhold{background:var(--terra-bg);color:var(--terra-border)}
 /* Round 9, item 1 — status becomes a real <select>, styled on top of the
    existing .status-badge pill classes above rather than a separate
    control (see statusEditSelect() in app.js for why: status IS the badge,
@@ -1284,7 +1297,7 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
         <option value="In Progress">In Progress</option>
         <option value="Not Scheduled">Not Scheduled</option>
         <option value="Complete">Complete</option>
-        <option value="Released">Released</option>
+        <option value="On Hold/Cancelled">On Hold/Cancelled</option>
       </select>
       <!-- Item 14: filter by print-timing status (not scheduled / passed / X days) -->
       <select class="fs-select" id="filter-printtiming" onchange="onFilterPrintTiming(this.value)">
@@ -1397,7 +1410,7 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
         <option value="Not Scheduled">Not Scheduled</option>
         <option value="In Progress">In Progress</option>
         <option value="Complete">Complete</option>
-        <option value="Released">Released</option>
+        <option value="On Hold/Cancelled">On Hold/Cancelled</option>
       </select>
     </div>
     <div class="modal-footer">
