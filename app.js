@@ -149,6 +149,11 @@ let poTabGidCache = null; // tabName(lowercase) -> {gid, title}
 // gates the beforeunload warning so a reload/close can't silently discard
 // unsaved edits without at least one confirmation prompt.
 let pendingSaveTitleIds = new Set();
+// Round 32 (2026-08-26, David request) — in-app Calendar. calYear/calMonth
+// are the currently-displayed month (session-only, always opens on the real
+// current month — see calToday()/init() below, no persistence needed).
+let calYear = new Date().getFullYear(), calMonth = new Date().getMonth();
+let calYearPrintStyleEl = null; // temp <style> injected only while printing the Year Overview — see printCalendarYear()
 
 // ─── HELPERS (unchanged from headpress.html) ───
 function esc(s){ if(s==null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
@@ -1475,6 +1480,7 @@ function render(){
   document.getElementById('tab-isbns').classList.toggle('active',view==='isbns');
   const qnTab=document.getElementById('tab-quicknotes'); if(qnTab) qnTab.classList.toggle('active',view==='quicknotes');
   const rptTab=document.getElementById('tab-report'); if(rptTab) rptTab.classList.toggle('active',view==='report');
+  const calTab=document.getElementById('tab-calendar'); if(calTab) calTab.classList.toggle('active',view==='calendar');
   // Round 15 (2026-08-12) — the old header search/filter row (#search-wrap)
   // moved into the new left-hand filter sidebar (see #filter-panel-wrap in
   // index.html, right after </header>). Same show-only-on-'titles' toggle
@@ -1497,6 +1503,7 @@ function render(){
   else if(view==='isbns')renderISBNs();
   else if(view==='quicknotes')renderQuickNotesList();
   else if(view==='report')renderReport();
+  else if(view==='calendar')renderCalendar();
   populateQuickNoteTitles();
   // Round 20 (2026-08-19) — header dropdown lives outside #main (it's part
   // of the persistent #app-header, never touched by the innerHTML swaps
@@ -1525,6 +1532,7 @@ function gotoISBNs(){flushPendingSave(selectedId);view='isbns';render();}
 function gotoReport(){flushPendingSave(selectedId);view='report';render();}
 function gotoDetail(id){if(selectedId&&selectedId!==id)flushPendingSave(selectedId);view='detail';selectedId=id;render();}
 function gotoQuickNotesList(){flushPendingSave(selectedId);view='quicknotes';render();}
+function gotoCalendar(){flushPendingSave(selectedId);view='calendar';render();}
 // Item 1 (Round 2) — see render()'s comment above for why this exists.
 // Measured on a rAF tick so it runs after the browser has actually laid
 // out the just-injected HTML (offsetHeight would still read the PREVIOUS
@@ -4756,6 +4764,171 @@ async function refreshPopoutReport(){
   const freshBtn = document.getElementById('rpt-popout-refresh-btn'); // re-query: loadAllData()'s render() rebuilt #main
   if(freshBtn){ freshBtn.disabled = false; freshBtn.innerHTML = '&#8635; Refresh'; }
 }
+
+// ─── CALENDAR (Round 32, 2026-08-26, David request) ───
+// Follows the feasibility assessment given earlier the same day: no schema
+// changes needed (dates.softDate/streetDate/printDate/autoPrintDate already
+// exist per title), in-app calendar built first as the foundation, print
+// stylesheet on top of it — Google Calendar sync is a separate, later piece
+// (Marcus Webb's lane, one-way push only), not part of this build.
+//
+// Monday-first month grid, weekends visually muted (see .cal-cell.weekend
+// in index.html), multiple titles on one date stack as small colour/tag
+// -coded entries with a "+N more" overflow past 3 (print always shows the
+// full list — see .cal-cell-extra print override). Click any entry to jump
+// straight to that title's record (gotoDetail — nav consistent with every
+// other cross-reference in this app, e.g. the Progress Report's title
+// links).
+function calPrevMonth(){ calMonth--; if(calMonth<0){ calMonth=11; calYear--; } renderCalendar(); }
+function calNextMonth(){ calMonth++; if(calMonth>11){ calMonth=0; calYear++; } renderCalendar(); }
+function calToday(){ const n=new Date(); calYear=n.getFullYear(); calMonth=n.getMonth(); renderCalendar(); }
+
+// Monday-first grid of Date objects for one month. Always at least 5 weeks
+// (35 cells); a 6th week is included only when the month genuinely spans
+// one (the trailing all-next-month week is dropped otherwise) so most
+// months don't carry a blank extra row.
+function calGridDays(year, month){
+  const first = new Date(year, month, 1);
+  const firstDow = (first.getDay()+6)%7; // Mon=0 .. Sun=6
+  const start = new Date(year, month, 1-firstDow);
+  let cells = [];
+  for(let i=0;i<42;i++){
+    const dt = new Date(start.getFullYear(), start.getMonth(), start.getDate()+i);
+    cells.push({dt, inMonth: dt.getMonth()===month, dow: (dt.getDay()+6)%7});
+  }
+  if(cells.slice(35).every(c=>!c.inMonth)) cells = cells.slice(0,35);
+  return cells;
+}
+// A title's three date fields, resolved (print date honours autoPrintDate,
+// same as everywhere else this app reads it — see renderDates()/reportRows()).
+function calTitleDateEntries(t){
+  const d=t.dates;
+  const pd = d.autoPrintDate ? calcAutoPrint(d.streetDate) : d.printDate;
+  return [['soft',d.softDate],['street',d.streetDate],['print',pd]]
+    .filter(([,ds])=>ds)
+    .map(([type,ds])=>({type, dt:new Date(ds)}))
+    .filter(e=>!isNaN(e.dt));
+}
+function calendarEntriesForMonth(year, month){
+  const out=[];
+  data.titles.forEach(t=>{
+    calTitleDateEntries(t).forEach(e=>{
+      if(e.dt.getFullYear()===year && e.dt.getMonth()===month){
+        out.push({titleId:t.id, title:t.title, day:e.dt.getDate(), type:e.type});
+      }
+    });
+  });
+  return out;
+}
+const CAL_TYPE_LABEL = {soft:'Soft', street:'Street', print:'Print'};
+const CAL_TYPE_TAG = {soft:'So', street:'St', print:'Pr'};
+function calEntryHtml(e){
+  return `<button type="button" class="cal-entry cal-entry-${e.type}" onclick="gotoDetail('${esc(e.titleId)}')" title="${esc(CAL_TYPE_LABEL[e.type])} Date — ${esc(e.title)}"><span class="cal-entry-tag">${CAL_TYPE_TAG[e.type]}</span><span class="cal-entry-title">${esc(e.title)}</span></button>`;
+}
+// Screen: stack up to 3 entries, "+N more" toggles the rest inline. Print
+// (see @media print in index.html) always shows every entry and hides the
+// toggle — paper has no hover/click, so nothing should stay hidden on it.
+function calCellEntriesHtml(dayEntries){
+  if(!dayEntries.length) return '';
+  const MAX=3;
+  if(dayEntries.length<=MAX) return dayEntries.map(calEntryHtml).join('');
+  const shown = dayEntries.slice(0,MAX).map(calEntryHtml).join('');
+  const extra = dayEntries.slice(MAX).map(calEntryHtml).join('');
+  return `${shown}<div class="cal-more-wrap"><button type="button" class="cal-more-btn" onclick="this.parentElement.classList.toggle('open')">+${dayEntries.length-MAX} more</button><div class="cal-cell-extra">${extra}</div></div>`;
+}
+function calLegendHtml(){
+  return `<div class="cal-legend">
+    <span class="cal-legend-item"><span class="cal-legend-swatch cal-entry-soft"></span>Soft Date</span>
+    <span class="cal-legend-item"><span class="cal-legend-swatch cal-entry-street"></span>Street Date</span>
+    <span class="cal-legend-item"><span class="cal-legend-swatch cal-entry-print"></span>Print Date</span>
+  </div>`;
+}
+function renderCalendar(){
+  const main=document.getElementById('main');
+  const monthLabel = new Date(calYear,calMonth,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'});
+  const entries = calendarEntriesForMonth(calYear,calMonth);
+  const byDay={};
+  entries.forEach(e=>{ (byDay[e.day]=byDay[e.day]||[]).push(e); });
+  const dowNames=['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
+  const head = dowNames.map((n,i)=>`<div class="cal-dow-head${i>=5?' weekend':''}">${n}</div>`).join('');
+  const cells = calGridDays(calYear,calMonth).map(c=>{
+    const dayEntries = c.inMonth ? (byDay[c.dt.getDate()]||[]) : [];
+    const cls=['cal-cell']; if(!c.inMonth) cls.push('outside'); if(c.dow>=5) cls.push('weekend');
+    return `<div class="${cls.join(' ')}"><div class="cal-cell-daynum">${c.dt.getDate()}</div><div class="cal-cell-entries">${calCellEntriesHtml(dayEntries)}</div></div>`;
+  }).join('');
+  main.innerHTML = `
+    <div class="cal-page-head">
+      <h2 style="font-family:var(--serif);font-weight:normal;font-size:1.3rem">Calendar</h2>
+      ${calLegendHtml()}
+    </div>
+    <div class="cal-toolbar">
+      <div class="cal-nav">
+        <button type="button" class="btn btn-sm" onclick="calPrevMonth()">&larr; Prev</button>
+        <div class="cal-month-label">${esc(monthLabel)}</div>
+        <button type="button" class="btn btn-sm" onclick="calNextMonth()">Next &rarr;</button>
+        <button type="button" class="btn btn-sm" onclick="calToday()">Today</button>
+      </div>
+      <div class="cal-toolbar-right">
+        <button type="button" class="btn btn-sm" onclick="printCalendarMonth()">Print Month</button>
+        <button type="button" class="btn btn-sm" onclick="printCalendarYear()">Print Year Overview</button>
+      </div>
+    </div>
+    <div class="cal-grid">${head}${cells}</div>
+    <div id="cal-year-print"></div>`;
+}
+function printCalendarMonth(){ window.print(); }
+
+// ── Year print — optional/nice-to-have per spec. David flagged the
+// legibility risk himself: a true 12-up month grid with real title text
+// does not fit readably on one A4 sheet, so this is deliberately scoped
+// down rather than shipped illegible — dot-only mini months (colour-coded
+// by date type, no title text) plus a legend, which IS genuinely readable
+// at this size. For actual title names, David uses Print Month or the
+// Progress Report. Landscape A4 (set via a temp injected <style>, restored
+// after printing) — noticeably more usable width than portrait for a 4x3
+// grid of mini months. ──
+function calMiniMonthHtml(year, month, monthEntries){
+  const byDay={};
+  monthEntries.forEach(e=>{ (byDay[e.day]=byDay[e.day]||new Set()).add(e.type); });
+  const dowLabels=['M','T','W','T','F','S','S'];
+  const head = dowLabels.map((l,i)=>`<div class="cal-mini-dow${i>=5?' weekend':''}">${l}</div>`).join('');
+  const cellsHtml = calGridDays(year,month).map(c=>{
+    const types = c.inMonth ? Array.from(byDay[c.dt.getDate()]||[]) : [];
+    const dots = types.map(t=>`<span class="cal-mini-dot cal-mini-dot-${t}"></span>`).join('');
+    const cls=['cal-mini-cell']; if(!c.inMonth) cls.push('outside'); if(c.dow>=5) cls.push('weekend');
+    return `<div class="${cls.join(' ')}"><span class="cal-mini-daynum">${c.inMonth?c.dt.getDate():''}</span><span class="cal-mini-dots">${dots}</span></div>`;
+  }).join('');
+  const monthName = new Date(year,month,1).toLocaleDateString('en-GB',{month:'long'});
+  return `<div class="cal-mini-month"><div class="cal-mini-title">${esc(monthName)}</div><div class="cal-mini-grid">${head}${cellsHtml}</div></div>`;
+}
+function calYearPrintHtml(year){
+  const byMonth = Array.from({length:12},()=>[]);
+  data.titles.forEach(t=>{
+    calTitleDateEntries(t).forEach(e=>{
+      if(e.dt.getFullYear()===year) byMonth[e.dt.getMonth()].push({day:e.dt.getDate(), type:e.type});
+    });
+  });
+  const months = byMonth.map((entries,i)=>calMiniMonthHtml(year,i,entries)).join('');
+  return `<div class="cal-year-print-head"><h2>${year} — Year Overview</h2>${calLegendHtml()}
+    <p class="cal-year-print-note">Dot = a title has that date this day. For titles, use the monthly Calendar print or the Progress Report.</p></div>
+    <div class="cal-year-grid">${months}</div>`;
+}
+function printCalendarYear(){
+  const container=document.getElementById('cal-year-print');
+  if(!container) return;
+  container.innerHTML = calYearPrintHtml(calYear);
+  document.body.classList.add('cal-printing-year');
+  calYearPrintStyleEl = document.createElement('style');
+  calYearPrintStyleEl.textContent = '@media print{@page{size:A4 landscape;margin:10mm}}';
+  document.head.appendChild(calYearPrintStyleEl);
+  window.print();
+}
+window.addEventListener('afterprint', function(){
+  if(document.body.classList.contains('cal-printing-year')){
+    document.body.classList.remove('cal-printing-year');
+    if(calYearPrintStyleEl){ calYearPrintStyleEl.remove(); calYearPrintStyleEl=null; }
+  }
+});
 
 // ─── INIT ───
 window.addEventListener('DOMContentLoaded', init);

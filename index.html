@@ -65,6 +65,17 @@
   --imprint-headpress:#C9834A;
   --imprint-oowp:#4F9B9B;
 
+  /* Calendar date-type colours (Round 32, 2026-08-26) — identifies WHICH of
+     a title's three dates a calendar entry is, so multiple date-types
+     landing close together (or on the same day) stay tellable apart at a
+     glance. Deliberately reuses --amber/--sage (already the app's
+     established "present, not alarming" tones) for Soft/Street, but a new
+     steel-blue for Print rather than reusing --terra — --terra is this
+     app's one alarm colour (overdue/passed), and a scheduled print date on
+     the calendar is routine information, not a warning; recolouring every
+     print-date entry red would misread as "all overdue". */
+  --cal-print:#3E6E96;--cal-print-bg:#E7EEF3;--cal-print-border:#2F567A;
+
   --shadow-sm:0 1px 3px rgba(17,17,17,.08);
   --shadow-md:0 2px 10px rgba(17,17,17,.10);
   --shadow-lg:0 6px 24px rgba(17,17,17,.16);
@@ -239,6 +250,9 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* Round 24 (2026-08-20) — Progress Report, same width treatment as ISBN
    Manager (a report/table view, not a card grid). */
 #main.main-report{max-width:1100px;margin:0 auto}
+/* Round 32 (2026-08-26) — Calendar. Wider than the report/ISBN views since
+   it's a 7-column week grid, not a table. */
+#main.main-calendar{max-width:1280px;margin:0 auto}
 /* ── FILTER SIDEBAR (Round 15, 2026-08-12) ──
    David approved a mockup (dashboard_sidebar_filters_mockup_2026-08-12.html,
    Project Build/Book Production Hub/_mockups/) moving the All Titles
@@ -1180,6 +1194,74 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
 /* ── EMPTY STATE ── */
 .empty-state{text-align:center;padding:60px 20px;color:var(--text-oncream-dim)}
 .empty-state h3{font-family:var(--serif);font-weight:600;font-size:1.1rem;margin-bottom:8px;color:var(--text-oncream)}
+
+/* ── CALENDAR (Round 32, 2026-08-26, David request) ──
+   Basic month grid: Monday-first, weekends muted, multiple titles per day
+   stack as small colour/tag-coded entries with a "+N more" overflow. See
+   app.js renderCalendar()/calGridDays() for the data side. */
+.cal-page-head{margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.cal-legend{display:flex;gap:14px;flex-wrap:wrap;font-size:.8rem;color:var(--text-oncream-dim)}
+.cal-legend-item{display:flex;align-items:center;gap:6px}
+.cal-legend-swatch{display:inline-block;width:11px;height:11px;border-radius:3px}
+.cal-toolbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;margin-bottom:14px}
+.cal-nav{display:flex;align-items:center;gap:8px}
+.cal-month-label{font-family:var(--serif);font-size:1.05rem;font-weight:600;color:var(--text-oncream);min-width:150px;text-align:center}
+.cal-toolbar-right{display:flex;gap:8px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);background:var(--card-border);border:1px solid var(--card-border);border-radius:var(--r8);overflow:hidden;box-shadow:var(--shadow-sm);gap:1px}
+.cal-dow-head{background:var(--bg-page2);color:var(--text-oncream-dim);font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;text-align:center;padding:8px 4px}
+.cal-dow-head.weekend{color:var(--text-oncream-dim);opacity:.6}
+.cal-cell{background:var(--surface);min-height:110px;padding:6px;display:flex;flex-direction:column;gap:4px}
+/* Weekends muted vs weekdays — David's explicit ask, since weekday
+   scheduling is what actually matters here. */
+.cal-cell.weekend{background:var(--surface2)}
+.cal-cell.outside{background:var(--surface2);opacity:.45}
+.cal-cell-daynum{font-size:.78rem;font-weight:700;color:var(--text2)}
+.cal-cell.outside .cal-cell-daynum{font-weight:400;color:var(--text3)}
+.cal-cell-entries{display:flex;flex-direction:column;gap:3px}
+.cal-entry{display:flex;align-items:center;gap:5px;width:100%;text-align:left;border:none;border-radius:4px;padding:2px 5px;font:inherit;font-family:var(--sans);font-size:.72rem;cursor:pointer;overflow:hidden}
+.cal-entry-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cal-entry-tag{flex-shrink:0;font-size:.62rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase}
+.cal-entry-soft{background:var(--amber-bg);color:var(--amber-border)}
+.cal-entry-street{background:var(--sage-bg);color:var(--sage-border)}
+.cal-entry-print{background:var(--cal-print-bg);color:var(--cal-print-border)}
+.cal-entry:hover{filter:brightness(0.96)}
+.cal-legend-swatch.cal-entry-soft{background:var(--amber-border)}
+.cal-legend-swatch.cal-entry-street{background:var(--sage-border)}
+.cal-legend-swatch.cal-entry-print{background:var(--cal-print-border)}
+.cal-more-wrap{display:flex;flex-direction:column;gap:3px}
+.cal-more-btn{align-self:flex-start;background:none;border:none;font:inherit;font-family:var(--sans);font-size:.7rem;font-weight:700;color:var(--sage-border);cursor:pointer;padding:1px 2px}
+.cal-more-btn:hover{text-decoration:underline}
+.cal-cell-extra{display:none;flex-direction:column;gap:3px}
+.cal-more-wrap.open .cal-cell-extra{display:flex}
+.cal-more-wrap.open .cal-more-btn{display:none}
+#cal-year-print{display:none}
+
+/* ── CALENDAR — YEAR OVERVIEW (print-only) ──
+   David flagged this himself as a legibility risk (12 full months of title
+   text on one A4 sheet). Scoped-down honestly: dot-only mini months
+   (colour-coded by date type, no title text) — genuinely readable at this
+   size — rather than a technically-present-but-squinty full grid. Never
+   shown on screen (#cal-year-print above is display:none); only appears in
+   print, and only while body.cal-printing-year is set (see
+   printCalendarYear() in app.js). */
+.cal-year-print-head h2{font-family:var(--serif);font-weight:600;font-size:1.2rem;margin-bottom:8px}
+.cal-year-print-note{font-size:.78rem;color:#444;margin:6px 0 14px}
+.cal-year-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.cal-mini-month{break-inside:avoid}
+.cal-mini-title{font-family:var(--serif);font-weight:700;font-size:.82rem;margin-bottom:3px;text-align:center}
+.cal-mini-grid{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid #999;gap:1px;background:#999}
+.cal-mini-dow{background:#eee;font-size:.55rem;font-weight:700;text-align:center;padding:2px 0}
+.cal-mini-dow.weekend{background:#e2e2e2}
+.cal-mini-cell{background:#fff;min-height:20px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:1px 0;gap:1px}
+.cal-mini-cell.weekend{background:#f5f5f5}
+.cal-mini-cell.outside{background:#fafafa}
+.cal-mini-daynum{font-size:.55rem;color:#333}
+.cal-mini-dots{display:flex;gap:1px}
+.cal-mini-dot{width:4px;height:4px;border-radius:50%;display:inline-block}
+.cal-mini-dot-soft{background:var(--amber-border)}
+.cal-mini-dot-street{background:var(--sage-border)}
+.cal-mini-dot-print{background:var(--cal-print-border)}
+
 /* ── PRINT (Round 24, 2026-08-20) — new, this app had no print stylesheet
    before the Progress Report's Print button needed one. Scoped generically
    (hide chrome, show #main) rather than to the report view specifically, so
@@ -1202,6 +1284,32 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
   table.report-table tbody tr{break-inside:avoid}
   .rpt-item-title{color:#000;font-weight:700;text-decoration:none;cursor:default}
   .rpt-overdue,.rpt-warn{color:#000!important;font-weight:800}
+
+  /* Round 32 (2026-08-26) — Calendar print. Month view: same generic
+     #main-only pattern as everything else above, just with the toolbar
+     added to the hide-list and colours flattened to monochrome-safe
+     borders (this app's print rules elsewhere already avoid relying on
+     colour alone). "+N more" is meaningless on paper — always show the
+     full entry list instead and hide the toggle. Year Overview: hidden by
+     default (#cal-year-print is display:none on screen already); only
+     shown, with the interactive month grid hidden in its place, while
+     body.cal-printing-year is set by printCalendarYear() — see that
+     function for the accompanying A4-landscape @page swap. */
+  .cal-toolbar{display:none!important}
+  .cal-page-head{margin-bottom:10px}
+  .cal-legend{color:#000}
+  .cal-grid{background:#000;border:1px solid #000;box-shadow:none}
+  .cal-dow-head{background:#fff!important;color:#000!important;border-bottom:1px solid #000}
+  .cal-cell{background:#fff!important;min-height:90px;break-inside:avoid}
+  .cal-cell.weekend,.cal-cell.outside{background:#F2F2F2!important}
+  .cal-cell-daynum{color:#000}
+  .cal-more-btn{display:none!important}
+  .cal-cell-extra{display:flex!important}
+  body.cal-printing-year .cal-page-head,body.cal-printing-year .cal-grid{display:none!important}
+  #cal-year-print{display:none}
+  body.cal-printing-year #cal-year-print{display:block}
+  .cal-year-print-head{color:#000}
+  .cal-mini-dow{color:#000}
 }
 </style>
 </head>
@@ -1226,6 +1334,11 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
          openTodoistModal/copyTodoist removed from app.js). Same nav-tab
          pattern as Quick Notes/ISBN Manager. -->
     <button class="h-tab" id="tab-report" onclick="gotoReport()">Progress Report</button>
+    <!-- Round 32 (2026-08-26, David request) — in-app Calendar, same
+         nav-tab pattern as Quick Notes/ISBN Manager/Progress Report so it's
+         reachable from anywhere, not tucked inside a single title's Dates &
+         Scheduling section. -->
+    <button class="h-tab" id="tab-calendar" onclick="gotoCalendar()">Calendar</button>
   </nav>
   <!-- Round 20 (2026-08-19, David-approved mockup: _mockups/
        recently_viewed_nav_mockup_2026-08-19.html) — "Recently Viewed" nav
