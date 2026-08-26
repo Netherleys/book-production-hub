@@ -622,8 +622,21 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
 .links-strip-box{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);padding:16px;margin-bottom:16px}
 .links-strip-label{font-family:var(--serif);font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:10px}
 .folder-links-row{display:flex;gap:16px;flex-wrap:wrap}
-.folder-link-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:220px}
+/* Round 28 (2026-08-26) — min-width trimmed 220px->190px so the new fourth
+   group (Author Bookkeeping) sits comfortably 4-across at normal desktop
+   widths before wrapping; still wraps naturally under narrower widths via
+   plain flex-wrap, no separate media query needed (unchanged mechanism). */
+.folder-link-group{display:flex;flex-direction:column;gap:4px;flex:1;min-width:190px}
 .folder-link-group label.field-label{font-size:.72rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em}
+/* Round 28 — this section's button/input sized down specifically here
+   (scoped via the .links-strip-box ancestor rather than touching
+   .btn-export/.link-value-edit themselves, which are also used full-size
+   elsewhere — View HTML Output/View Word File share .btn-export and stay
+   unaffected). David's reasoning: these four fields are one-time fills per
+   book, glanced at rather than read on every visit to a title card, so they
+   don't need the same visual weight as those two export buttons. */
+.links-strip-box .btn-export{padding:6px 12px;font-size:.76rem}
+.links-strip-box .link-value-edit{font-size:.68rem;padding:2px 4px}
 /* Round 11, items 2b/2c (2026-08-11) — the raw bold full-width paths David
    flagged as "messy" (Team Inbox/Cover & Folder Links layout messy.png):
    Cover Image URL / Images Folder / Working Folder used to render as plain

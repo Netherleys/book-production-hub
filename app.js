@@ -770,7 +770,21 @@ function rowToTitle(row){
   // scheduled release date; conceptually a Dates & Scheduling field (see
   // t.dates.releaseNote below) even though, like printStatusOverride, it
   // physically lives in this JSON blob.
-  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',printStatusOverride:'',releaseNote:''}, safeJson(c.productionNotes_json, {}));
+  // Round 28 (2026-08-26), item 3 — authorBookkeepingLink (new "Author
+  // Bookkeeping" field in Cover & Folder Links) added the same no-new-
+  // column way: a key inside this same productionNotes_json blob. A real
+  // Sheet column (the imagesFolderLink/workingFolderLink pattern) was tried
+  // first but the live "Book Production Titles" Sheet edit needed to add it
+  // got blocked by the session's own permission guard mid-task (adding a
+  // header cell to the live production schema reads as a real, confirmable
+  // write) — flagged rather than forced through. This JSON-blob route sidesteps
+  // that entirely (no Sheet schema touch at all, same mechanism already
+  // proven safe by releaseNote/pagesBreakdown above) and is functionally
+  // identical from the UI's perspective — conceptually a Cover & Folder
+  // Links field (see t.authorBookkeepingLink below) even though, like
+  // releaseNote, it physically lives in this blob rather than its own
+  // column.
+  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',printStatusOverride:'',releaseNote:'',authorBookkeepingLink:''}, safeJson(c.productionNotes_json, {}));
   let illustrationsText = pn.illustrationsText;
   if(!illustrationsText && pn.illustrations && pn.illustrationCount) illustrationsText = String(pn.illustrationCount)+' illustrations';
   let checklist = pn.checklist && pn.checklist.length ? pn.checklist.map(x=>({text:x.item||x.text||'',checked:!!x.checked})) : PROD_CHECKLIST.map(t=>({text:t,checked:false}));
@@ -836,6 +850,7 @@ function rowToTitle(row){
     quickNotes,
     poManualNotes: pn.poManualNotes||'',
     imagesFolderLink: c.imagesFolderLink||'', workingFolderLink: c.workingFolderLink||'', coverThumbnailFile: c.coverThumbnailFile||'',
+    authorBookkeepingLink: pn.authorBookkeepingLink||'',
     poTrackerIsbnKey: c.poTrackerIsbnKey||'', poTrackerTitleOverride: c.poTrackerTitleOverride||''
   };
 }
@@ -861,7 +876,7 @@ function titleToRow(t){
     futureEditionNotes: t.futureEdition.infoAndChanges||'', printReadyFiles: t.futureEdition.printReadyFilesStatus||'Not Ready',
     illustrationsText: t.commercial.illustrationsText||'', poManualNotes: t.poManualNotes||'',
     pagesBreakdown: t.commercial.pagesBreakdown||'', printStatusOverride: t.dates.printStatusOverride||'',
-    releaseNote: t.dates.releaseNote||''
+    releaseNote: t.dates.releaseNote||'', authorBookkeepingLink: t.authorBookkeepingLink||''
   });
   const printerContacts_json = JSON.stringify({ contacts: t.print.printerContacts||[] });
   const filesLinks_json = JSON.stringify({ links: t.filesLinks.links||[] });
@@ -941,7 +956,7 @@ function defTitle(o={}){
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
     quickNotes:[], poManualNotes:'',
-    imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:DEFAULT_COVER_PLACEHOLDER, poTrackerIsbnKey:'', poTrackerTitleOverride:'',
+    imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:DEFAULT_COVER_PLACEHOLDER, authorBookkeepingLink:'', poTrackerIsbnKey:'', poTrackerTitleOverride:'',
     _row: null
   };
   return Object.assign({}, base, o);
@@ -1998,18 +2013,58 @@ function renderDetail(){
 // repo's live /covers/ folder page on github.com (build it the same way
 // coverGithubUrl() builds a per-file blob link, just pointed at the folder
 // itself via /tree/<branch>/covers rather than a specific file).
+// Round 28 (2026-08-26), David request — three changes to this strip:
+// (1) Images Folder / Working Folder each gain a root-level quick-access
+// link (below the per-title input, same field-help slot pattern the Cover
+// Image URL field already uses for its /covers/ link) — David's own
+// reasoning: he wants a one-click way to get to the ROOT folder so he can
+// find the right per-book subfolder and copy ITS link back into the field
+// above, not a link to a specific book. Images Folder root points at the
+// real OneDrive web URL for the root images folder (confirmed live via
+// browser 2026-08-26 — see IMAGES_FOLDER_ROOT_URL below); Working Folder
+// root reuses the exact same local reveal-helper mechanism
+// revealWorkingFolder() already uses (book_reveal_helper.py on :8744), just
+// against the fixed WORKING_FOLDER_ROOT path instead of a per-title one —
+// see revealWorkingFolderRoot() below.
+// (2) New fourth field, Author Bookkeeping (Google Drive) — same button +
+// editable input + lock-toggle pattern as Images Folder/Working Folder,
+// left blank per-title by default, no root-link (nothing to browse to by
+// default, unlike the other two — it's one Sheet/Drive link per author,
+// pasted in by hand same as the others originally were before root links
+// existed). Data-wise this is a NEW persisted field — added as a new key
+// inside the existing productionNotes_json blob (see pn.authorBookkeepingLink
+// in rowToTitle() above and titleToRow() below), NOT a new raw Sheet column:
+// adding a real column (the imagesFolderLink/workingFolderLink pattern) was
+// tried first directly against the live "Book Production Titles" Sheet but
+// got blocked by the session's own permission guard on committing the header
+// cell — a live production-schema write needs a real confirm, so it was
+// flagged rather than forced through. The JSON-blob route needs no Sheet
+// edit at all and is the same mechanism already proven safe by
+// releaseNote/pagesBreakdown in earlier rounds.
+// (3) All four groups' button + input sized down specifically for this box
+// (see .links-strip-box .btn-export / .links-strip-box .link-value-edit in
+// index.html) — David's reasoning: these are one-time fills per book, just
+// glanced at on a title card, not something that needs the same visual
+// weight as View HTML Output/View Word File below (which share the base
+// .btn-export class and stay full-size — scoped via the .links-strip-box
+// ancestor selector rather than shrinking .btn-export itself so nothing
+// else using that class anywhere in the app is affected).
+const IMAGES_FOLDER_ROOT_URL='https://onedrive.live.com/my?id=%2Fpersonal%2F57fd0e54449e2748%2FDocuments%2F%5FIMAGES%20%26%20COVERS%20%26%20LOGOS';
 function renderLinksStrip(t){
   const id=t.id;
   const imgSet=!!(t.imagesFolderLink&&t.imagesFolderLink.trim());
   const wfSet=!!(t.workingFolderLink&&t.workingFolderLink.trim());
   const coverSet=!!(t.coverThumbnailFile&&t.coverThumbnailFile.trim());
+  const abSet=!!(t.authorBookkeepingLink&&t.authorBookkeepingLink.trim());
   // Round 22, item 1 — lock state for all three fields, computed per-render
   // (see linkLockRow(): defaults to locked once a value exists, unlocked
   // while genuinely empty). Round 22, item 2 — real github.com link for the
   // cover, built from whatever's actually in coverThumbnailFile right now.
+  // Round 28 — same lock treatment extended to the new Author Bookkeeping field.
   const coverLocked=linkLockRow(id,'coverThumbnailFile',coverSet);
   const imgLocked=linkLockRow(id,'imagesFolderLink',imgSet);
   const wfLocked=linkLockRow(id,'workingFolderLink',wfSet);
+  const abLocked=linkLockRow(id,'authorBookkeepingLink',abSet);
   const ghUrl=coverGithubUrl(t.coverThumbnailFile);
   const coversFolderUrl=`https://github.com/${GITHUB_REPO}/tree/${GITHUB_REPO_BRANCH}/covers`;
   const lockBtn=(field,locked)=>`<button class="lock-btn ${locked?'locked':'unlocked'}" title="${locked?'Locked — click to unlock and edit':'Unlocked — click to lock again'}" onclick="toggleLinkLock('${id}','${field}')">${locked?'&#128274;':'&#128275;'}</button>`;
@@ -2037,6 +2092,7 @@ function renderLinksStrip(t){
           <input type="url" class="link-value-edit" id="f-${id}-imagesFolderLink" value="${esc(t.imagesFolderLink)}" ${imgLocked?'readonly':''} placeholder="Not set — paste a OneDrive folder link" oninput="fc('${id}','imagesFolderLink',this.value)">
           ${lockBtn('imagesFolderLink',imgLocked)}
         </div>
+        <div class="field-help">Browse the root folder to find this title's subfolder: <a href="${IMAGES_FOLDER_ROOT_URL}" target="_blank" rel="noopener">Images Folder root &#8599;</a></div>
       </div>
       <div class="folder-link-group">
         <label class="field-label">Working Folder (local)</label>
@@ -2046,6 +2102,17 @@ function renderLinksStrip(t){
         <div class="link-lock-row">
           <input type="text" class="link-value-edit" id="f-${id}-workingFolderLink" value="${esc(t.workingFolderLink)}" ${wfLocked?'readonly':''} placeholder="Not set — paste D:\\PROJECTS - BOOKS\\Book_…" oninput="fc('${id}','workingFolderLink',this.value)">
           ${lockBtn('workingFolderLink',wfLocked)}
+        </div>
+        <div class="field-help">Browse the root folder to find this title's subfolder: <a href="#" onclick="revealWorkingFolderRoot();return false;">Working Folder root &#128269;</a></div>
+      </div>
+      <div class="folder-link-group">
+        <label class="field-label">Author Bookkeeping (Google Drive)</label>
+        <div class="link-action-row">
+          <button class="btn btn-export ${abSet?'':'is-empty'}" type="button" onclick="openAuthorBookkeeping('${id}')">${abSet?'Open Bookkeeping Link':'No Bookkeeping Link Set'} &#8599;</button>
+        </div>
+        <div class="link-lock-row">
+          <input type="url" class="link-value-edit" id="f-${id}-authorBookkeepingLink" value="${esc(t.authorBookkeepingLink)}" ${abLocked?'readonly':''} placeholder="Not set — paste a Google Drive link" oninput="fc('${id}','authorBookkeepingLink',this.value)">
+          ${lockBtn('authorBookkeepingLink',abLocked)}
         </div>
       </div>
     </div>
@@ -2127,6 +2194,12 @@ function onCoverUrlChange(titleId,value){
 function openImagesFolder(titleId){
   const t=getTitle(titleId);if(!t||!t.imagesFolderLink){alert('No images folder link set for this title yet.');return;}
   window.open(t.imagesFolderLink,'_blank','noopener');
+}
+// Round 28 (2026-08-26) — same shape as openImagesFolder() above, just for
+// the new Author Bookkeeping (Google Drive) field.
+function openAuthorBookkeeping(titleId){
+  const t=getTitle(titleId);if(!t||!t.authorBookkeepingLink){alert('No author bookkeeping link set for this title yet.');return;}
+  window.open(t.authorBookkeepingLink,'_blank','noopener');
 }
 // Round 22, item 2 — David's own words: "a plain URL to the github page in
 // question would be 100 times better" than what the Cover Image URL field
@@ -2219,6 +2292,43 @@ async function revealWorkingFolder(titleId){
     }catch(e2){ reason='Reveal helper responded with an error (status '+resp.status+').'; }
   }
   alert(reason+'\n\nPath copied to clipboard:\n'+path);
+}
+// Round 28 (2026-08-26), item 2 — root-folder quick-access companion to
+// revealWorkingFolder() above: same helper, same 127.0.0.1:8744/reveal
+// endpoint and same fetch/timeout/fallback shape, just always the fixed
+// WORKING_FOLDER_ROOT path instead of a per-title one, so David can browse
+// straight to D:\PROJECTS - BOOKS and find a book's actual subfolder to
+// paste back into the field above — mirrors the Images Folder root link and
+// the existing Cover Image URL /covers/ link. book_reveal_helper.py's own
+// WORKING_FOLDER_ROOT allow-list (see that file) explicitly accepts the
+// root path itself, not just subfolders under it, so this needs no helper-
+// side change. Deliberately not reusing revealWorkingFolder(titleId)
+// directly — that alerts+bails when no per-title path is set, which is the
+// wrong message for this always-available root action.
+const WORKING_FOLDER_ROOT='D:\\PROJECTS - BOOKS';
+async function revealWorkingFolderRoot(){
+  const path=WORKING_FOLDER_ROOT;
+  const helperUrl=(CFG.BOOK_REVEAL_HELPER_URL||'http://127.0.0.1:8744')+'/reveal';
+  let resp=null;
+  try{
+    const controller=new AbortController();
+    const timer=setTimeout(()=>controller.abort(),1200);
+    resp=await fetch(helperUrl+'?path='+encodeURIComponent(path),{signal:controller.signal});
+    clearTimeout(timer);
+    if(resp.ok)return; // Explorer opened by the helper — done.
+    console.warn('Reveal helper responded but not OK (status '+resp.status+').');
+  }catch(e){
+    console.warn('Reveal helper not reachable (is book_reveal_helper.py running?):',e);
+  }
+  try{ await navigator.clipboard.writeText(path); }catch(e){}
+  let reason='Could not reach the local reveal helper (is book_reveal_helper.py running on port 8744? — it should now auto-start at Windows logon; if it still isn\'t, double-click start_book_reveal_helper.bat in the Book Production Hub folder).';
+  if(resp){
+    try{
+      const body=await resp.json();
+      if(body&&body.error) reason='Reveal helper reached, but refused: '+body.error;
+    }catch(e2){ reason='Reveal helper responded with an error (status '+resp.status+').'; }
+  }
+  alert('Couldn\'t open the root working folder automatically.\n\n'+reason+'\n\nPath copied to clipboard:\n'+path);
 }
 
 // Item 12 (Round 2) — new standalone "Key Contacts" block, sitting directly
