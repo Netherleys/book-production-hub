@@ -34,5 +34,19 @@ window.BOOK_HUB_CONFIG = {
   // already has permission to. Deliberately NOT the broad 'drive' scope —
   // this app never needs to browse/list the user's whole Drive, only
   // read/write two specific Sheets it already knows the IDs of.
-  GOOGLE_OAUTH_SCOPE: "https://www.googleapis.com/auth/spreadsheets",
+  //
+  // Round 33 (2026-08-26, Marcus Webb) — added calendar.events for the new
+  // one-way Google Calendar push (see gcal-sync.js). calendar.events grants
+  // create/update/delete on events across any calendar the signed-in user
+  // can access — the narrowest scope Google offers for this; there is no
+  // scope limited to a single specific calendar ID. Access to WHICH
+  // calendar is still narrowed in practice by this app only ever writing to
+  // one hardcoded calendar ID (see GCAL_CALENDAR_ID in gcal-sync.js), same
+  // "scope is broad, but this app's own code only ever touches the specific
+  // IDs it knows about" model already used for the Sheets scope above.
+  // GIS requests all scopes in this one space-separated string together as
+  // a single consent — anyone already signed in under the old (Sheets-only)
+  // scope will see a fresh consent prompt next time they sign in, since GIS
+  // cannot silently widen an existing token's scope.
+  GOOGLE_OAUTH_SCOPE: "https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/calendar.events",
 };

@@ -4821,7 +4821,9 @@ function calendarEntriesForMonth(year, month){
   return out;
 }
 const CAL_TYPE_LABEL = {soft:'Soft', street:'Street', print:'Print'};
-const CAL_TYPE_TAG = {soft:'So', street:'St', print:'Pr'};
+// Round 33 (2026-08-26, David feedback) — spelled out in full (was So/St/Pr);
+// the abbreviations read as unclear at a glance.
+const CAL_TYPE_TAG = {soft:'SOFT', street:'STREET', print:'PRINT'};
 function calEntryHtml(e){
   return `<button type="button" class="cal-entry cal-entry-${e.type}" onclick="gotoDetail('${esc(e.titleId)}')" title="${esc(CAL_TYPE_LABEL[e.type])} Date — ${esc(e.title)}"><span class="cal-entry-tag">${CAL_TYPE_TAG[e.type]}</span><span class="cal-entry-title">${esc(e.title)}</span></button>`;
 }
@@ -4871,8 +4873,10 @@ function renderCalendar(){
       <div class="cal-toolbar-right">
         <button type="button" class="btn btn-sm" onclick="printCalendarMonth()">Print Month</button>
         <button type="button" class="btn btn-sm" onclick="printCalendarYear()">Print Year Overview</button>
+        <button type="button" class="btn btn-primary btn-sm" id="gcal-sync-btn" onclick="onGcalSyncClick()">Sync to Google Calendar</button>
       </div>
     </div>
+    <div class="cal-sync-status" id="gcal-sync-status">${esc(typeof gcalLastSyncLabel==='function'?gcalLastSyncLabel():'')}</div>
     <div class="cal-grid">${head}${cells}</div>
     <div id="cal-year-print"></div>`;
 }
@@ -4881,12 +4885,25 @@ function printCalendarMonth(){ window.print(); }
 // ── Year print — optional/nice-to-have per spec. David flagged the
 // legibility risk himself: a true 12-up month grid with real title text
 // does not fit readably on one A4 sheet, so this is deliberately scoped
-// down rather than shipped illegible — dot-only mini months (colour-coded
-// by date type, no title text) plus a legend, which IS genuinely readable
-// at this size. For actual title names, David uses Print Month or the
-// Progress Report. Landscape A4 (set via a temp injected <style>, restored
-// after printing) — noticeably more usable width than portrait for a 4x3
-// grid of mini months. ──
+// down rather than shipped illegible — dot-only mini months (colour AND
+// shape-coded by date type, no title text) plus a legend, which IS
+// genuinely readable at this size. For actual title names, David uses
+// Print Month or the Progress Report. Landscape A4 (set via a temp
+// injected <style>, restored after printing).
+//
+// Round 33 (2026-08-26, David feedback), two fixes:
+// 1) B&W bug — David's real printer is monochrome, and colour-only dots
+//    are indistinguishable on it, which broke the whole point of the year
+//    view. Each dot now also carries a distinct SHAPE (circle=Soft,
+//    square=Street, triangle=Print — see .cal-mini-dot-* in index.html),
+//    so the type still reads from silhouette alone with zero dependency
+//    on colour. calYearLegendHtml() below renders a matching shaped
+//    legend for this print-only view (separate from calLegendHtml(),
+//    which stays colour-chip-only — that's fine, it's screen-only where
+//    colour is always present).
+// 2) Layout — was one 4x3 grid of all 12 months on a single sheet; now
+//    split across 2 pages (Jan–Jun / Jul–Dec, 3x2 each, .cal-year-page
+//    break-after:page) so each mini-month gets meaningfully more room. ──
 function calMiniMonthHtml(year, month, monthEntries){
   const byDay={};
   monthEntries.forEach(e=>{ (byDay[e.day]=byDay[e.day]||new Set()).add(e.type); });
@@ -4901,6 +4918,21 @@ function calMiniMonthHtml(year, month, monthEntries){
   const monthName = new Date(year,month,1).toLocaleDateString('en-GB',{month:'long'});
   return `<div class="cal-mini-month"><div class="cal-mini-title">${esc(monthName)}</div><div class="cal-mini-grid">${head}${cellsHtml}</div></div>`;
 }
+// Shaped legend for the year-print view — circle/square/triangle so the
+// legend itself still reads correctly if photocopied/printed in B&W.
+function calYearLegendHtml(){
+  return `<div class="cal-year-legend">
+    <span class="cal-year-legend-item"><span class="cal-year-legend-swatch soft"></span>Soft Date (circle)</span>
+    <span class="cal-year-legend-item"><span class="cal-year-legend-swatch street"></span>Street Date (square)</span>
+    <span class="cal-year-legend-item"><span class="cal-year-legend-swatch print"></span>Print Date (triangle)</span>
+  </div>`;
+}
+function calYearPageHtml(year, monthsHtml, rangeLabel){
+  return `<div class="cal-year-page">
+    <div class="cal-year-print-head"><h2>${year} — Year Overview (${rangeLabel})</h2>${calYearLegendHtml()}
+    <p class="cal-year-print-note">Shape + colour = date type (see legend above — shapes hold up on a black &amp; white printer, colour is a bonus on a colour one). For titles, use the monthly Calendar print or the Progress Report.</p></div>
+    <div class="cal-year-grid">${monthsHtml}</div></div>`;
+}
 function calYearPrintHtml(year){
   const byMonth = Array.from({length:12},()=>[]);
   data.titles.forEach(t=>{
@@ -4908,10 +4940,10 @@ function calYearPrintHtml(year){
       if(e.dt.getFullYear()===year) byMonth[e.dt.getMonth()].push({day:e.dt.getDate(), type:e.type});
     });
   });
-  const months = byMonth.map((entries,i)=>calMiniMonthHtml(year,i,entries)).join('');
-  return `<div class="cal-year-print-head"><h2>${year} — Year Overview</h2>${calLegendHtml()}
-    <p class="cal-year-print-note">Dot = a title has that date this day. For titles, use the monthly Calendar print or the Progress Report.</p></div>
-    <div class="cal-year-grid">${months}</div>`;
+  const monthHtmls = byMonth.map((entries,i)=>calMiniMonthHtml(year,i,entries));
+  const page1 = calYearPageHtml(year, monthHtmls.slice(0,6).join(''), 'Jan–Jun');
+  const page2 = calYearPageHtml(year, monthHtmls.slice(6,12).join(''), 'Jul–Dec');
+  return page1 + page2;
 }
 function printCalendarYear(){
   const container=document.getElementById('cal-year-print');

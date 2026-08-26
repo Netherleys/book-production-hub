@@ -1207,6 +1207,11 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
 .cal-nav{display:flex;align-items:center;gap:8px}
 .cal-month-label{font-family:var(--serif);font-size:1.05rem;font-weight:600;color:var(--text-oncream);min-width:150px;text-align:center}
 .cal-toolbar-right{display:flex;gap:8px}
+/* Round 33 (2026-08-26, Marcus Webb) — Google Calendar push. Manual button
+   lives in the existing .cal-toolbar-right group; this status line sits
+   just under the toolbar and shows the last sync result (local-only nav
+   aid — see gcalLastSyncLabel() in gcal-sync.js, never synced anywhere). */
+.cal-sync-status{font-size:.75rem;color:var(--text-oncream-dim);text-align:right;margin:-8px 0 10px}
 .cal-grid{display:grid;grid-template-columns:repeat(7,1fr);background:var(--card-border);border:1px solid var(--card-border);border-radius:var(--r8);overflow:hidden;box-shadow:var(--shadow-sm);gap:1px}
 .cal-dow-head{background:var(--bg-page2);color:var(--text-oncream-dim);font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;text-align:center;padding:8px 4px}
 .cal-dow-head.weekend{color:var(--text-oncream-dim);opacity:.6}
@@ -1218,12 +1223,23 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
 .cal-cell-daynum{font-size:.78rem;font-weight:700;color:var(--text2)}
 .cal-cell.outside .cal-cell-daynum{font-weight:400;color:var(--text3)}
 .cal-cell-entries{display:flex;flex-direction:column;gap:3px}
-.cal-entry{display:flex;align-items:center;gap:5px;width:100%;text-align:left;border:none;border-radius:4px;padding:2px 5px;font:inherit;font-family:var(--sans);font-size:.72rem;cursor:pointer;overflow:hidden}
-.cal-entry-title{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.cal-entry-tag{flex-shrink:0;font-size:.62rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase}
-.cal-entry-soft{background:var(--amber-bg);color:var(--amber-border)}
-.cal-entry-street{background:var(--sage-bg);color:var(--sage-border)}
-.cal-entry-print{background:var(--cal-print-bg);color:var(--cal-print-border)}
+/* Round 33 (2026-08-26, David feedback) — entry TEXT is always dark/black
+   now (readability complaint); the colour-coding itself is kept via a
+   tinted background + left-border accent + a solid-fill coloured tag chip
+   (the tag is a short label/badge, not body text, so it can carry the
+   colour — see calCellEntriesHtml()/CAL_TYPE_TAG in app.js for the SOFT/
+   STREET/PRINT full-word labels replacing the old So/St/Pr abbreviations).
+   Title text also now wraps (word-break) instead of truncating with an
+   ellipsis — David asked entries not to cut off mid-title. */
+.cal-entry{display:flex;align-items:flex-start;gap:5px;width:100%;text-align:left;border:none;border-left:3px solid transparent;border-radius:4px;padding:2px 5px;font:inherit;font-family:var(--sans);font-size:.72rem;cursor:pointer;color:var(--text)}
+.cal-entry-title{white-space:normal;overflow-wrap:break-word;word-break:break-word}
+.cal-entry-tag{flex-shrink:0;font-size:.6rem;font-weight:800;letter-spacing:.02em;text-transform:uppercase;color:#fff;border-radius:3px;padding:1px 5px;line-height:1.5;margin-top:1px}
+.cal-entry-soft{background:var(--amber-bg);border-left-color:var(--amber-border)}
+.cal-entry-soft .cal-entry-tag{background:var(--amber-border)}
+.cal-entry-street{background:var(--sage-bg);border-left-color:var(--sage-border)}
+.cal-entry-street .cal-entry-tag{background:var(--sage-border)}
+.cal-entry-print{background:var(--cal-print-bg);border-left-color:var(--cal-print-border)}
+.cal-entry-print .cal-entry-tag{background:var(--cal-print-border)}
 .cal-entry:hover{filter:brightness(0.96)}
 .cal-legend-swatch.cal-entry-soft{background:var(--amber-border)}
 .cal-legend-swatch.cal-entry-street{background:var(--sage-border)}
@@ -1239,28 +1255,52 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
 /* ── CALENDAR — YEAR OVERVIEW (print-only) ──
    David flagged this himself as a legibility risk (12 full months of title
    text on one A4 sheet). Scoped-down honestly: dot-only mini months
-   (colour-coded by date type, no title text) — genuinely readable at this
+   (colour AND shape-coded, no title text) — genuinely readable at this
    size — rather than a technically-present-but-squinty full grid. Never
    shown on screen (#cal-year-print above is display:none); only appears in
    print, and only while body.cal-printing-year is set (see
-   printCalendarYear() in app.js). */
+   printCalendarYear() in app.js).
+
+   Round 33 (2026-08-26, David feedback) — two structural fixes:
+   1) B&W bug: David's real printer is monochrome. A dot-only, colour-only
+      legend collapses to identical grey blobs on true B&W output, which
+      defeats the entire point of the year view. Each date-type now gets a
+      distinct SHAPE as well as a colour — circle=Soft, square=Street,
+      triangle=Print (clip-path) — so the type is still readable purely
+      from silhouette with zero reliance on colour. calYearLegendHtml() in
+      app.js renders a matching shaped legend (not the plain colour-chip
+      legend used on the in-app screen view, which is fine to stay
+      colour-only since screen always has colour).
+   2) Layout: split across 2 pages (6 months each, cal-year-page /
+      break-after:page) instead of cramming 12 into one 4x3 grid — each
+      mini-month gets a 3-column x 2-row slot per page, meaningfully more
+      room than the old 4x3-on-one-sheet layout, so cell/day-number/dot
+      sizes are bumped up accordingly. */
 .cal-year-print-head h2{font-family:var(--serif);font-weight:600;font-size:1.2rem;margin-bottom:8px}
 .cal-year-print-note{font-size:.78rem;color:#444;margin:6px 0 14px}
-.cal-year-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.cal-year-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;color:#000;margin-bottom:6px}
+.cal-year-legend-item{display:flex;align-items:center;gap:6px}
+.cal-year-legend-swatch{display:inline-block;width:11px;height:11px}
+.cal-year-legend-swatch.soft{background:var(--amber-border);border-radius:50%}
+.cal-year-legend-swatch.street{background:var(--sage-border);border-radius:0}
+.cal-year-legend-swatch.print{background:var(--cal-print-border);width:13px;height:13px;clip-path:polygon(50% 0%,0% 100%,100% 100%)}
+.cal-year-page{break-after:page;page-break-after:always}
+.cal-year-page:last-child{break-after:auto;page-break-after:auto}
+.cal-year-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px}
 .cal-mini-month{break-inside:avoid}
-.cal-mini-title{font-family:var(--serif);font-weight:700;font-size:.82rem;margin-bottom:3px;text-align:center}
+.cal-mini-title{font-family:var(--serif);font-weight:700;font-size:1rem;margin-bottom:4px;text-align:center}
 .cal-mini-grid{display:grid;grid-template-columns:repeat(7,1fr);border:1px solid #999;gap:1px;background:#999}
-.cal-mini-dow{background:#eee;font-size:.55rem;font-weight:700;text-align:center;padding:2px 0}
+.cal-mini-dow{background:#eee;font-size:.62rem;font-weight:700;text-align:center;padding:3px 0}
 .cal-mini-dow.weekend{background:#e2e2e2}
-.cal-mini-cell{background:#fff;min-height:20px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:1px 0;gap:1px}
+.cal-mini-cell{background:#fff;min-height:30px;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:2px 0;gap:2px}
 .cal-mini-cell.weekend{background:#f5f5f5}
 .cal-mini-cell.outside{background:#fafafa}
-.cal-mini-daynum{font-size:.55rem;color:#333}
-.cal-mini-dots{display:flex;gap:1px}
-.cal-mini-dot{width:4px;height:4px;border-radius:50%;display:inline-block}
-.cal-mini-dot-soft{background:var(--amber-border)}
-.cal-mini-dot-street{background:var(--sage-border)}
-.cal-mini-dot-print{background:var(--cal-print-border)}
+.cal-mini-daynum{font-size:.68rem;color:#333}
+.cal-mini-dots{display:flex;gap:2px;align-items:center}
+.cal-mini-dot{width:6px;height:6px;display:inline-block}
+.cal-mini-dot-soft{background:var(--amber-border);border-radius:50%}
+.cal-mini-dot-street{background:var(--sage-border);border-radius:0}
+.cal-mini-dot-print{background:var(--cal-print-border);width:7px;height:7px;clip-path:polygon(50% 0%,0% 100%,100% 100%)}
 
 /* ── PRINT (Round 24, 2026-08-20) — new, this app had no print stylesheet
    before the Progress Report's Print button needed one. Scoped generically
@@ -1294,14 +1334,32 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
      default (#cal-year-print is display:none on screen already); only
      shown, with the interactive month grid hidden in its place, while
      body.cal-printing-year is set by printCalendarYear() — see that
-     function for the accompanying A4-landscape @page swap. */
-  .cal-toolbar{display:none!important}
+     function for the accompanying A4-landscape @page swap.
+
+     Round 33 (2026-08-26, David feedback) — grid lines fix: the old
+     approach drew lines by putting a dark background behind a 1px grid
+     `gap` and letting white cells show through it. That only renders if
+     the browser/printer's "print background graphics" option is on —
+     which is exactly the kind of thing that silently strips out on a real
+     print run (matches David's report of the lines going missing). Every
+     other print rule in this app already avoids that trap by using real
+     `border` (borders always print, unlike background fills) — so the
+     grid now does the same: gap:0, and explicit soft-grey borders on each
+     cell/heading instead. print-color-adjust:exact is also set so the
+     entry colour-coding (swatch backgrounds + tag chips, item 1) still
+     prints in colour on a colour printer, without that being load-bearing
+     for anything (grid lines, and the year-view shapes below, work with
+     or without it). */
+  .cal-toolbar,.cal-sync-status{display:none!important}
   .cal-page-head{margin-bottom:10px}
   .cal-legend{color:#000}
-  .cal-grid{background:#000;border:1px solid #000;box-shadow:none}
-  .cal-dow-head{background:#fff!important;color:#000!important;border-bottom:1px solid #000}
-  .cal-cell{background:#fff!important;min-height:90px;break-inside:avoid}
-  .cal-cell.weekend,.cal-cell.outside{background:#F2F2F2!important}
+  .cal-grid,.cal-entry,.cal-entry-tag,.cal-mini-dot{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  .cal-grid{background:#fff!important;border:1px solid #bbb;box-shadow:none;gap:0}
+  .cal-dow-head{background:#fff!important;color:#000!important;border-bottom:1px solid #bbb;border-right:1px solid #bbb}
+  .cal-dow-head:nth-child(7n){border-right:none}
+  .cal-cell{background:#fff!important;min-height:90px;break-inside:avoid;border-right:1px solid #bbb;border-bottom:1px solid #bbb}
+  .cal-cell:nth-child(7n){border-right:none}
+  .cal-cell.weekend,.cal-cell.outside{background:#F7F7F7!important}
   .cal-cell-daynum{color:#000}
   .cal-more-btn{display:none!important}
   .cal-cell-extra{display:flex!important}
@@ -1598,5 +1656,6 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
 <script src="app.js"></script>
+<script src="gcal-sync.js"></script>
 </body>
 </html>
