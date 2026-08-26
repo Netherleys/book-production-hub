@@ -456,9 +456,18 @@ function onContactSelect(titleId,path,selectEl){
 // same as any other title with no blockId — nothing crashes or
 // misrepresents data, but David/whoever owns this needs to actually pick
 // the right block per title rather than have this code guess for them.
+// Round 31 (2026-08-26) — BUG FIX (David report): this used to sort by raw
+// sortOrder ascending, i.e. OLDEST first — the one place in the app that
+// never got Round 21's newest-first ordering (see blockSortKey/
+// sortBlocksNewestFirst above, and populateBlockFilter/renderManageBlocksList
+// which both already used it). That's exactly why the per-title Release
+// Block dropdown in Dates & Scheduling has been listing blocks in a
+// different order than the Dashboard's Block filter and the Manage Release
+// Blocks modal — three views of the same underlying data.blocks that must
+// always agree, now all routed through the one shared comparator so they
+// can't drift apart again.
 function getReleaseBlocks(){
-  return (data.blocks||[]).slice()
-    .sort((a,b)=>(a.sortOrder||0)-(b.sortOrder||0))
+  return sortBlocksNewestFirst(data.blocks||[])
     .map(b=>({value:b.block_id, label:b.block_name}));
 }
 function slugifyBlockName(name){
@@ -673,20 +682,38 @@ async function sheetsAppend(spreadsheetId, sheetName, rowValues){
 // addresses sheets by their numeric gid, not name, so that has to be
 // resolved first.
 const _sheetGidCache = {};
+// Round 31 (2026-08-26) — BUG FIX (David report: deleting the "2027" release
+// block threw an error advising him to reconnect). Root cause traced here,
+// NOT a real token-expiry/GIS timing issue: `headers: authHeaders()` was
+// missing its `await` — authHeaders() is async, so this was handing fetch()
+// a bare, still-pending Promise object as the headers value instead of the
+// resolved `{Authorization: 'Bearer …'}` object. Object.assign/fetch see no
+// enumerable Authorization property on a Promise, so the request went out
+// with NO auth header at all, every single time — guaranteed 401 regardless
+// of whether the actual token was fresh or stale. Every other Sheets helper
+// (sheetsGet/Put/Append above) already did `await authHeaders()` correctly;
+// this row-delete path (added later, Round 9) was the one place that didn't.
+// Also now wrapped in withAuthRetry + throws AuthExpiredError on a genuine
+// 401, same pattern as sheetsGet/Put/Append, so a REAL expired-token case
+// gets the same one-shot silent-reconnect-and-retry those already get,
+// instead of surfacing the reconnect banner on the very first attempt.
 async function getSheetGid(spreadsheetId, sheetName){
   const key = spreadsheetId+'::'+sheetName;
   if(_sheetGidCache[key] !== undefined) return _sheetGidCache[key];
-  const url = SHEETS_API+spreadsheetId+'?fields='+encodeURIComponent('sheets.properties(sheetId,title)');
-  const resp = await fetch(url, { headers: authHeaders() });
-  if(!resp.ok){
-    const body = await resp.text().catch(()=>'');
-    throw new Error('Sheets metadata GET '+resp.status+': '+body.slice(0,300));
-  }
-  const j = await resp.json();
-  const sheet = (j.sheets||[]).find(s=>s.properties && s.properties.title===sheetName);
-  if(!sheet) throw new Error('Could not find a "'+sheetName+'" tab in the spreadsheet.');
-  _sheetGidCache[key] = sheet.properties.sheetId;
-  return sheet.properties.sheetId;
+  return withAuthRetry(async ()=>{
+    const url = SHEETS_API+spreadsheetId+'?fields='+encodeURIComponent('sheets.properties(sheetId,title)');
+    const resp = await fetch(url, { headers: await authHeaders() });
+    if(resp.status===401) throw new AuthExpiredError('Sheets metadata GET 401 on '+sheetName);
+    if(!resp.ok){
+      const body = await resp.text().catch(()=>'');
+      throw new Error('Sheets metadata GET '+resp.status+': '+body.slice(0,300));
+    }
+    const j = await resp.json();
+    const sheet = (j.sheets||[]).find(s=>s.properties && s.properties.title===sheetName);
+    if(!sheet) throw new Error('Could not find a "'+sheetName+'" tab in the spreadsheet.');
+    _sheetGidCache[key] = sheet.properties.sheetId;
+    return sheet.properties.sheetId;
+  });
 }
 // Physically removes ONE row via batchUpdate/deleteDimension — a real
 // Sheets-side delete, not a client-side splice that reappears on reload and
@@ -705,18 +732,23 @@ async function getSheetGid(spreadsheetId, sheetName){
 // titles' next save silently writing to the wrong (shifted) row.
 async function sheetsDeleteRow(spreadsheetId, sheetName, rowNumber1Based){
   const sheetId = await getSheetGid(spreadsheetId, sheetName);
-  const url = SHEETS_API+spreadsheetId+':batchUpdate';
-  const body = { requests: [{ deleteDimension: { range: {
-    sheetId, dimension: 'ROWS',
-    startIndex: rowNumber1Based-1, // 0-indexed, inclusive
-    endIndex: rowNumber1Based      // exclusive — removes exactly this one row
-  } } }] };
-  const resp = await fetch(url, { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, authHeaders()), body: JSON.stringify(body) });
-  if(!resp.ok){
-    const errBody = await resp.text().catch(()=>'');
-    throw new Error('Sheets batchUpdate (delete row) '+resp.status+': '+errBody.slice(0,300));
-  }
-  return resp.json();
+  // Same missing-`await authHeaders()` bug as getSheetGid above, fixed the
+  // same way — see that function's comment for the full root-cause trace.
+  return withAuthRetry(async ()=>{
+    const url = SHEETS_API+spreadsheetId+':batchUpdate';
+    const body = { requests: [{ deleteDimension: { range: {
+      sheetId, dimension: 'ROWS',
+      startIndex: rowNumber1Based-1, // 0-indexed, inclusive
+      endIndex: rowNumber1Based      // exclusive — removes exactly this one row
+    } } }] };
+    const resp = await fetch(url, { method:'POST', headers: Object.assign({'Content-Type':'application/json'}, await authHeaders()), body: JSON.stringify(body) });
+    if(resp.status===401) throw new AuthExpiredError('Sheets batchUpdate (delete row) 401 on '+sheetName);
+    if(!resp.ok){
+      const errBody = await resp.text().catch(()=>'');
+      throw new Error('Sheets batchUpdate (delete row) '+resp.status+': '+errBody.slice(0,300));
+    }
+    return resp.json();
+  });
 }
 
 // ─── TITLE ROW <-> OBJECT MAPPING ───
@@ -3892,7 +3924,21 @@ async function confirmDeleteBlock(blockId){
     await loadAllData();
     renderManageBlocksList();
   }catch(e){
-    showReconnect('Delete failed: '+e.message+' — the block has NOT been removed from the Sheet.');
+    // Round 31 — auth-aware message, matching saveTitle/addReleaseBlockName's
+    // pattern, now that sheetsDeleteRow's real 401s are correctly detected
+    // (see its comment above) rather than lumped in with every other
+    // failure. The withAuthRetry inside sheetsDeleteRow already tried one
+    // silent reconnect-and-retry before this ever reaches here, so if it's
+    // still an auth failure at this point David does need an interactive
+    // reconnect — the block genuinely has NOT been deleted, unchanged in
+    // data.blocks, safe to just try Delete again once reconnected.
+    const auth = isAuthFailure(e);
+    showReconnect(
+      (auth ? 'Delete failed: signed out / token expired.' : 'Delete failed: '+e.message)
+      + ' — the block has NOT been removed from the Sheet.'
+      + (auth ? ' Click Reconnect, then click Delete again.' : ''),
+      auth
+    );
     console.error(e);
   }
 }
@@ -3904,6 +3950,27 @@ function onFilterImprint(v){filters.imprint=v;renderTitles();}
 function onFilterBlock(v){filters.block=v;renderTitles();}
 function onFilterPrintTiming(v){filters.printTiming=v;renderTitles();}
 function onFilterSort(v){filters.sort=v;renderTitles();}
+// Round 31 (2026-08-26) — Reset Filters, David request. Snaps every
+// Dashboard filter control back to its default/unfiltered state in one
+// click. populateBlockFilter()/renderTitles() both read straight off the
+// `filters` object and (for Block) rebuild its own <option> "selected"
+// state from filters.block — but the other five controls are plain HTML
+// <select>/<input> elements whose DOM .value only ever changes on user
+// interaction via their onchange handlers, never re-synced from `filters`
+// on a normal render(). So resetting the object alone would silently leave
+// stale selections showing in the sidebar while the actual filtered results
+// went back to unfiltered underneath — each control's DOM value has to be
+// reset explicitly here too.
+function resetFilters(){
+  filters = { status:'', imprint:'', search:'', block:'', printTiming:'', sort:'alpha' };
+  const searchEl=document.getElementById('hdr-search'); if(searchEl) searchEl.value='';
+  const sortEl=document.getElementById('filter-sort'); if(sortEl) sortEl.value='alpha';
+  const imprintEl=document.getElementById('filter-imprint'); if(imprintEl) imprintEl.value='';
+  const statusEl=document.getElementById('filter-status'); if(statusEl) statusEl.value='';
+  const ptEl=document.getElementById('filter-printtiming'); if(ptEl) ptEl.value='';
+  populateBlockFilter(); // rebuilds the Block <option> list against the now-cleared filters.block
+  renderTitles();
+}
 
 // ─── ISBN LOCK MECHANISM (item 18 design decision) ───
 // Default state: LOCKED (readonly) for every live ISBN field, every time

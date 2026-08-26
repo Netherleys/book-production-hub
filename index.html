@@ -260,6 +260,12 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 #filter-panel-wrap{display:contents} /* grouped only so render() can show/hide the toggle+sidebar together in one line; contents keeps both true flex-siblings of #main for layout/sibling-selector purposes */
 .filter-sidebar{position:sticky;top:calc(var(--hh) + 16px);z-index:40;width:236px;flex-shrink:0;background:#111;border-radius:var(--r8);padding:14px;display:flex;flex-direction:column;gap:10px;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto;transition:transform .2s ease}
 .filter-sidebar-label{font-size:.68rem;text-transform:uppercase;letter-spacing:.08em;color:rgba(255,255,255,.45);font-weight:600;padding:0 2px 2px}
+/* Round 31 (2026-08-26) — Reset Filters link, sits in the label row so it
+   doesn't take a full control's worth of vertical space in an already-tall
+   sidebar. Same rgba(255,255,255,…) treatment as .fs-manage-blocks-link. */
+.filter-sidebar-label-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.fs-reset-link{background:none;border:none;color:rgba(255,255,255,.5);font-size:.68rem;text-transform:uppercase;letter-spacing:.06em;text-decoration:underline;cursor:pointer;padding:0 2px 2px;font-family:var(--sans)}
+.fs-reset-link:hover{color:rgba(255,255,255,.85)}
 .fs-search{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r4);font-size:.85rem;background:var(--surface);color:var(--text)}
 .fs-select{width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:var(--r4);font-size:.82rem;background:var(--surface);color:var(--text);cursor:pointer}
 /* Item 4 (2026-08-20 round) — small text-link trigger for the Manage
@@ -1278,7 +1284,16 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
     <input type="checkbox" id="filtersToggle" class="filters-toggle-input">
     <label for="filtersToggle" class="filters-toggle-btn">&#9776; Filters</label>
     <aside class="filter-sidebar" id="filter-sidebar">
-      <div class="filter-sidebar-label">Filter &amp; Sort</div>
+      <!-- Round 31 (2026-08-26) — Reset Filters control, David request. One
+           click back to the unfiltered default state (empty search, A-Z
+           sort, no Block/Imprint/Status/Print Timing filter). Styled as a
+           quiet text-link in the label row, same visual language as
+           .fs-manage-blocks-link below it, rather than a heavier button that
+           would compete with the actual filter controls. -->
+      <div class="filter-sidebar-label-row">
+        <div class="filter-sidebar-label">Filter &amp; Sort</div>
+        <button type="button" class="fs-reset-link" onclick="resetFilters()">Reset</button>
+      </div>
       <!-- David: no numbered order badges in the live build (mockup had
            them, dropped here) — fields stay in this same order regardless:
            Search, Sort, Release Block, Imprint, Status, Print Timing. -->
