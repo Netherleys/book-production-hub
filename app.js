@@ -2112,7 +2112,7 @@ function renderLinksStrip(t){
         <div class="field-help">Browse the root folder to find this title's subfolder: <a href="#" onclick="revealWorkingFolderRoot();return false;">Working Folder root &#128269;</a></div>
       </div>
       <div class="folder-link-group">
-        <label class="field-label">Author Bookkeeping (Google Drive)</label>
+        <label class="field-label">Author Bookkeeping (Google)</label>
         <div class="link-action-row">
           <button class="btn btn-export ${abSet?'':'is-empty'}" type="button" onclick="openAuthorBookkeeping('${id}')">${abSet?'Open Bookkeeping Link':'No Bookkeeping Link Set'} &#8599;</button>
         </div>
