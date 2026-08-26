@@ -4820,6 +4820,13 @@ function calendarEntriesForMonth(year, month){
   });
   return out;
 }
+// Round 36 (2026-08-26, David request) — "Month Name (N)" label format,
+// e.g. "January (1)", used on both print outputs (Print Month heading and
+// the Year Planner's per-row month labels) per David's explicit format ask.
+function calMonthNumLabel(month){
+  const name = new Date(2000,month,1).toLocaleDateString('en-GB',{month:'long'});
+  return `${name} (${month+1})`;
+}
 const CAL_TYPE_LABEL = {soft:'Soft', street:'Street', print:'Print'};
 // Round 33 (2026-08-26, David feedback) — spelled out in full (was So/St/Pr);
 // the abbreviations read as unclear at a glance.
@@ -4864,7 +4871,18 @@ function renderCalendar(){
   }).join('');
   main.innerHTML = `
     <div class="cal-page-head">
-      <h2 style="font-family:var(--serif);font-weight:normal;font-size:1.3rem">Calendar</h2>
+      <h2 class="cal-page-title" style="font-family:var(--serif);font-weight:normal;font-size:1.3rem">Calendar</h2>
+      <!-- Round 36 (2026-08-26, David bug report) — Print Month had NO month
+           name anywhere on the printed page: the only place the current
+           month showed was .cal-month-label inside .cal-toolbar, and the
+           toolbar is explicitly hidden in print (display:none!important,
+           see @media print in index.html — toolbar controls are
+           meaningless on paper). This heading is the fix: screen-hidden
+           (.cal-print-month-head, display:none by default), shown only in
+           print, right where the generic "Calendar" title was — so the
+           printed page always states which month it is. Format per David's
+           explicit ask, item 3: "Month Name (N)". -->
+      <h2 class="cal-print-month-head">${esc(calMonthNumLabel(calMonth))} ${calYear}</h2>
       ${calLegendHtml()}
     </div>
     <div class="cal-toolbar">
@@ -4876,7 +4894,7 @@ function renderCalendar(){
       </div>
       <div class="cal-toolbar-right">
         <button type="button" class="btn btn-sm" onclick="printCalendarMonth()">Print Month</button>
-        <button type="button" class="btn btn-sm" onclick="printCalendarYear()">Print Year Overview</button>
+        <button type="button" class="btn btn-sm" onclick="printCalendarYear()">Print Year Planner</button>
         <button type="button" class="btn btn-primary btn-sm" id="gcal-sync-btn" onclick="onGcalSyncClick()">Sync to Google Calendar</button>
       </div>
     </div>
@@ -4886,41 +4904,54 @@ function renderCalendar(){
 }
 function printCalendarMonth(){ window.print(); }
 
-// ── Year print — optional/nice-to-have per spec. David flagged the
-// legibility risk himself: a true 12-up month grid with real title text
-// does not fit readably on one A4 sheet, so this is deliberately scoped
-// down rather than shipped illegible — dot-only mini months (colour AND
-// shape-coded by date type, no title text) plus a legend, which IS
-// genuinely readable at this size. For actual title names, David uses
-// Print Month or the Progress Report. Landscape A4 (set via a temp
-// injected <style>, restored after printing).
+// ── Year print — redesigned Round 36 (2026-08-26, David request) as a
+// row-per-month DESK PLANNER, replacing the old grid-of-mini-months
+// layout entirely. David's own framing: he wants "a year/six months
+// planner that can sit on my desk" — a physical at-a-glance reference,
+// not just a compact overview — and specifically questioned whether the
+// old dense 3x2 grid-of-tiny-month-grids actually made it easy to spot
+// which days had events. His suggestion, which this implements: one row
+// per month, days running left to right, rather than a small grid-shaped
+// mini-month.
 //
-// Round 33 (2026-08-26, David feedback), two fixes:
-// 1) B&W bug — David's real printer is monochrome, and colour-only dots
-//    are indistinguishable on it, which broke the whole point of the year
-//    view. Each dot now also carries a distinct SHAPE (circle=Soft,
-//    square=Street, triangle=Print — see .cal-mini-dot-* in index.html),
-//    so the type still reads from silhouette alone with zero dependency
-//    on colour. calYearLegendHtml() below renders a matching shaped
-//    legend for this print-only view (separate from calLegendHtml(),
-//    which stays colour-chip-only — that's fine, it's screen-only where
-//    colour is always present).
-// 2) Layout — was one 4x3 grid of all 12 months on a single sheet; now
-//    split across 2 pages (Jan–Jun / Jul–Dec, 3x2 each, .cal-year-page
-//    break-after:page) so each mini-month gets meaningfully more room. ──
-function calMiniMonthHtml(year, month, monthEntries){
+// Design choice: rows run by DAY-OF-MONTH (1..31), not weekday-aligned.
+// A weekday-aligned row-per-month layout is a contradiction — each
+// month's 1st falls on a different weekday, so aligning by weekday would
+// stagger every row's starting column differently, which is exactly the
+// dense/hard-to-scan problem being fixed. A day-of-month ruler (this is
+// the standard "wall planner" format sold in office supply stores) keeps
+// every row starting at column 1, so a given calendar date is always the
+// same column down the whole page — genuinely scannable "what's on the
+// 15th all year" at a glance, which is the point of a desk planner.
+// Weekend shading is still per-cell (each cell knows its real date), so
+// the familiar diagonal weekend banding real printed planners have shows
+// up naturally — expected, not a bug.
+//
+// Scope: single page, all 12 months, landscape A4 — tested at this
+// density via the print-CSS-as-screen-CSS technique and it holds up
+// legibly (each day cell is ~8mm wide, well clear of the shape marks),
+// so there's no need for the old 2-page 6-month split. Shape-per-date-
+// type marks (circle/square/triangle) are unchanged from the previous
+// year view — already B&W-print-safe and working, so kept as-is.
+function calPlannerDayCellHtml(year, month, day, daysInMonth, byDay){
+  if(day>daysInMonth) return '<div class="cal-pl-cell cal-pl-blocked"></div>';
+  const dow = (new Date(year,month,day).getDay()+6)%7; // Mon=0..Sun=6
+  const types = Array.from(byDay[day]||[]);
+  const dots = types.map(t=>`<span class="cal-mini-dot cal-mini-dot-${t}"></span>`).join('');
+  const cls=['cal-pl-cell']; if(dow>=5) cls.push('weekend');
+  return `<div class="${cls.join(' ')}"><span class="cal-pl-daynum">${day}</span><span class="cal-pl-dots">${dots}</span></div>`;
+}
+function calPlannerRowHtml(year, month, monthEntries){
   const byDay={};
   monthEntries.forEach(e=>{ (byDay[e.day]=byDay[e.day]||new Set()).add(e.type); });
-  const dowLabels=['M','T','W','T','F','S','S'];
-  const head = dowLabels.map((l,i)=>`<div class="cal-mini-dow${i>=5?' weekend':''}">${l}</div>`).join('');
-  const cellsHtml = calGridDays(year,month).map(c=>{
-    const types = c.inMonth ? Array.from(byDay[c.dt.getDate()]||[]) : [];
-    const dots = types.map(t=>`<span class="cal-mini-dot cal-mini-dot-${t}"></span>`).join('');
-    const cls=['cal-mini-cell']; if(!c.inMonth) cls.push('outside'); if(c.dow>=5) cls.push('weekend');
-    return `<div class="${cls.join(' ')}"><span class="cal-mini-daynum">${c.inMonth?c.dt.getDate():''}</span><span class="cal-mini-dots">${dots}</span></div>`;
-  }).join('');
-  const monthName = new Date(year,month,1).toLocaleDateString('en-GB',{month:'long'});
-  return `<div class="cal-mini-month"><div class="cal-mini-title">${esc(monthName)}</div><div class="cal-mini-grid">${head}${cellsHtml}</div></div>`;
+  const daysInMonth = new Date(year,month+1,0).getDate();
+  const cells = Array.from({length:31},(_,i)=>calPlannerDayCellHtml(year,month,i+1,daysInMonth,byDay)).join('');
+  // Month label format per David's explicit ask (item 3): "Month Name (N)".
+  return `<div class="cal-pl-row"><div class="cal-pl-label">${esc(calMonthNumLabel(month))}</div>${cells}</div>`;
+}
+function calPlannerHeaderRowHtml(){
+  const cells = Array.from({length:31},(_,i)=>`<div class="cal-pl-cell cal-pl-headcell">${i+1}</div>`).join('');
+  return `<div class="cal-pl-row cal-pl-headrow"><div class="cal-pl-label"></div>${cells}</div>`;
 }
 // Shaped legend for the year-print view — circle/square/triangle so the
 // legend itself still reads correctly if photocopied/printed in B&W.
@@ -4931,33 +4962,22 @@ function calYearLegendHtml(){
     <span class="cal-year-legend-item"><span class="cal-year-legend-swatch print"></span>Print Date (triangle)</span>
   </div>`;
 }
-function calYearPageHtml(year, monthsHtml, rangeLabel){
-  // Round 35 (2026-08-26, David request) — the explanatory note that used to
-  // sit here ("Shape + colour = date type... For titles, use the monthly
-  // Calendar print or the Progress Report") is removed: David wants the
-  // printed page to be just the calendar content, no instructional text.
-  // The shaped legend itself stays — that's data (what each mark means),
-  // not instructions on how to use the view.
-  return `<div class="cal-year-page">
-    <div class="cal-year-print-head"><h2>${year} — Year Overview (${rangeLabel})</h2>${calYearLegendHtml()}</div>
-    <div class="cal-year-grid">${monthsHtml}</div></div>`;
-}
-function calYearPrintHtml(year){
+function calYearPlannerHtml(year){
   const byMonth = Array.from({length:12},()=>[]);
   data.titles.forEach(t=>{
     calTitleDateEntries(t).forEach(e=>{
       if(e.dt.getFullYear()===year) byMonth[e.dt.getMonth()].push({day:e.dt.getDate(), type:e.type});
     });
   });
-  const monthHtmls = byMonth.map((entries,i)=>calMiniMonthHtml(year,i,entries));
-  const page1 = calYearPageHtml(year, monthHtmls.slice(0,6).join(''), 'Jan–Jun');
-  const page2 = calYearPageHtml(year, monthHtmls.slice(6,12).join(''), 'Jul–Dec');
-  return page1 + page2;
+  const rows = byMonth.map((entries,i)=>calPlannerRowHtml(year,i,entries)).join('');
+  return `<div class="cal-year-page cal-planner-page">
+    <div class="cal-year-print-head"><h2>${year} — Year Planner</h2>${calYearLegendHtml()}</div>
+    <div class="cal-planner-grid">${calPlannerHeaderRowHtml()}${rows}</div></div>`;
 }
 function printCalendarYear(){
   const container=document.getElementById('cal-year-print');
   if(!container) return;
-  container.innerHTML = calYearPrintHtml(calYear);
+  container.innerHTML = calYearPlannerHtml(calYear);
   document.body.classList.add('cal-printing-year');
   calYearPrintStyleEl = document.createElement('style');
   calYearPrintStyleEl.textContent = '@media print{@page{size:A4 landscape;margin:10mm}}';
