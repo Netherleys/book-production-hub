@@ -1220,6 +1220,15 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
    scheduling is what actually matters here. */
 .cal-cell.weekend{background:var(--surface2)}
 .cal-cell.outside{background:var(--surface2);opacity:.45}
+/* Round 35 (2026-08-26, David request) — box outline around any day cell
+   that has at least one entry, so days with content stand out from empty
+   ones at a glance. Reuses the app's existing solid-black "card" border
+   language (--card-border) rather than introducing a new accent colour.
+   Month grid only — the year view's mini-months already use dots, and at
+   that scale (see .cal-mini-cell, ~30px tall) boxing every dotted day
+   would just be visual noise on top of an already-dense grid, so that view
+   is deliberately left as-is. */
+.cal-cell.has-entries{border:2px solid var(--card-border)}
 .cal-cell-daynum{font-size:.78rem;font-weight:700;color:var(--text2)}
 .cal-cell.outside .cal-cell-daynum{font-weight:400;color:var(--text3)}
 .cal-cell-entries{display:flex;flex-direction:column;gap:3px}
@@ -1277,7 +1286,6 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
       room than the old 4x3-on-one-sheet layout, so cell/day-number/dot
       sizes are bumped up accordingly. */
 .cal-year-print-head h2{font-family:var(--serif);font-weight:600;font-size:1.2rem;margin-bottom:8px}
-.cal-year-print-note{font-size:.78rem;color:#444;margin:6px 0 14px}
 .cal-year-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.8rem;color:#000;margin-bottom:6px}
 .cal-year-legend-item{display:flex;align-items:center;gap:6px}
 .cal-year-legend-swatch{display:inline-block;width:11px;height:11px}
@@ -1359,6 +1367,13 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
   .cal-dow-head:nth-child(7n){border-right:none}
   .cal-cell{background:#fff!important;min-height:90px;break-inside:avoid;border-right:1px solid #bbb;border-bottom:1px solid #bbb}
   .cal-cell:nth-child(7n){border-right:none}
+  /* Round 35 — same has-entries box as the screen view, kept as a real
+     border (not a background fill) so it prints regardless of the "print
+     background graphics" browser setting, matching every other print rule
+     in this block. Comes after the nth-child rule above so a has-entries
+     cell on the right/bottom grid edge still gets its full box, not a
+     partial one. */
+  .cal-cell.has-entries{border:2px solid #000!important}
   .cal-cell.weekend,.cal-cell.outside{background:#F7F7F7!important}
   .cal-cell-daynum{color:#000}
   .cal-more-btn{display:none!important}

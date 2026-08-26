@@ -4855,7 +4855,11 @@ function renderCalendar(){
   const head = dowNames.map((n,i)=>`<div class="cal-dow-head${i>=5?' weekend':''}">${n}</div>`).join('');
   const cells = calGridDays(calYear,calMonth).map(c=>{
     const dayEntries = c.inMonth ? (byDay[c.dt.getDate()]||[]) : [];
-    const cls=['cal-cell']; if(!c.inMonth) cls.push('outside'); if(c.dow>=5) cls.push('weekend');
+    // Round 35 (2026-08-26, David request) — box outline around any day
+    // that has at least one entry, so days with content stand out from
+    // empty ones at a glance. Screen and print both pick this up (see
+    // .cal-cell.has-entries in index.html).
+    const cls=['cal-cell']; if(!c.inMonth) cls.push('outside'); if(c.dow>=5) cls.push('weekend'); if(dayEntries.length) cls.push('has-entries');
     return `<div class="${cls.join(' ')}"><div class="cal-cell-daynum">${c.dt.getDate()}</div><div class="cal-cell-entries">${calCellEntriesHtml(dayEntries)}</div></div>`;
   }).join('');
   main.innerHTML = `
@@ -4928,9 +4932,14 @@ function calYearLegendHtml(){
   </div>`;
 }
 function calYearPageHtml(year, monthsHtml, rangeLabel){
+  // Round 35 (2026-08-26, David request) — the explanatory note that used to
+  // sit here ("Shape + colour = date type... For titles, use the monthly
+  // Calendar print or the Progress Report") is removed: David wants the
+  // printed page to be just the calendar content, no instructional text.
+  // The shaped legend itself stays — that's data (what each mark means),
+  // not instructions on how to use the view.
   return `<div class="cal-year-page">
-    <div class="cal-year-print-head"><h2>${year} — Year Overview (${rangeLabel})</h2>${calYearLegendHtml()}
-    <p class="cal-year-print-note">Shape + colour = date type (see legend above — shapes hold up on a black &amp; white printer, colour is a bonus on a colour one). For titles, use the monthly Calendar print or the Progress Report.</p></div>
+    <div class="cal-year-print-head"><h2>${year} — Year Overview (${rangeLabel})</h2>${calYearLegendHtml()}</div>
     <div class="cal-year-grid">${monthsHtml}</div></div>`;
 }
 function calYearPrintHtml(year){
