@@ -878,8 +878,17 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    the first time a real value is present — see linkLockRow() in app.js. */
 .link-lock-row{display:flex;align-items:center;gap:6px}
 .link-lock-row .link-value-edit{flex:1;min-width:0}
-.link-value-edit[readonly]{background:var(--bg);color:var(--text3);cursor:default}
-.link-value-edit[readonly]:hover{border-color:transparent;background:var(--bg)}
+/* Round 29 (2026-08-26, David request) — locked-field background changed
+   from the plain white --bg to --surface2, the same cream/tan tone as the
+   .links-strip-box it sits inside, so a locked field blends into the box
+   instead of reading as a separate white input. Scoped to this rule only
+   (not .isbn-row input[readonly] above, a different box/context David
+   didn't ask to change). This app has no light/dark theme toggle (see :root
+   comment at the top of this file — fixed "dark chrome + light cards"
+   design, no @media prefers-color-scheme or [data-theme] anywhere), so
+   there's no second theme variant to account for here. */
+.link-value-edit[readonly]{background:var(--surface2);color:var(--text3);cursor:default}
+.link-value-edit[readonly]:hover{border-color:transparent;background:var(--surface2)}
 /* ── CHECKLIST ── */
 .checklist{display:flex;flex-direction:column;gap:6px}
 .check-item{display:flex;align-items:flex-start;gap:8px;padding:4px 0}

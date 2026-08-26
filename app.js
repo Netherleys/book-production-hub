@@ -2050,6 +2050,12 @@ function renderDetail(){
 // ancestor selector rather than shrinking .btn-export itself so nothing
 // else using that class anywhere in the app is affected).
 const IMAGES_FOLDER_ROOT_URL='https://onedrive.live.com/my?id=%2Fpersonal%2F57fd0e54449e2748%2FDocuments%2F%5FIMAGES%20%26%20COVERS%20%26%20LOGOS';
+// Round 29 (2026-08-26, David request) — static quick-access link to the
+// master Author Bookkeeping sheet, same field-help pattern as Images
+// Folder root / Cover Image URL's covers-folder link above: a fixed URL
+// (not built per-book) so David can jump to the master sheet, find/copy the
+// right reference, then paste a per-book link into the field itself.
+const AUTHOR_BOOKKEEPING_MASTER_URL='https://docs.google.com/spreadsheets/d/1SeOIraiokeUiKHd5Bbrcs6OS88xjd_-bSZzaXQ5b_ms/edit?gid=622271452#gid=622271452';
 function renderLinksStrip(t){
   const id=t.id;
   const imgSet=!!(t.imagesFolderLink&&t.imagesFolderLink.trim());
@@ -2114,6 +2120,7 @@ function renderLinksStrip(t){
           <input type="url" class="link-value-edit" id="f-${id}-authorBookkeepingLink" value="${esc(t.authorBookkeepingLink)}" ${abLocked?'readonly':''} placeholder="Not set — paste a Google Drive link" oninput="fc('${id}','authorBookkeepingLink',this.value)">
           ${lockBtn('authorBookkeepingLink',abLocked)}
         </div>
+        <div class="field-help">Find this title's reference in the master sheet: <a href="${AUTHOR_BOOKKEEPING_MASTER_URL}" target="_blank" rel="noopener">Author Bookkeeping master sheet &#8599;</a></div>
       </div>
     </div>
   </div>`;
