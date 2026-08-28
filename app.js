@@ -204,6 +204,11 @@ function syncDateDisplay(inputEl){
   overlay.classList.toggle('is-empty', !val);
 }
 function calcAutoPrint(sd){ if(!sd) return ''; const d=new Date(sd); if(isNaN(d)) return ''; d.setDate(d.getDate()-60); return d.toISOString().slice(0,10); }
+// Round 37 (2026-08-28) — numeric sort key for the new Street/Print/Soft
+// date sort options (renderTitles()). Missing/unparseable dates return
+// Infinity so they always sort to the end regardless of ascending/blank
+// mix, rather than being coerced to 0/epoch and reading as "earliest".
+function dateSortKey(ds){ if(!ds) return Infinity; const d=new Date(ds); return isNaN(d) ? Infinity : d.getTime(); }
 // Item 7 (Round 2) — default "Not Started" colour changed from the old
 // neutral grey to white per the brief (dots are now squares too, see
 // index.html .detail-p-dot — a border was added there since a plain white
@@ -1652,9 +1657,31 @@ function renderTitles(){
   // needing a new createdDate column. Sorted on a copy (.slice()) so the
   // underlying data.titles array — and every _row index into it — is never
   // reordered by a display choice.
+  // Round 37 (2026-08-28) — David request: sort by Street/Print/Soft date,
+  // on top of the existing filters (critically including the Release Block
+  // filter above) — this comparator runs on `titles`, which at this point
+  // is already the filtered array, so picking a Block first then one of
+  // these date sorts naturally sorts just that block's titles, nothing
+  // extra needed. dateSortKey() below sends missing/unparseable dates to
+  // the very end (Infinity) rather than the start, so an empty Street/
+  // Print/Soft date never looks like "earliest" — matches the convention
+  // Progress Report's own date sort already uses (reportByTitle fallback
+  // after a numeric date-days compare, see reportRows() below). Print uses
+  // the same effective-date logic as everywhere else in the app
+  // (autoPrintDate → calcAutoPrint(streetDate), else the manual printDate)
+  // so this sorts on what the card/detail view actually displays as the
+  // Print Date, not a raw possibly-blank field.
   titles = titles.slice().sort((a,b)=>{
+    const tiebreak=()=>a.title.localeCompare(b.title,undefined,{sensitivity:'base'});
     if(filters.sort==='recent') return (b._row||0)-(a._row||0);
-    return a.title.localeCompare(b.title,undefined,{sensitivity:'base'});
+    if(filters.sort==='street') return dateSortKey(a.dates.streetDate)-dateSortKey(b.dates.streetDate)||tiebreak();
+    if(filters.sort==='print'){
+      const pa=a.dates.autoPrintDate?calcAutoPrint(a.dates.streetDate):a.dates.printDate;
+      const pb=b.dates.autoPrintDate?calcAutoPrint(b.dates.streetDate):b.dates.printDate;
+      return dateSortKey(pa)-dateSortKey(pb)||tiebreak();
+    }
+    if(filters.sort==='soft') return dateSortKey(a.dates.softDate)-dateSortKey(b.dates.softDate)||tiebreak();
+    return tiebreak();
   });
   const main=document.getElementById('main');
   // Item 3 (2026-08-20 round) — active-Block-filter readout, above the grid.

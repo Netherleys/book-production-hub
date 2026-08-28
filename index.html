@@ -1491,9 +1491,18 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
            them, dropped here) — fields stay in this same order regardless:
            Search, Sort, Release Block, Imprint, Status, Print Timing. -->
       <input type="text" id="hdr-search" class="fs-search" placeholder="Search titles, authors…" oninput="onSearch(this.value)">
+      <!-- Round 37 (2026-08-28, David request) — Street/Print/Soft date sort
+           options added. These compose with whatever's already filtered
+           above (critically: Release Block) since renderTitles() filters
+           first, sorts second — select a Block, then one of these three, to
+           sort just that block's titles by the chosen date. See
+           dateSortKey()/renderTitles() in app.js. -->
       <select class="fs-select" id="filter-sort" onchange="onFilterSort(this.value)">
         <option value="alpha">Sort: A–Z</option>
         <option value="recent">Sort: Most Recently Created</option>
+        <option value="street">Sort: Street Date</option>
+        <option value="print">Sort: Print Date</option>
+        <option value="soft">Sort: Soft Release Date</option>
       </select>
       <!-- Item 4: filter by release-date Block (Blocks tab data).
            2026-08-20 round: default option relabelled "All Books" (item 2,
