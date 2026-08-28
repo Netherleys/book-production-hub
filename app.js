@@ -1304,6 +1304,39 @@ function hasAttention(t){
   if(pd){const d=daysUntil(pd);if(d!==null&&d<=60&&!isPublished(t))return true;}
   return false;
 }
+// Round 38 (2026-08-28) — David: the red ribbon is a flat alarm colour with
+// no urgency level shown, floated a "-60 days"-style countdown. Genuinely
+// low-effort per the investigation: hasAttention() above already computes
+// exactly the signal that decides whether the ribbon shows at all (overdue
+// in-progress pipeline stage / Delayed-On-Hold override / print date within
+// 60 days) — this just turns that same signal into a short display string,
+// reusing computeDayInfo() (below) for the print-date branch instead of
+// re-deriving day-math a third time. Mirrors hasAttention()'s exact
+// precedence (stage-overdue checked first, then override, then print date)
+// so the label can never disagree with whether the ribbon is showing.
+// Format: literal negative-number countdown ("-60d") rejected in favour of
+// "N DAYS" while approaching — reads as "how long you have", which is what
+// a heads-up ribbon is for, vs. a negative number reading as "how far past
+// zero" (backwards for a not-yet-due item). Once genuinely overdue, switches
+// to "N DAYS LATE" (singular "1 DAY LATE") — keeps the approaching/overdue
+// distinction David raised last round visible at a glance, not just implied
+// by the ribbon already being red either way.
+function attentionLabel(t){
+  const now=new Date();now.setHours(0,0,0,0);
+  const overdueDays = t.pipeline.stages
+    .filter(s=>s.status==='In Progress'&&s.expectedDate&&new Date(s.expectedDate)<now)
+    .map(s=>daysUntil(s.expectedDate))
+    .filter(d=>d!==null);
+  if(overdueDays.length){
+    const n=Math.abs(Math.min(...overdueDays));
+    return n+(n===1?' DAY LATE':' DAYS LATE');
+  }
+  if(t.dates.printStatusOverride==='Delayed/On Hold') return 'ON HOLD';
+  const info=computeDayInfo(t);
+  if(info.kind==='overdue'){ const n=Math.abs(info.days); return n+(n===1?' DAY LATE':' DAYS LATE'); }
+  if(info.kind==='counting') return info.days+(info.days===1?' DAY':' DAYS');
+  return 'ATTENTION'; // safety net only — hasAttention()'s own branches should make this unreachable
+}
 // 2026-07-26 (items 13/14/15) — single source of truth for the
 // print-timing status shown on cards, detail view, and the new print-
 // timing filter, so all three can never drift out of sync with each other.
@@ -1833,10 +1866,16 @@ function renderCard(t){
   // corner ribbon (see .card-attention in index.html for the full
   // reasoning/CSS).
   // Round 13 (2026-08-12) — "!" glyph removed per David: the hover tooltip
-  // already says "Needs attention", so the icon was redundant. Ribbon is
-  // now a plain empty coloured band (title attribute kept, so the tooltip
-  // still works on hover).
-  const attn=hasAttention(t)?'<div class="card-attention" title="Needs attention"></div>':'';
+  // already says "Needs attention", so the icon was redundant. Ribbon was a
+  // plain empty coloured band from here through Round 37.
+  // Round 38 (2026-08-28) — David asked for an urgency day-count on the
+  // ribbon itself. Text re-added (see attentionLabel() above), tooltip now
+  // carries the same label so hover and the ribbon text always agree.
+  let attn='';
+  if(hasAttention(t)){
+    const attnLbl=attentionLabel(t);
+    attn=`<div class="card-attention" title="Needs attention — ${esc(attnLbl)}">${esc(attnLbl)}</div>`;
+  }
   // Real thumbnails, 2026-07-15 — investigated three options (see build
   // report): (A) Microsoft Graph API OAuth integration, (B) OneDrive's
   // anonymous-share thumbnail endpoint. Both dead-ended on the same

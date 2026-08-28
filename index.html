@@ -356,8 +356,25 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    technique was built to avoid. (2) Colour now comes from --terra, which
    itself moved to exact #ff0000 this round (see the variable's definition)
    — same token as card-deadline.overdue, so the two stay identical to each
-   other automatically, no separate hardcoded hex here. */
-.card-attention{position:absolute;top:14px;right:-36px;width:130px;height:16px;padding:0;background:var(--terra);color:#fff;text-align:center;transform:rotate(45deg);box-shadow:0 2px 6px rgba(17,17,17,.35);border-top:1px solid rgba(255,255,255,.6);border-bottom:1px solid rgba(255,255,255,.6);z-index:3}
+   other automatically, no separate hardcoded hex here.
+   Round 38 (2026-08-28) — text re-added (day-count/urgency label, see
+   attentionLabel() in app.js) on top of Round 13's textless band. The
+   130px width is drawn deliberately wider than the card so its overhang
+   clips off at the card's own overflow:hidden — which means only a
+   narrower diagonal WINDOW near the middle of that 130px actually survives
+   on screen, not the full length. Tested live in dev preview: at anything
+   above ~.5rem with the original .03em letter-spacing, the ends of longer
+   labels ("15 DAYS LATE", centered) got clipped off outside that surviving
+   window — first caught as a real bug (leading digit missing, read as "5
+   DAYS LATE"/"0 DAYS LATE"), not just a look call. text-align stays
+   CENTER (tried right-align first, assuming the fixed right:-36px anchor
+   was the safe edge — wrong; that just clipped the opposite end instead,
+   confirming the visible window sits symmetrically mid-band, not at
+   either edge). font-size dropped to .5rem and letter-spacing removed
+   entirely to buy back the width — confirmed fitting fully on screen up to
+   a synthetic "240 DAYS LATE" (13 characters), comfortably past anything
+   real data should produce. */
+.card-attention{position:absolute;top:14px;right:-36px;width:130px;height:16px;padding:0;background:var(--terra);color:#fff;text-align:center;transform:rotate(45deg);box-shadow:0 2px 6px rgba(17,17,17,.35);border-top:1px solid rgba(255,255,255,.6);border-bottom:1px solid rgba(255,255,255,.6);z-index:3;font-size:.5rem;font-weight:700;line-height:16px;letter-spacing:0;white-space:nowrap;overflow:hidden}
 /* Imprint colour-code (item 6; made more prominent Round 12, item 3b,
    2026-08-12 — separately from 3a above, not conditional on it. David: "a
    little more prominent," not a redesign — bar thickened 3px→5px, dot
