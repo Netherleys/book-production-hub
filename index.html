@@ -1113,6 +1113,38 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
 .rpt-item-title{background:none;border:none;padding:0;font:inherit;font-family:var(--sans);font-weight:700;font-size:.85rem;color:var(--sage-border);cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color .12s}
 .rpt-item-title:hover{text-decoration-color:var(--sage-border)}
 .rpt-empty{padding:26px 18px;color:var(--text-muted);font-size:.85rem;font-style:italic;text-align:center}
+/* ── RELEASE SCHEDULE block (Round 39, 2026-08-30, David-approved build) —
+   sits ABOVE the existing Progress Report table (rpt-table-card/
+   report-table above). Per David's own reasoning during mockup review:
+   this block stays compact (one row per In Progress title with a real
+   Release Block assigned) while the table below it only grows as
+   Pipeline Notes content accumulates, so the compact block needs to stay
+   above the fold consistently. Styled with --imprint-headpress
+   (copper/terracotta) rather than --sage/--amber deliberately, since both
+   of those already carry status meaning elsewhere on this screen (sage =
+   active/positive, amber = "within 30 days" warning) — reusing either
+   here would risk this block's own accent reading as a status signal
+   rather than a plain identity accent. Carried over verbatim from the
+   approved mockup (release-schedule-preview.html, round 2). ── */
+.sched-block-wrap{margin-top:22px;margin-bottom:22px}
+.sched-block-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.sched-block-head h3{font-family:var(--serif);font-weight:normal;font-size:1.05rem;color:var(--text-oncream);position:relative;padding-left:14px}
+.sched-block-head h3::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:4px;border-radius:2px;background:var(--imprint-headpress)}
+.sched-block-sub{font-size:.8rem;color:var(--text-oncream-dim);margin-bottom:14px}
+.schedule-card{border-color:var(--imprint-headpress);box-shadow:0 2px 10px rgba(201,131,74,.18)}
+table.schedule-table{width:100%;border-collapse:collapse;min-width:680px}
+table.schedule-table thead th{background:color-mix(in srgb, var(--imprint-headpress) 14%, white);color:var(--imprint-headpress);text-align:left;font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.05em;padding:11px 16px;border-bottom:1.5px solid var(--imprint-headpress);white-space:nowrap}
+table.schedule-table tbody td{padding:12px 16px;border-bottom:1px solid var(--border);color:var(--text);font-size:.85rem;vertical-align:top}
+table.schedule-table tbody tr:last-child td{border-bottom:none}
+table.schedule-table tbody tr:hover{background:var(--surface2)}
+.sched-col-title{white-space:nowrap;width:1%}
+.sched-item-title{background:none;border:none;padding:0;font:inherit;font-family:var(--sans);font-weight:700;font-size:.85rem;color:var(--imprint-headpress);cursor:pointer;text-align:left;text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color .12s}
+.sched-item-title:hover{text-decoration-color:var(--imprint-headpress)}
+.sched-col-block{color:var(--text2);white-space:nowrap}
+.sched-col-date{white-space:nowrap;font-weight:700;width:1%}
+.sched-col-margin{white-space:nowrap;font-weight:700}
+.sched-margin-num{font-size:.95rem}
+.sched-margin-unit{font-weight:600;font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-left:4px}
 #report-export-text{width:100%;min-height:320px;font-family:'SFMono-Regular',Consolas,monospace;font-size:.8rem;line-height:1.55;background:var(--bg);border:1px solid var(--border);border-radius:var(--r4);padding:12px;color:var(--text);resize:vertical}
 /* ── QUICK NOTES — LIST/INDEX VIEW (item 5, Round 2) — a visible list of
    every title that has at least one quick note, most-recently-noted first,
@@ -1351,6 +1383,12 @@ tr.rpt-group-divider td{background:var(--surface2);color:var(--text3);font-size:
   table.report-table tbody tr{break-inside:avoid}
   .rpt-item-title{color:#000;font-weight:700;text-decoration:none;cursor:default}
   .rpt-overdue,.rpt-warn{color:#000!important;font-weight:800}
+  .sched-block-head h3{color:#000}
+  .sched-block-head h3::before{background:#000}
+  .sched-block-sub{color:#000}
+  .schedule-card{box-shadow:none;border:1px solid #000}
+  table.schedule-table thead th{background:#fff!important;color:#000!important;border-bottom-color:#000!important}
+  .sched-item-title{color:#000;font-weight:700;text-decoration:none;cursor:default}
 
   /* Round 32 (2026-08-26) — Calendar print. Month view: same generic
      #main-only pattern as everything else above, just with the toolbar

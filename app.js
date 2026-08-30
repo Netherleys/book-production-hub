@@ -4683,6 +4683,74 @@ function reportSummaryHtml(){
     `<span class="rpt-summary-chip"><span class="rpt-summary-dot rpt-warn-dot"></span>${soon} within 30 days</span>`;
 }
 
+// ─── RELEASE SCHEDULE block (Round 39, 2026-08-30, David-approved build) ───
+// Built for real off the David-approved mockup (release-schedule-preview.html,
+// round 2 — flag badge removed since this is now a permanent feature, not a
+// proposal under review). Renders ABOVE the existing report table (see
+// renderReport() below) per David's own reasoning: this block stays compact
+// (one row per In Progress title with a real Release Block assigned) while
+// the table below only grows as Pipeline Notes content accumulates.
+//
+// Scope: status === 'In Progress' AND a real blockId assigned — excludes
+// both an unset blockId and the 'not-yet-assigned' placeholder block (see
+// the {block_id:'not-yet-assigned', block_name:'Not Yet Assigned'} entry in
+// data.blocks, and the blockId/dates.releaseBlock migration comment above
+// releaseBlockSelectHtml()). Recomputed live from data.titles on every
+// render — not a snapshot — so the count/rows always reflect current data.
+// Sorted soonest Street Date first (rows without a Street Date are excluded
+// outright, since "Deadline (Street Date)" is the whole point of this
+// table — there's nothing to schedule against otherwise).
+//
+// Margin/date colour classes deliberately reuse reportDateColorClass() (the
+// same overdue/warn/normal logic driving every other date in this report)
+// rather than a second parallel threshold, so "overdue" means the same
+// thing here as everywhere else on this screen.
+function scheduleRows(){
+  const blockNameById={}; (data.blocks||[]).forEach(b=>{ blockNameById[b.block_id]=b.block_name; });
+  return data.titles
+    .filter(t => t.status==='In Progress' && t.blockId && t.blockId!=='not-yet-assigned' && t.dates.streetDate)
+    .map(t => ({
+      id: t.id, title: t.title,
+      blockLabel: blockNameById[t.blockId] || t.dates.releaseBlock || t.blockId,
+      streetDate: t.dates.streetDate, streetDays: daysUntil(t.dates.streetDate)
+    }))
+    .sort((a,b) => a.streetDays-b.streetDays || reportByTitle(a,b));
+}
+function scheduleDateCell(dateStr, days){
+  const cls = reportDateColorClass(days);
+  return `<span class="${cls}">${esc(formatDate(dateStr))}</span>`;
+}
+function scheduleMarginCell(days){
+  const cls = reportDateColorClass(days);
+  const num = days<0 ? ('−'+Math.abs(days)) : String(days);
+  const unitWord = Math.abs(days)===1 ? 'day' : 'days';
+  const unit = days<0 ? `${unitWord} (overdue)` : unitWord;
+  return `<span class="${cls}"><span class="sched-margin-num">${num}</span><span class="sched-margin-unit">${esc(unit)}</span></span>`;
+}
+function scheduleRowHtml(r){
+  return `<tr>
+      <td class="sched-col-title"><button class="sched-item-title" onclick="gotoDetail('${esc(r.id)}')">${esc(r.title)}</button></td>
+      <td class="sched-col-block">${esc(r.blockLabel)}</td>
+      <td class="sched-col-date">${scheduleDateCell(r.streetDate, r.streetDays)}</td>
+      <td class="sched-col-margin">${scheduleMarginCell(r.streetDays)}</td>
+    </tr>`;
+}
+function scheduleBlockHtml(){
+  const rows = scheduleRows();
+  const body = rows.length
+    ? `<div class="rpt-table-card schedule-card"><div class="rpt-table-scroll"><table class="schedule-table">
+        <thead><tr><th>Title</th><th>Release Block</th><th>Deadline (Street Date)</th><th>Margin</th></tr></thead>
+        <tbody>${rows.map(scheduleRowHtml).join('')}</tbody>
+      </table></div></div>`
+    : `<div class="rpt-table-card schedule-card"><div class="rpt-empty">No In Progress titles have a Release Block assigned right now.</div></div>`;
+  return `
+    <div class="sched-block-wrap">
+      <div class="sched-block-head"><h3>Release Schedule</h3></div>
+      <div class="sched-block-sub">In Progress titles with a Release Block assigned &middot; ${rows.length} title${rows.length===1?'':'s'} &middot; sorted soonest Street Date first</div>
+      ${body}
+    </div>`;
+}
+
 function renderReport(){
   const main=document.getElementById('main');
   main.innerHTML = `
@@ -4690,6 +4758,7 @@ function renderReport(){
       <h2 style="font-family:var(--serif);font-weight:normal;font-size:1.3rem">Progress Report</h2>
       <div class="rpt-summary-line" id="rpt-summary-line">${reportSummaryHtml()}</div>
     </div>
+    ${scheduleBlockHtml()}
     <div class="rpt-toolbar">
       <div class="filter-group" role="group" aria-label="Filter">
         <!-- Order per David's explicit confirmation (2026-08-20): All,
