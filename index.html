@@ -504,7 +504,14 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .links-strip-inner .links-strip-label{margin-top:0}
 /* Item 3 (Round 2) — same fix as .book-cover above: fixed width (matches
    the detail-top grid's 140px column), natural height instead of a forced
-   200px crop-box, min/max-height clamp only for extreme outliers. */
+   200px crop-box, min/max-height clamp only for extreme outliers.
+   SUPERSEDED Round 43 below — David: the box never actually read as
+   "filled" since it just hugged whatever image was dropped in, a tall
+   cover and a near-square one ending up different shapes. He's fine with
+   some stretch on this reference-only thumbnail, so back to a fixed
+   200px box on purpose this time, now paired with object-fit:fill instead
+   of the old forced object-fit:cover crop this comment was originally
+   warning against. */
 /* Item 2 (Round 4) — the no-image placeholder gradient (#e8e0d0→#d8cfc0)
    and the <img> tag's own separate letterbox fill (#EDE6D3) were two
    different mismatched tan/beige tones, neither of which was actually the
@@ -518,7 +525,7 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    this box is a fixed width). position:relative unchanged — the new
    imprint ribbon (.detail-imprint-ribbon below) anchors off it, replacing
    the imprint dot that used to sit in the title row. */
-.detail-cover{width:140px;min-height:120px;max-height:280px;background:var(--surface2);border-radius:var(--r4);border:3px solid var(--card-border);box-sizing:border-box;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
+.detail-cover{width:140px;height:200px;background:var(--surface2);border-radius:var(--r4);border:3px solid var(--card-border);box-sizing:border-box;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
 /* Corner ribbon replacing the old .imprint-dot in the detail title row
    (David: it shouldn't be the first thing you see there). Same
    --imprint-headpress/--imprint-oowp tokens as everywhere else in the app.
@@ -529,7 +536,12 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .detail-imprint-ribbon{position:absolute;top:0;right:0;padding:3px 8px;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#fff;background:var(--imprint-accent);border-bottom-left-radius:var(--r4);z-index:2}
 .detail-imprint-ribbon[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
 .detail-imprint-ribbon[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
-.detail-cover img{width:100%;height:auto;max-height:280px;object-fit:contain;display:block;background:var(--surface2)}
+/* Round 43 (2026-09-03) — David chose stretch-to-fill (Option A of a
+   3-way mockup comparison) over the crop alternative: fixed 140×200 box
+   above + object-fit:fill here, so every cover occupies the identical
+   slot with zero cropping — some visible stretch on off-ratio covers is
+   an explicitly accepted tradeoff for a reference-only thumbnail. */
+.detail-cover img{width:100%;height:100%;object-fit:fill;display:block;background:var(--surface2)}
 .detail-info{display:flex;flex-direction:column;gap:8px;min-width:0}
 .detail-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 /* Round 5, item 1 — Title/Subtitle/Author(s) turned from plain read-only
