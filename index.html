@@ -872,6 +872,13 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    line-height so it can't be read as anything other than a skipped line. */
 .richtext p,.richtext div{margin-bottom:2.2em}
 .richtext p:last-child,.richtext div:last-child{margin-bottom:0}
+/* 2026-09-02 — David: Jacket Blurb specifically reads as too much paragraph
+   gap, asked for it halved. Scoped to Jacket Blurb only (not every richtext
+   field app-wide) via richTa()'s editId pattern in app.js — `f-<titleId>-
+   jacketBlurb`, one per title, hence the attribute-suffix selector rather
+   than a single id. Full Description/TOC/Author Bio/etc. keep the original
+   2.2em from the Round 7 sizing above. */
+.richtext[id$="-jacketBlurb"] p,.richtext[id$="-jacketBlurb"] div{margin-bottom:1.1em}
 /* Item 8 (2026-08-11) — numbered lists (execCommand('insertOrderedList'),
    see the "1." toolbar button in richTa(), app.js). Deliberately NOT given
    the same 2.2em paragraph gap as .richtext p/div above — that spacing was

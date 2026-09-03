@@ -850,6 +850,13 @@ function rowToTitle(row){
   });
   return {
     id: c.title_id, _row: null,
+    // 2026-09-02 incident guard: remember whether Title was genuinely
+    // non-blank at load time. saveTitle() below refuses to persist a blank
+    // Title over a row that had a real one, using this flag — see the long
+    // comment on that guard for the full incident writeup ("Is This Real?"
+    // lost Title/Subtitle/Author to an unidentified cause and the blank
+    // state got silently written back to the Sheet on the very next save).
+    _hadTitleOnLoad: !!(c.title||'').trim(),
     title: c.title||'', subtitle: c.subtitle||'', authors: c.author||'',
     authorLiaison: c.authorLiaison||'David', imprint: c.imprint||'Headpress', status: normalizeStatus(c.status||'Not Scheduled'),
     // Round 10, items 1/2 — statusAuto is a new column, so it's blank ('',
@@ -1190,6 +1197,26 @@ async function saveTitle(titleId){
                        // confirmAddTitle() calls saveTitle() directly rather
                        // than via the debounced path.
   const t = getTitle(titleId); if(!t) return;
+  // 2026-09-02 incident guard — see _hadTitleOnLoad comment in rowToTitle().
+  // "Is This Real?" had its Title/Subtitle/Author silently blanked in
+  // memory (root cause not conclusively identified — a full-codebase search
+  // found no keydown/keyup/keypress listener anywhere in this app that
+  // touches these fields, so it was NOT a mis-scoped keyboard-shortcut
+  // handler as first suspected; whatever cleared them did so outside this
+  // app's own event-handling code) and the blank state was then persisted
+  // to the Sheet on the very next debounced save, overwriting the real
+  // values with no warning. Regardless of what clears it in memory, this
+  // refuses to let that transition ever reach the Sheet again: a title that
+  // loaded with a real Title never has that Title (or Subtitle/Author)
+  // saved blank without a human explicitly re-confirming. This is a save-
+  // path safety net, not a fix for whatever the original trigger was.
+  if(t._row && t._hadTitleOnLoad && !((t.title||'').trim())){
+    pendingSaveTitleIds.add(titleId); // keep flagged — this is NOT saved
+    setSyncStatus('error');
+    showReconnect('Save blocked for "'+(t.id||titleId)+'": Title (and possibly Subtitle/Author) would be saved BLANK, but this title had a real Title on load. Nothing was written to the Sheet — retype the Title to clear this warning and save normally. If you meant to blank it, edit it once more with the value you want, then it will save.', false);
+    console.error('saveTitle: refused to persist blank Title over a previously-populated row for', titleId, t);
+    return;
+  }
   setSyncStatus('saving');
   try{
     const row = titleToRow(t);
@@ -1850,8 +1877,34 @@ function onContribRoleChange(titleId,value){
 // page (the cover placeholder's title text, the author "Displays as"
 // preview) is patched directly here instead.
 function onDetailFieldChange(titleId,field,value){
-  fc(titleId,field,value);
   const t=getTitle(titleId);if(!t)return;
+  // 2026-09-02 incident, part 2 — David reproduced the actual trigger on his
+  // own machine: an interrupted Alt-code em-dash entry (e.g. Alt+0, a
+  // mistyped partial of Alt+0151) blurs the field AND clears it; a separate
+  // Ctrl+0151-style combo kicks him out of the whole app (almost certainly
+  // just Chrome's native Ctrl+<digit> tab-switch / Ctrl+0 zoom-reset
+  // shortcuts firing — Ctrl+1..8 jump to the Nth open tab — nothing to fix
+  // in this app's code for that half). Re-checked specifically for a blur/
+  // focusout/focus handler this time (not just keydown as the first pass
+  // covered): there is STILL none anywhere in this app, on these inputs or
+  // any shared ancestor — only handler in the whole codebase is the header
+  // logo's Enter/Space keydown. So whatever blurs the field and clears its
+  // value is native Windows/Chrome keyboard handling, outside this app's
+  // own event code — there's no handler here to remove. Can't intercept
+  // the OS-level cause, so intercepting the symptom here instead: Title
+  // going from a real value straight to empty in one single input event,
+  // on an already-saved title, is never accepted — the on-screen input is
+  // restored immediately so the user doesn't even see it go blank. Same
+  // detection saveTitle() already uses (_hadTitleOnLoad) via the debounced
+  // save/Sheet-write path; this is the same guard one step earlier, at
+  // input time, so the field itself never visibly "loses" the title either.
+  if(field==='title' && t._row && t._hadTitleOnLoad && (t.title||'').trim() && !value.trim()){
+    const input=document.getElementById('f-'+titleId+'-title');
+    if(input) input.value=t.title;
+    console.warn('onDetailFieldChange: ignored a Title→blank edit for an existing title (likely a stray keystroke, e.g. an interrupted Alt-code entry) — value unchanged:', titleId);
+    return;
+  }
+  fc(titleId,field,value);
   if(field==='title'){
     const ph=document.querySelector('.detail-cover .cover-ph-title');
     if(ph) ph.textContent=t.title;
