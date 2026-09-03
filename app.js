@@ -826,7 +826,7 @@ function rowToTitle(row){
   // Links field (see t.authorBookkeepingLink below) even though, like
   // releaseNote, it physically lives in this blob rather than its own
   // column.
-  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',printStatusOverride:'',releaseNote:'',authorBookkeepingLink:''}, safeJson(c.productionNotes_json, {}));
+  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',combinedNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',printStatusOverride:'',releaseNote:'',authorBookkeepingLink:''}, safeJson(c.productionNotes_json, {}));
   let illustrationsText = pn.illustrationsText;
   if(!illustrationsText && pn.illustrations && pn.illustrationCount) illustrationsText = String(pn.illustrationCount)+' illustrations';
   let checklist = pn.checklist && pn.checklist.length ? pn.checklist.map(x=>({text:x.item||x.text||'',checked:!!x.checked})) : PROD_CHECKLIST.map(t=>({text:t,checked:false}));
@@ -893,7 +893,18 @@ function rowToTitle(row){
     print: { printEstimate: pn.printerEstimates, scbEbookCoverSpec: pn.scbEbookCover, forLsiNotes: pn.lsiNotes, printerContacts: contacts },
     publicity: { publicityStatement: publicity.publicityStatement, prContact: publicity.prContact, marketing: publicity.marketing },
     toc: { tableOfContents: editorial.toc, howICameToWriteThis: editorial.authorInsight, excerpt: editorial.excerpt, competingTitles: editorial.competingTitles },
-    productionNotes: { checklist, proofingNotes: pn.proofingNotes, typesettingNotes: pn.typesettingNotes },
+    // Round 42 (2026-09-03) — Proofing Notes + Typesetting Notes collapsed
+    // into one field (David: "PRODUCTION NOTES... just a single text
+    // block"). `notes` is the new single field the UI now reads/writes;
+    // `proofingNotes`/`typesettingNotes` stay in the model verbatim
+    // (round-tripped unedited in titleToRow below) purely so nothing already
+    // saved is lost if either ever needs recovering — the UI no longer shows
+    // them separately. On first load after this change, if `combinedNotes`
+    // itself is still blank (nobody has saved through the new field yet) but
+    // either legacy field has real content, seed `notes` with both legacy
+    // values combined under clear labels rather than silently picking one —
+    // see legacyMergeNotes() below.
+    productionNotes: { checklist, notes: pn.combinedNotes || legacyMergeNotes(pn.proofingNotes,pn.typesettingNotes), proofingNotes: pn.proofingNotes, typesettingNotes: pn.typesettingNotes },
     futureEdition: { infoAndChanges: pn.futureEditionNotes, printReadyFilesStatus: pn.printReadyFiles },
     filesLinks: { links: filesLinks.links||[] },
     quickNotes,
@@ -902,6 +913,18 @@ function rowToTitle(row){
     authorBookkeepingLink: pn.authorBookkeepingLink||'',
     poTrackerIsbnKey: c.poTrackerIsbnKey||'', poTrackerTitleOverride: c.poTrackerTitleOverride||''
   };
+}
+// Round 42 (2026-09-03) — one-time display-side merge for titles that had
+// real content in BOTH legacy Proofing Notes and Typesetting Notes fields
+// when the single-field Production Notes redesign shipped. Labelled, not
+// silently concatenated, so it's obvious on open which part came from
+// which old field; empty legacy fields contribute nothing (no empty
+// headings). Only ever consulted when `combinedNotes` itself is still
+// blank — see rowToTitle() above.
+function legacyMergeNotes(proofing,typesetting){
+  const p=(proofing||'').trim(), ts=(typesetting||'').trim();
+  if(p && ts) return `<p><strong>Proofing Notes (migrated):</strong></p>${proofing}<p><strong>Typesetting Notes (migrated):</strong></p>${typesetting}`;
+  return p || ts || '';
 }
 function titleToRow(t){
   const price_json = JSON.stringify(t.price||{});
@@ -920,6 +943,11 @@ function titleToRow(t){
   const authorInfo_json = JSON.stringify(t.authorInfo||{});
   const productionNotes_json = JSON.stringify({
     checklist: (t.productionNotes.checklist||[]).map(c=>({item:c.text,checked:!!c.checked})),
+    combinedNotes: t.productionNotes.notes||'',
+    // Legacy fields round-tripped verbatim — the UI no longer edits these
+    // (see the Round 42 comment on the `productionNotes` object in
+    // rowToTitle() above), only ever written back unchanged so nothing
+    // already saved under the old two-field layout is lost.
     proofingNotes: t.productionNotes.proofingNotes||'', typesettingNotes: t.productionNotes.typesettingNotes||'',
     lsiNotes: t.print.forLsiNotes||'', scbEbookCover: t.print.scbEbookCoverSpec||'', printerEstimates: t.print.printEstimate||'',
     futureEditionNotes: t.futureEdition.infoAndChanges||'', printReadyFiles: t.futureEdition.printReadyFilesStatus||'Not Ready',
@@ -1001,7 +1029,7 @@ function defTitle(o={}){
     print:{printEstimate:'',scbEbookCoverSpec:'1400px on shortest side / RGB',forLsiNotes:'',printerContacts:PRINTER_DEF.map(p=>Object.assign({},p))},
     publicity:{publicityStatement:'',prContact:'',marketing:''},
     toc:{tableOfContents:'',howICameToWriteThis:'',excerpt:'',competingTitles:''},
-    productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),proofingNotes:'',typesettingNotes:''},
+    productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),notes:'',proofingNotes:'',typesettingNotes:''},
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
     quickNotes:[], poManualNotes:'',
@@ -1516,8 +1544,17 @@ function getSectionStatus(t,key){
 // (round 2's fix, see the .forEach a few lines down), and the jump-nav
 // sidebar/accordion both just iterate SECTION_KEYS in whatever order it's
 // in — so nothing else needed touching to make this change.
-const SECTION_KEYS = ['dates','commercial','content','author','pipeline','print','publicity','toc','productionNotes','poTracker','futureEdition'];
-const SECTION_LABEL_TEXT = {commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content & Marketing',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Production Notes',futureEdition:'Info & Future Edition'};
+// Round 42 (2026-09-03) — David's own framing of how the Hub's pipeline
+// actually flows ("roughly commercial, then content, then production and
+// finally PO Tracking/future edition") reordered into four soft groups
+// rather than the previous ad-hoc order; Mia Chen's recommendation (shown
+// in the approved mockup) on where Publicity/Dates land within that.
+// SECTION_GROUPS below maps each key to its group so the sidebar can band
+// them subtly (see the toc-sidenav build in renderDetail()) without adding
+// a hard visual divider David didn't ask for.
+const SECTION_KEYS = ['commercial','dates','publicity','content','author','toc','pipeline','print','productionNotes','poTracker','futureEdition'];
+const SECTION_LABEL_TEXT = {commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content & Marketing',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Proofing & Production Notes',futureEdition:'Info & Future Edition'};
+const SECTION_GROUPS = {commercial:'commercial',dates:'commercial',publicity:'commercial',content:'content',author:'content',toc:'content',pipeline:'production',print:'production',productionNotes:'production',poTracker:'wrapup',futureEdition:'wrapup'};
 const SECTION_LABELS = {};
 SECTION_KEYS.forEach((k,i)=>{ SECTION_LABELS[k] = (i+1)+'. '+SECTION_LABEL_TEXT[k]; });
 // Round 6, item 4 — REVERSES the rounds 1/2 instruction that Pipeline/PO
@@ -2055,7 +2092,38 @@ function renderDetail(){
   // hand-written <a> prepended to the same nav, sharing the identical
   // click-to-scroll/active-highlight mechanics via jumpToTop() and the
   // 'top' data-section-key (see jumpToTop()/updateSectionScrollSpy() below).
-  const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav"><a class="toc-side-item" data-section-key="top" href="#dtop-${t.id}" onclick="jumpToTop('${t.id}');return false;">Top</a>${SECTION_KEYS.map(k=>`<a class="toc-side-item" data-section-key="${k}" href="#asec-${t.id}-${k}" onclick="jumpToSection('${t.id}','${k}');return false;">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`).join('')}</nav>`;
+  // Round 42 (2026-09-03) — subtle sidebar banding by SECTION_GROUPS
+  // (commercial/content/production/wrapup): the first item of a new group
+  // gets a little extra top space + a faint divider line (.toc-group-start,
+  // CSS in index.html) rather than a hard section break or a text label —
+  // David's own word was "subtly" when he asked about this.
+  let _prevGroup=SECTION_GROUPS[SECTION_KEYS[0]]; // seeded so the very first section (right under "Top") never gets a redundant divider
+  const tocNavHtml=`<nav class="toc-sidenav" id="toc-nav"><a class="toc-side-item" data-section-key="top" href="#dtop-${t.id}" onclick="jumpToTop('${t.id}');return false;">Top</a>${SECTION_KEYS.map(k=>{
+    const grp=SECTION_GROUPS[k];
+    const isGroupStart = grp!==_prevGroup;
+    _prevGroup=grp;
+    return `<a class="toc-side-item${isGroupStart?' toc-group-start':''}" data-section-key="${k}" href="#asec-${t.id}-${k}" onclick="jumpToSection('${t.id}','${k}');return false;">${esc(SECTION_LABEL_TEXT[k]||k)}</a>`;
+  }).join('')}</nav>`;
+  // Round 42 (2026-09-03) — David's full title-block redesign, approved via
+  // Mia's mockup (see feedback_bph_scope_and_mockup_first memory for the
+  // standing "mockup before live" rule this followed):
+  //  - imprint dot removed from the title row entirely — replaced with a
+  //    corner ribbon on the cover thumbnail itself (imprintRibbonHtml below).
+  //  - imprint SELECT moved out of this box into Dates & Scheduling
+  //    (renderDates()) — no longer rendered here at all.
+  //  - subtitle/author restyled (CSS: same font as title, no italics,
+  //    author slightly smaller) — see .detail-subtitle-input/.detail-
+  //    author-input in index.html.
+  //  - author role pill moved to AFTER the name (was before) — David's
+  //    brief asked the question, Mia's recommendation (approved) was
+  //    "after": the name is the scannable part, the pill is a qualifier.
+  //  - new order: Title → Subtitle → Author → Street date (own boxed,
+  //    prominent line) → Progress dropdown (status select, not full-width)
+  //    → Pipeline strip (bigger, full box width).
+  const imprintRibbonHtml=`<div class="detail-imprint-ribbon" data-imprint="${imprintKey(t.imprint)}">${esc(imprintName(t.imprint))}</div>`;
+  const streetPrintHtml = (t.dates.streetDate || (pd&&!isPublished(t)) || daysHtml)
+    ? `<div class="detail-streetbox">${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}${daysHtml}</div>`
+    : '';
   main.innerHTML=`
     <div class="detail-header-row">
       <button class="detail-back" onclick="gotoTitles()">&#8592; All Titles</button>
@@ -2064,30 +2132,28 @@ function renderDetail(){
     <div class="detail-layout">
       ${tocNavHtml}
       <div class="detail-content">
-        <div class="detail-top" id="dtop-${t.id}">
-          <div class="detail-cover" title="Set the Cover Image URL below to show a real thumbnail here">${coverHtml}</div>
-          <div class="detail-info">
-            <div class="detail-title-row"><span class="imprint-dot" data-imprint="${imprintKey(t.imprint)}" style="background:var(--imprint-${imprintKey(t.imprint)==='oowp'?'oowp':'headpress'})" title="${esc(imprintName(t.imprint))}"></span><input type="text" class="detail-title-input" id="f-${t.id}-title" value="${esc(t.title)}" placeholder="Title" oninput="onDetailFieldChange('${t.id}','title',this.value)"></div>
-            <input type="text" class="detail-subtitle-input" id="f-${t.id}-subtitle" value="${esc(t.subtitle)}" placeholder="Subtitle (optional)" oninput="onDetailFieldChange('${t.id}','subtitle',this.value)">
-            <div class="detail-author-row">
-              ${contribRoleSelectHtml(`f-${t.id}-contribRole`,t.id,t.authorInfo.contributorRole)}
-              <input type="text" class="detail-author-input" id="f-${t.id}-authors" value="${esc(t.authors)}" placeholder="Author/Editor name(s)" oninput="onDetailFieldChange('${t.id}','authors',this.value)">
-            </div>
-            ${t.authors?`<div class="detail-author-preview" id="detail-author-preview-${t.id}">Displays as: “${esc(contributorLabel(t))}”</div>`:''}
-            <div class="detail-meta-row">
-              ${statusEditSelect(t)}
-              ${imprintEditSelect(t)}
-              ${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}
-              ${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}
-              ${daysHtml}
-            </div>
-            <div class="detail-strip-wrap">
-              <div class="detail-strip-label">Production Pipeline — click to cycle status</div>
-              <div class="detail-strip" id="detail-strip-${t.id}">${detailStrip}</div>
+        <div class="detail-merged-box" id="dtop-${t.id}">
+          <div class="detail-top-grid">
+            <div class="detail-cover" title="Set the Cover Image URL below to show a real thumbnail here">${coverHtml}${imprintRibbonHtml}</div>
+            <div class="detail-info">
+              <div class="detail-title-row"><input type="text" class="detail-title-input" id="f-${t.id}-title" value="${esc(t.title)}" placeholder="Title" oninput="onDetailFieldChange('${t.id}','title',this.value)"></div>
+              <input type="text" class="detail-subtitle-input" id="f-${t.id}-subtitle" value="${esc(t.subtitle)}" placeholder="Subtitle (optional)" oninput="onDetailFieldChange('${t.id}','subtitle',this.value)">
+              <div class="detail-author-row">
+                <input type="text" class="detail-author-input" id="f-${t.id}-authors" value="${esc(t.authors)}" placeholder="Author/Editor name(s)" oninput="onDetailFieldChange('${t.id}','authors',this.value)">
+                ${contribRoleSelectHtml(`f-${t.id}-contribRole`,t.id,t.authorInfo.contributorRole)}
+              </div>
+              ${t.authors?`<div class="detail-author-preview" id="detail-author-preview-${t.id}">Displays as: “${esc(contributorLabel(t))}”</div>`:''}
+              ${streetPrintHtml}
+              <div class="detail-meta-row detail-progress-row">${statusEditSelect(t)}</div>
+              <div class="detail-strip-wrap">
+                <div class="detail-strip-label">Production Pipeline — click to cycle status</div>
+                <div class="detail-strip detail-strip-lg" id="detail-strip-${t.id}">${detailStrip}</div>
+              </div>
             </div>
           </div>
+          <div class="detail-dashed-divider"></div>
+          ${renderLinksStrip(t)}
         </div>
-        ${renderLinksStrip(t)}
         ${renderExportButtons(t)}
         ${renderKeyContacts(t)}
         <div class="accordion" id="accordion-${t.id}">${accordionHtml}</div>
@@ -2233,7 +2299,12 @@ function renderLinksStrip(t){
   const ghUrl=coverGithubUrl(t.coverThumbnailFile);
   const coversFolderUrl=`https://github.com/${GITHUB_REPO}/tree/${GITHUB_REPO_BRANCH}/covers`;
   const lockBtn=(field,locked)=>`<button class="lock-btn ${locked?'locked':'unlocked'}" title="${locked?'Locked — click to unlock and edit':'Unlocked — click to lock again'}" onclick="toggleLinkLock('${id}','${field}')">${locked?'&#128274;':'&#128275;'}</button>`;
-  return `<div class="links-strip-box">
+  // Round 42 (2026-09-03) — no longer its own boxed section: David asked
+  // for this merged visually into the title block above, divided by a
+  // dashed line rather than a separate box. renderDetail() now supplies
+  // the box chrome (.detail-merged-box) and the divider; this function
+  // just returns its label + rows, unwrapped.
+  return `<div class="links-strip-inner">
     <div class="links-strip-label">Cover &amp; Folder Links</div>
     <div class="folder-links-row">
       <div class="folder-link-group">
@@ -3197,7 +3268,11 @@ function renderDates(t){const id=t.id;const d=t.dates;
   // it too. Fix: input now comes FIRST (lines up with every sibling input
   // in the grid), auto-calculate checkbox is a small caption BELOW it
   // instead — functionally identical, but no longer disturbs row alignment.
+  // Round 42 (2026-09-03) — Imprint moved here from the top title block per
+  // David's brief ("doesn't need to be in the first box"). Same
+  // imprintEditSelect(t) control/handler as before, just relocated.
   return `<div class="field-grid">
+    ${frow('Imprint',imprintEditSelect(t))}
     ${frow('Release Block',releaseBlockSelectHtml(`f-${id}-releaseBlock`,id,t.blockId))}
     ${frow('Soft Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-softDate" value="${esc(d.softDate)}" onchange="fc('${id}','dates.softDate',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${d.softDate?'':' is-empty'}">${esc(d.softDate?formatDateLong(d.softDate):'')}</span></div>`)}
     ${frow('Street Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${d.streetDate?'':' is-empty'}">${esc(d.streetDate?formatDateLong(d.streetDate):'')}</span></div>`)}
@@ -3213,9 +3288,15 @@ function renderPrint(t){const id=t.id;const p=t.print;
       <button class="btn-danger btn-sm" onclick="removePrinterContact('${id}',${i})">Remove</button>
     </div>`).join('');
   return `<div class="field-grid">
-    ${frow('Print Estimate / Quotes',richTa(id,'printEstimate','print.printEstimate',p.printEstimate,'Record printer quotes here…'),'full')}
-    ${frow('SCB eBook Cover Spec',inp(`f-${id}-scbSpec`,p.scbEbookCoverSpec,'',`fc('${id}','print.scbEbookCoverSpec',this.value)`),'full')}
-    ${frow('For LSI Notes',richTa(id,'forLsi','print.forLsiNotes',p.forLsiNotes,''),'full')}
+    ${frow('Notes',richTa(id,'printEstimate','print.printEstimate',p.printEstimate,'Record printer quotes here…'),'full')}
+    <!-- Round 42 (2026-09-03) — David: drop these two from Print & Distribution.
+         Hidden, not deleted — the underlying data (print.scbEbookCoverSpec /
+         print.forLsiNotes) is untouched and still saved on every write via
+         titleToRow(), so nothing is lost if either needs to come back. -->
+    <div class="hidden">
+      ${frow('SCB eBook Cover Spec',inp(`f-${id}-scbSpec`,p.scbEbookCoverSpec,'',`fc('${id}','print.scbEbookCoverSpec',this.value)`),'full')}
+      ${frow('For LSI Notes',richTa(id,'forLsi','print.forLsiNotes',p.forLsiNotes,''),'full')}
+    </div>
     <div class="field-group full"><label class="field-label">Printer Contacts</label>
       <div class="printer-contacts">${contactRows}</div>
       <button class="btn btn-sm" style="margin-top:8px" onclick="addPrinterContact('${id}')">+ Add Printer Contact</button>
@@ -3498,10 +3579,14 @@ function renderProductionNotes(t){const id=t.id;
     <input type="checkbox" id="chk-${id}-${i}" ${c.checked?'checked':''} onchange="checklistChange('${id}',${i},this.checked)">
     <label for="chk-${id}-${i}">${esc(c.text)}</label>
   </div>`).join('');
+  // Round 42 (2026-09-03) — Proofing Notes + Typesetting Notes collapsed
+  // into one field per David's brief ("just a single text block"); see the
+  // rowToTitle()/titleToRow() comments on `productionNotes.notes` for how
+  // any title with real legacy content in both old fields gets it preserved
+  // (merged, labelled) rather than dropped.
   return `<div class="checklist">${items}</div>
   <div class="field-grid" style="margin-top:14px">
-    ${frow('Proofing Notes',richTa(id,'proofingNotes','productionNotes.proofingNotes',t.productionNotes.proofingNotes,''),'full')}
-    ${frow('Typesetting Notes',richTa(id,'typesettingNotes','productionNotes.typesettingNotes',t.productionNotes.typesettingNotes,''),'full')}
+    ${frow('Notes',richTa(id,'prodNotes','productionNotes.notes',t.productionNotes.notes,''),'full')}
   </div>`;}
 
 function renderFutureEdition(t){const id=t.id;const f=t.futureEdition;

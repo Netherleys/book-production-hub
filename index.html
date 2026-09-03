@@ -489,7 +489,19 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    (David, 2026-08-12) — same value as .accord-section below uses, so
    jumpToTop()'s scrollIntoView() clears the fixed header the same way every
    other sidebar jump target already does. */
-.detail-top{scroll-margin-top:calc(var(--hh) + 46px);display:grid;grid-template-columns:140px 1fr;gap:22px;margin-bottom:16px;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);padding:18px;box-shadow:var(--shadow-sm)}
+/* Round 42 (2026-09-03) — .detail-top split in two: .detail-merged-box now
+   carries the box chrome (background/border/shadow/padding/scroll-margin)
+   that used to belong to .detail-top alone, because the title block and
+   Cover & Folder Links are now ONE visual box (David's ask), divided
+   internally by .detail-dashed-divider rather than being two separate
+   bordered boxes stacked with a margin between them. .detail-top-grid keeps
+   just the original two-column grid layout, unwrapped from any box styling
+   of its own — renderLinksStrip()'s content (now unwrapped, see
+   .links-strip-inner) sits inside the same outer box, below the divider. */
+.detail-merged-box{scroll-margin-top:calc(var(--hh) + 46px);margin-bottom:16px;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);padding:18px;box-shadow:var(--shadow-sm)}
+.detail-top-grid{display:grid;grid-template-columns:140px 1fr;gap:22px}
+.detail-dashed-divider{border:none;border-top:3px dashed var(--sage);margin:20px 0 16px}
+.links-strip-inner .links-strip-label{margin-top:0}
 /* Item 3 (Round 2) — same fix as .book-cover above: fixed width (matches
    the detail-top grid's 140px column), natural height instead of a forced
    200px crop-box, min/max-height clamp only for extreme outliers. */
@@ -500,7 +512,23 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    (see .detail-top just above). Both flattened to --surface2 so the cover
    slot — image or empty — blends into the surrounding cream box instead of
    reading as its own separate tan panel. */
-.detail-cover{width:140px;min-height:120px;max-height:280px;background:var(--surface2);border-radius:var(--r4);overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
+/* Round 42 (2026-09-03) — bold border per David's brief; border-box so the
+   existing width:140px stays the true outer footprint (matches the grid's
+   140px column exactly, same reasoning already documented above for why
+   this box is a fixed width). position:relative unchanged — the new
+   imprint ribbon (.detail-imprint-ribbon below) anchors off it, replacing
+   the imprint dot that used to sit in the title row. */
+.detail-cover{width:140px;min-height:120px;max-height:280px;background:var(--surface2);border-radius:var(--r4);border:3px solid var(--card-border);box-sizing:border-box;overflow:hidden;flex-shrink:0;display:flex;align-items:center;justify-content:center;position:relative}
+/* Corner ribbon replacing the old .imprint-dot in the detail title row
+   (David: it shouldn't be the first thing you see there). Same
+   --imprint-headpress/--imprint-oowp tokens as everywhere else in the app.
+   Kept genuinely simple (solid band, small text, no diagonal/rotation)
+   since .detail-cover is a small, non-card element — the card grid's
+   fancier diagonal .card-attention ribbon technique doesn't have room to
+   work at this size. */
+.detail-imprint-ribbon{position:absolute;top:0;right:0;padding:3px 8px;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#fff;background:var(--imprint-accent);border-bottom-left-radius:var(--r4);z-index:2}
+.detail-imprint-ribbon[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
+.detail-imprint-ribbon[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
 .detail-cover img{width:100%;height:auto;max-height:280px;object-fit:contain;display:block;background:var(--surface2)}
 .detail-info{display:flex;flex-direction:column;gap:8px;min-width:0}
 .detail-title-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
@@ -519,11 +547,17 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 input[type=text].detail-title-input{font-family:var(--serif);font-size:1.4rem;font-weight:600;color:var(--text);line-height:1.2;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:var(--r4);width:auto;flex:1;min-width:160px}
 input[type=text].detail-title-input:hover{border-color:var(--border)}
 input[type=text].detail-title-input:focus{border-color:var(--sage);background:var(--surface);outline:none}
-input[type=text].detail-subtitle-input{font-family:var(--serif);font-size:1rem;color:var(--text2);font-style:italic;border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:var(--r4);width:100%;margin-top:2px}
+/* Round 42 (2026-09-03) — David: Subtitle should read as "same font as
+   Title, no italics, slightly smaller than Title" (Title is 1.4rem, see
+   .detail-title-input above). Italic dropped (was the app's original
+   convention here) along with the now-redundant :focus font-style reset. */
+input[type=text].detail-subtitle-input{font-family:var(--serif);font-size:1.2rem;font-weight:500;color:var(--text2);border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:var(--r4);width:100%;margin-top:2px}
 input[type=text].detail-subtitle-input:hover{border-color:var(--border)}
-input[type=text].detail-subtitle-input:focus{border-color:var(--sage);background:var(--surface);outline:none;font-style:normal}
+input[type=text].detail-subtitle-input:focus{border-color:var(--sage);background:var(--surface);outline:none}
 .detail-author-row{display:flex;align-items:center;gap:8px;margin-top:2px;flex-wrap:wrap}
-input[type=text].detail-author-input{font-size:.9rem;color:var(--text2);border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:var(--r4);flex:1;min-width:140px}
+/* Round 42 — "as subtitle" styling per David's brief; role pill (below)
+   moved to render AFTER this input in app.js now, not before. */
+input[type=text].detail-author-input{font-family:var(--serif);font-size:1.1rem;color:var(--text2);border:1px solid transparent;background:transparent;padding:2px 4px;border-radius:var(--r4);flex:1;min-width:140px}
 input[type=text].detail-author-input:hover{border-color:var(--border)}
 input[type=text].detail-author-input:focus{border-color:var(--sage);background:var(--surface);outline:none}
 /* Round 5, item 2 — contributor-role selector (Author(s)/Editor(s)/
@@ -547,6 +581,24 @@ input[type=text].detail-author-input:focus{border-color:var(--sage);background:v
 .contrib-role-select:focus{outline:none;border-color:var(--sage)}
 .detail-author-preview{font-size:.72rem;color:var(--text3);font-style:italic;margin-top:-2px}
 .detail-meta-row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;font-size:.82rem;color:var(--text3)}
+/* Round 42 (2026-09-03) — Street/Print/days-to-print pulled out of the old
+   shared meta-row into its own prominent boxed line, per David's brief
+   ("more prominent, font a la author/subtitle, with a box frame"). Reuses
+   .detail-author-input's 1.1rem sizing rather than inventing a new size, so
+   this reads as the same visual weight as the author line just above it. */
+.detail-streetbox{display:flex;flex-wrap:wrap;gap:14px;align-items:center;font-size:1.1rem;color:var(--text2);font-weight:600;border:1.5px solid var(--card-border);border-radius:var(--r4);padding:7px 12px;margin-top:8px;background:var(--surface)}
+/* Round 42 — Progress dropdown (statusEditSelect, the status badge/select)
+   no longer needs to span the full box width now that it's on its own
+   line rather than sharing .detail-meta-row with the imprint select/dates
+   that used to sit beside it (those moved out — see renderDates()/the
+   streetbox above). align-items keeps it left-aligned/compact rather than
+   stretching. */
+.detail-progress-row{margin-top:8px;align-items:flex-start}
+/* Round 42 — Production Pipeline strip made bigger/more prominent, per
+   David's brief ("we can actually afford this to be box-wide"). Reuses
+   .detail-p-dot's existing hover/tooltip behaviour untouched — only the
+   base square size grows. */
+.detail-strip-lg .detail-p-dot{width:26px;height:26px}
 /* Item 3 (Round 3) — real editable imprint control, replacing the plain
    read-only <span> that used to sit here (imprint could only ever be set
    once, at title-creation, in the Add Title modal — a genuine missing
@@ -656,7 +708,13 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
    than three loose fields inside detail-info. Pulls in Cover Image URL /
    Images Folder / Working Folder, previously rendered inline there (see
    renderLinksStrip() in app.js, renamed from renderFolderLinksRow()). ── */
+/* Round 42 (2026-09-03) — no longer used as its own box (see
+   .detail-merged-box in the DETAIL VIEW block below); .links-strip-inner
+   is the plain, unboxed wrapper renderLinksStrip() now returns. Rule kept
+   only so nothing regresses if any old cached markup briefly references
+   the class name during a hard-refresh race. */
 .links-strip-box{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);padding:16px;margin-bottom:16px}
+.links-strip-inner{margin:0}
 .links-strip-label{font-family:var(--serif);font-size:.95rem;font-weight:600;color:var(--text);margin-bottom:10px}
 .folder-links-row{display:flex;gap:16px;flex-wrap:wrap}
 /* Round 28 (2026-08-26) — min-width trimmed 220px->190px so the new fourth
@@ -672,8 +730,8 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
    unaffected). David's reasoning: these four fields are one-time fills per
    book, glanced at rather than read on every visit to a title card, so they
    don't need the same visual weight as those two export buttons. */
-.links-strip-box .btn-export{padding:6px 12px;font-size:.76rem}
-.links-strip-box .link-value-edit{font-size:.68rem;padding:2px 4px}
+.links-strip-box .btn-export,.links-strip-inner .btn-export{padding:6px 12px;font-size:.76rem}
+.links-strip-box .link-value-edit,.links-strip-inner .link-value-edit{font-size:.68rem;padding:2px 4px}
 /* Round 11, items 2b/2c (2026-08-11) — the raw bold full-width paths David
    flagged as "messy" (Team Inbox/Cover & Folder Links layout messy.png):
    Cover Image URL / Images Folder / Working Folder used to render as plain
@@ -743,6 +801,14 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
 .toc-side-item{display:block;font-size:.76rem;color:rgba(255,255,255,.75);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:6px;padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:background .15s}
 .toc-side-item:hover{background:rgba(255,255,255,.18);color:#fff}
 .toc-side-item.active{background:#fff;color:#111;border-color:#fff;font-weight:600}
+/* Round 42 (2026-09-03) — subtle group banding (Commercial/Content/
+   Production/Wrap-up), per David's ask about following the pipeline's real
+   flow. Deliberately just spacing + a faint line, no group-label text —
+   "subtly", his word. See the SECTION_GROUPS/toc-group-start build in
+   renderDetail() (app.js) — that JS already seeds the very first section
+   as "not a group start" (it sits right under "Top", a divider there would
+   be redundant), so no CSS-side exclusion is needed here. */
+.toc-side-item.toc-group-start{margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.14)}
 @media (max-width:900px){
   .detail-layout{flex-direction:column}
   .toc-sidenav{position:sticky;top:var(--hh);width:100%;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-height:none}
@@ -869,16 +935,15 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
    the box — so a 1.5em margin under-shoots a true blank line visually. Gone
    bigger deliberately this time (not incremental): 1.5em → 2.2em, the top
    of the brief's suggested 2–2.2em range, comfortably past one full
-   line-height so it can't be read as anything other than a skipped line. */
-.richtext p,.richtext div{margin-bottom:2.2em}
+   line-height so it can't be read as anything other than a skipped line.
+   Round 42 (2026-09-03) — 2026-09-02's Jacket-Blurb-only halving (2.2em →
+   1.1em) was scoped too narrowly: David's actual ask was every richtext
+   field, not just Jacket Blurb, and he flagged the narrow scoping as a
+   mistake ("in future question me about it"). Base rule now carries 1.1em
+   for every field; the old `[id$="-jacketBlurb"]` override below is gone
+   since it's redundant against an identical base value. */
+.richtext p,.richtext div{margin-bottom:1.1em}
 .richtext p:last-child,.richtext div:last-child{margin-bottom:0}
-/* 2026-09-02 — David: Jacket Blurb specifically reads as too much paragraph
-   gap, asked for it halved. Scoped to Jacket Blurb only (not every richtext
-   field app-wide) via richTa()'s editId pattern in app.js — `f-<titleId>-
-   jacketBlurb`, one per title, hence the attribute-suffix selector rather
-   than a single id. Full Description/TOC/Author Bio/etc. keep the original
-   2.2em from the Round 7 sizing above. */
-.richtext[id$="-jacketBlurb"] p,.richtext[id$="-jacketBlurb"] div{margin-bottom:1.1em}
 /* Item 8 (2026-08-11) — numbered lists (execCommand('insertOrderedList'),
    see the "1." toolbar button in richTa(), app.js). Deliberately NOT given
    the same 2.2em paragraph gap as .richtext p/div above — that spacing was
