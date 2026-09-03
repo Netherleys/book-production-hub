@@ -2952,6 +2952,42 @@ function plainToRichHtml(val){
   if(/<[a-z][\s\S]*>/i.test(val)) return val; // already real HTML — leave untouched
   return val.split(/\r?\n/).map(line=>line.trim()?`<p>${esc(line)}</p>`:'').join('');
 }
+// 2026-09-03 (David request) — em dash autocorrect. David's actual em-dash
+// keystroke collides with Chrome's own shortcuts (Ctrl+1-8 tab-jump, Ctrl+0
+// zoom-reset), which is what triggered the field-wipe incident the Title
+// blank-save guard protects against. Rather than chase a collision-free OS
+// keystroke, David asked for Word/Docs-style autocorrect instead: typing two
+// literal hyphens converts them to a real em dash immediately, as you type —
+// sidesteps the OS/browser shortcut layer entirely since it's plain text
+// input. Scoped to richTa() only (every field this touches is already a
+// prose/rich-text field by construction — Title/Subtitle/Author/ISBN/dates
+// all use plain <input> elements elsewhere in this file, untouched by this).
+// Known tradeoff, not solved: someone who genuinely wants two literal
+// hyphens (rare in this app's fields) has no per-keystroke opt-out short of
+// Ctrl+Z immediately after the conversion fires.
+function emDashAutocorrect(el){
+  const sel=window.getSelection();
+  if(!sel||!sel.isCollapsed||!sel.rangeCount) return;
+  const range=sel.getRangeAt(0);
+  const node=range.startContainer;
+  if(node.nodeType!==Node.TEXT_NODE||!el.contains(node)) return;
+  const offset=range.startOffset;
+  if(offset<2) return;
+  const text=node.textContent;
+  if(text.slice(offset-2,offset)!=='--') return;
+  if(text.slice(offset-3,offset-2)==='-') return; // 3+ hyphens in a row — leave alone rather than guess
+  node.textContent = text.slice(0,offset-2) + '—' + text.slice(offset);
+  const newRange=document.createRange();
+  newRange.setStart(node, offset-1);
+  newRange.collapse(true);
+  sel.removeAllRanges();
+  sel.addRange(newRange);
+}
+function richTaOnInput(el,titleId,path){
+  emDashAutocorrect(el);
+  fc(titleId,path,el.innerHTML);
+  el.dataset.empty = el.innerText.trim()?'0':'1';
+}
 function richTa(titleId,fieldKey,path,val,ph){
   const editId=`f-${titleId}-${fieldKey}`;
   const isEmpty = !val || !val.replace(/<[^>]+>/g,'').trim();
@@ -2971,7 +3007,7 @@ function richTa(titleId,fieldKey,path,val,ph){
       <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('insertOrderedList')" title="Numbered list">1.</button>
     </div>
     <div id="${editId}" class="richtext" contenteditable="true" data-placeholder="${esc(ph)}" data-empty="${isEmpty?'1':'0'}"
-      oninput="fc('${titleId}','${path}',this.innerHTML);this.dataset.empty=this.innerText.trim()?'0':'1'"
+      oninput="richTaOnInput(this,'${titleId}','${path}')"
       onfocus="this.dataset.wasEmpty=this.dataset.empty;try{document.execCommand('defaultParagraphSeparator',false,'p')}catch(e){}" onblur="this.dataset.empty=this.innerText.trim()?'0':'1'"
       >${displayHtml}</div>
   </div>`;
