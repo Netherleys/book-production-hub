@@ -447,7 +447,9 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    between the author line and the deadline colour-line below it. */
 .card-dates{font-size:.72rem;color:var(--text3);display:flex;gap:10px;flex-wrap:wrap}
 .card-deadline{font-size:.73rem;font-weight:600;margin-top:1px}
-.card-deadline.published{color:var(--sage)}
+/* Round 45 — .card-deadline.published retired: computeDayInfo()'s
+   isPublished() branch now hands back colorClass 'ok' (In Print/Published
+   merge), same sage colour .ok already gives, one rule instead of two. */
 .card-deadline.ok{color:var(--sage)}
 .card-deadline.notice{color:var(--amber-border)}
 .card-deadline.due-soon{color:#B8722E}
@@ -810,8 +812,19 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
 .detail-layout{display:flex;align-items:flex-start;gap:20px}
 .detail-content{flex:1;min-width:0;max-width:var(--detail-width)}
 .toc-sidenav{position:sticky;top:calc(var(--hh) + 16px);z-index:40;display:flex;flex-direction:column;gap:4px;width:170px;flex-shrink:0;background:#111;border-radius:var(--r8);padding:10px;max-height:calc(100vh - var(--hh) - 32px);overflow-y:auto}
-.toc-side-item{display:block;font-size:.76rem;color:rgba(255,255,255,.75);background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.14);border-radius:6px;padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:background .15s}
-.toc-side-item:hover{background:rgba(255,255,255,.18);color:#fff}
+/* Round 43 (2026-09-04), MOCKUP — sidebar contrast fix. David: the
+   section-dividing buttons were reading too close to the sidebar's own
+   background, separation "somewhat lost". Both were already very close in
+   luminance: sidebar #111 vs. button rgba(255,255,255,.08) — an 8% white
+   lift over near-black, i.e. roughly #1c1c1c, barely distinguishable at a
+   glance. Kept "subtly" (David's own word, reused from the Round 42 group-
+   banding note just below) — didn't touch the sidebar's #111 background,
+   the hover state, or the active state (all already read clearly); only
+   the item's resting background/border opacity moved up, .08→.16 and
+   .14→.24, which lands around #1f1f1f — a small but real jump in the gap
+   against #111 without turning this into a redesign. */
+.toc-side-item{display:block;font-size:.76rem;color:rgba(255,255,255,.75);background:rgba(255,255,255,.16);border:1px solid rgba(255,255,255,.24);border-radius:6px;padding:6px 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;transition:background .15s}
+.toc-side-item:hover{background:rgba(255,255,255,.26);color:#fff}
 .toc-side-item.active{background:#fff;color:#111;border-color:#fff;font-weight:600}
 /* Round 42 (2026-09-03) — subtle group banding (Commercial/Content/
    Production/Wrap-up), per David's ask about following the pipeline's real
@@ -820,7 +833,7 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
    renderDetail() (app.js) — that JS already seeds the very first section
    as "not a group start" (it sits right under "Top", a divider there would
    be redundant), so no CSS-side exclusion is needed here. */
-.toc-side-item.toc-group-start{margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.14)}
+.toc-side-item.toc-group-start{margin-top:10px;padding-top:9px;border-top:1px solid rgba(255,255,255,.24)}
 @media (max-width:900px){
   .detail-layout{flex-direction:column}
   .toc-sidenav{position:sticky;top:var(--hh);width:100%;flex-direction:row;flex-wrap:nowrap;overflow-x:auto;overflow-y:hidden;max-height:none}
@@ -1610,7 +1623,10 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
      (onFilterStatus/onFilterImprint/onFilterBlock/onFilterPrintTiming/
      onFilterSort/onSearch, populateBlockFilter) is completely untouched.
      Order is David's exact approved sequence from the mockup: Search →
-     Sort → Release Block → Imprint → Status → Print Timing. -->
+     Sort → Release Block → Imprint → Status → Print Timing.
+     Round 44 (2026-09-05), MOCKUP — Status and Print Timing (the last two
+     in that sequence) are now ONE merged filter-status control; see its
+     own comment just below for why. -->
 <div class="layout-wrap">
   <div id="filter-panel-wrap">
     <input type="checkbox" id="filtersToggle" class="filters-toggle-input">
@@ -1670,20 +1686,35 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
         <option value="Headpress">Headpress</option>
         <option value="Oil On Water Press">Oil On Water Press</option>
       </select>
+      <!-- Round 44 (2026-09-05), MOCKUP — Status / Print Timing MERGE.
+           These used to be two separate filters (Status → t.status,
+           Print Timing → computeDayInfo(t).kind) reading off the same two
+           fields that were merged everywhere else this round (see the long
+           PRINT_STATUS_OVERRIDES/unifiedStateKey() comments in app.js) —
+           left as two here, they'd have kept disagreeing with each other
+           and with the now-single Status field shown on the card/detail
+           view, so they're merged into this one dropdown too. Options are
+           the full unifiedStateKey() list: the same 8 manual states plus
+           the 2 Auto-derived timing outcomes (X Days To Print/Print Date
+           Passed) that used to only live in Print Timing.
+
+           Round 45 (2026-09-05), MOCKUP — In Print/Published merge (David:
+           "In Print & Published can just read 'In Print'"). 'Published' is
+           removed as its own filter option — the Auto-derived "street date
+           passed" outcome that used to map to it now folds into 'In Print'
+           (see unifiedStateKey() in app.js), same as every other place this
+           merge touched. 8 manual states → 7. -->
       <select class="fs-select" id="filter-status" onchange="onFilterStatus(this.value)">
         <option value="">All Statuses</option>
-        <option value="In Progress">In Progress</option>
-        <option value="Not Scheduled">Not Scheduled</option>
-        <option value="Complete">Complete</option>
-        <option value="On Hold/Cancelled">On Hold/Cancelled</option>
-      </select>
-      <!-- Item 14: filter by print-timing status (not scheduled / passed / X days) -->
-      <select class="fs-select" id="filter-printtiming" onchange="onFilterPrintTiming(this.value)">
-        <option value="">All Print Timing</option>
-        <option value="notscheduled">Not Scheduled</option>
+        <option value="not_scheduled">Not Scheduled</option>
+        <option value="in_progress">In Progress</option>
+        <option value="print_ready">Print Ready</option>
+        <option value="in_print">In Print</option>
         <option value="duesoon">X Days To Print</option>
         <option value="overdue">Print Date Passed</option>
-        <option value="published">Published</option>
+        <option value="out_of_print">Out of Print</option>
+        <option value="delayed_hold">Delayed/On Hold</option>
+        <option value="cancelled">Cancelled</option>
       </select>
     </aside>
   </div>
@@ -1783,12 +1814,25 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
         <option value="Oil On Water Press">Oil On Water Press</option>
       </select>
     </div>
+    <!-- Round 44 (2026-09-05), MOCKUP — options match the merged status
+         list everywhere else now (PRINT_STATUS_OVERRIDES in app.js).
+         confirmAddTitle() applies this through applyUnifiedStatus(), same
+         as any other change to the merged control, rather than writing
+         straight to t.status like this used to. Empty value = Auto/Not
+         Scheduled, the sensible default for a brand-new title with no
+         dates yet.
+         Round 45 (2026-09-05) — 'Published' removed (In Print/Published
+         merge — see PRINT_STATUS_OVERRIDES comment in app.js); 'In Print'
+         now covers both meanings. -->
     <div class="modal-field"><label>Status</label>
       <select id="new-status">
-        <option value="Not Scheduled">Not Scheduled</option>
+        <option value="">Not Scheduled</option>
         <option value="In Progress">In Progress</option>
-        <option value="Complete">Complete</option>
-        <option value="On Hold/Cancelled">On Hold/Cancelled</option>
+        <option value="Print Ready">Print Ready</option>
+        <option value="In Print">In Print</option>
+        <option value="Out of Print">Out of Print</option>
+        <option value="Delayed/On Hold">Delayed/On Hold</option>
+        <option value="Cancelled">Cancelled</option>
       </select>
     </div>
     <div class="modal-footer">

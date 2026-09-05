@@ -122,7 +122,9 @@ const isPopoutReport = new URLSearchParams(location.search).get('popout') === 'r
 // useful default for a working list of this size, but 'recent' (below) gets
 // David back to something close to the old implicit order if he wants it,
 // just newest-first instead of oldest-first.
-let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', printTiming:'', sort:'alpha' }, isbnFilter = 'all';
+// Round 44 — filters.printTiming removed (merged into filters.status, now
+// holding a unifiedStateKey() value, see renderTitles()/onFilterStatus()).
+let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', sort:'alpha' }, isbnFilter = 'all';
 let isbnLocked = {}; // titleId -> {isbnPbk:bool, isbnHbk:bool, isbnEbk:bool} — true = locked (default). Item 18 lock mechanism, session-only by design (see build report).
 // Round 22, item 1 — same lock mechanism, applied to Cover & Folder Links'
 // three fields (coverThumbnailFile, imagesFolderLink, workingFolderLink).
@@ -260,6 +262,16 @@ function normalizeStatus(v){
 // consolidated Complete/Completed/Released into a single 'Complete' value
 // per David, and added 'On Hold/Cancelled' as a new distinct status (a
 // title that's stalled/dead, not simply "not yet scheduled").
+// Round 44 (2026-09-05) — STATUS_VALUES/statusEditSelect/onStatusChange
+// below are now LEGACY-ONLY: t.status is still a real, live field (still
+// what's written to the Sheet's `status` column, still what
+// isPublished()/the Progress Report scheduling filter read), but nothing
+// in the UI lets David set it directly here any more. It's now purely a
+// derived mirror kept in sync by applyUnifiedStatus() (see
+// PRINT_STATUS_OVERRIDES below) every time he picks a value on the ONE
+// merged Status control in Dates & Scheduling. Left intact rather than
+// deleted — same "don't delete, just stop calling it" precedent as
+// statusEditSelect's own Round 43 comment further down.
 const STATUS_VALUES=['Not Scheduled','In Progress','Complete','On Hold/Cancelled'];
 // Single source of truth for the badge/edit-control colour class, factored
 // out of renderDetail() so the same logic backs both the read-only card
@@ -1075,6 +1087,45 @@ function loadDevSampleData(){
     // date to pass.
     defTitle({id:'sample-3', title:'Sample Auto-Complete Title', authors:'Pat Editor', status:'In Progress', imprint:'Headpress',
       dates:{releaseBlock:'',softDate:'',streetDate:new Date(Date.now()-10*86400000).toISOString().slice(0,10), printDate:'', autoPrintDate:false}
+    }),
+    // Round 44 (2026-09-05), MOCKUP — new dev-preview fixtures exercising
+    // the merged Status field's states that had nothing to demo them
+    // before this round.
+    // sample-4 — pipeline work already started (Contract moved off 'Not
+    // Started') but NO dates picked yet. Before this round's
+    // computeDayInfo() fix this showed "Not scheduled" in Print Status
+    // while the old separate Status field said "In Progress" right next to
+    // it — the exact "working in opposition" bug David flagged. Now both
+    // read off the one merged Auto branch and agree: "In Progress".
+    defTitle({id:'sample-4', title:'Sample Early-Stage Title', authors:'Alex Writer', imprint:'Headpress',
+      pipeline:{stages: PIPELINE_STAGES.map((n,i)=>({name:n, status:i===0?'In Progress':'Not Started', expectedDate:'', notes:''}))}
+    }),
+    // sample-5 — manual 'Print Ready' override, a state that had no
+    // dedicated fixture before.
+    defTitle({id:'sample-5', title:'Sample Print Ready Title', authors:'Jordan Author', imprint:'Headpress',
+      status:'In Progress', statusAuto:false,
+      dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false,printStatusOverride:'Print Ready'}
+    }),
+    // sample-6 — manual 'Delayed/On Hold': still a real, live project, just
+    // stalled — SHOULD still show the attention ribbon (attention:true).
+    defTitle({id:'sample-6', title:'Sample Delayed Title', authors:'Sam Editor', imprint:'Oil On Water Press',
+      status:'On Hold/Cancelled', statusAuto:false,
+      dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false,printStatusOverride:'Delayed/On Hold'}
+    }),
+    // sample-7 — manual 'Cancelled': the NEW state this round split out
+    // from the old combined 'On Hold/Cancelled' — a dead project, should
+    // NOT show the attention ribbon (unlike sample-6 above), same
+    // "settled, not urgent" treatment as Out of Print.
+    defTitle({id:'sample-7', title:'Sample Cancelled Title', authors:'Robin Author', imprint:'Headpress',
+      status:'On Hold/Cancelled', statusAuto:false,
+      dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false,printStatusOverride:'Cancelled'}
+    }),
+    // sample-8 — manual 'Out of Print': was published, no longer being
+    // kept in print. Existed as an override option before this round but
+    // had no dev-preview fixture demonstrating it.
+    defTitle({id:'sample-8', title:'Sample Out of Print Title', authors:'Casey Writer', imprint:'Headpress',
+      status:'Complete', statusAuto:false,
+      dates:{releaseBlock:'',softDate:'',streetDate:new Date(Date.now()-400*86400000).toISOString().slice(0,10),printDate:'',autoPrintDate:false,printStatusOverride:'Out of Print'}
     })
   ], isbns:[
     {isbn:'978-1-909394-11-7', format:'', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null},
@@ -1354,7 +1405,15 @@ function hasAttention(t){
   // so a title David explicitly marked "In Print" would still flash the
   // attention dot from a Print Date that's since passed. "Delayed / On
   // Hold" is the one override value that SHOULD still flag attention.
-  if(t.dates.printStatusOverride) return t.dates.printStatusOverride==='Delayed/On Hold';
+  // Round 44 (2026-09-05) — reads the `attention` flag off
+  // PRINT_STATUS_OVERRIDES now instead of a hardcoded string compare, since
+  // the merge added more override values (Not Scheduled/In Progress/
+  // Published/Cancelled) that must NOT flag attention — only Delayed/On
+  // Hold still has attention:true there.
+  if(t.dates.printStatusOverride){
+    const cfg=PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride];
+    return !!(cfg && cfg.attention);
+  }
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   if(pd){const d=daysUntil(pd);if(d!==null&&d<=60&&!isPublished(t))return true;}
   return false;
@@ -1386,7 +1445,12 @@ function attentionLabel(t){
     const n=Math.abs(Math.min(...overdueDays));
     return n+(n===1?' DAY LATE':' DAYS LATE');
   }
-  if(t.dates.printStatusOverride==='Delayed/On Hold') return 'ON HOLD';
+  // Round 44 — this branch only runs once hasAttention(t) is already true
+  // (renderCard's only caller), and Delayed/On Hold is the sole override
+  // value with attention:true, so the literal check is still correct — but
+  // reading the flag keeps this in lockstep automatically if that ever
+  // changes, rather than needing a second hand-maintained string compare.
+  if(t.dates.printStatusOverride && PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride] && PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride].attention) return 'ON HOLD';
   const info=computeDayInfo(t);
   if(info.kind==='overdue'){ const n=Math.abs(info.days); return n+(n===1?' DAY LATE':' DAYS LATE'); }
   if(info.kind==='counting') return info.days+(info.days===1?' DAY':' DAYS');
@@ -1445,18 +1509,192 @@ function attentionLabel(t){
 function normalizePrintStatusOverride(v){
   if(v==='Printed') return 'In Print';
   if(v==='Delayed / On Hold') return 'Delayed/On Hold';
+  // Round 45 (2026-09-05), MOCKUP — 'Published' removed as of the In Print/
+  // Published merge below (David: "In Print & Published can just read 'In
+  // Print' — collapse those two into one state/label"). Same defensive
+  // self-healing remap pattern as the two lines above: 'Published' only
+  // ever existed as a selectable value for a few hours within this same
+  // mockup round (Round 44, earlier today) and was never written to the
+  // real Sheet, so there's no live data to migrate — but remapping it here
+  // costs nothing and means a stray old value (a browser tab left open
+  // mid-edit, a locally-cached draft, etc.) self-heals instead of silently
+  // falling through PRINT_STATUS_OVERRIDES as unrecognised.
+  if(v==='Published') return 'In Print';
   return v;
 }
+// Round 43 (2026-09-04), MOCKUP — 'Print Ready' added per David's brief.
+// Positioned FIRST among the manual overrides (right after "Auto (from
+// Print Date)"): it's the pre-press state — files finalised, waiting to go
+// to the printer — which sits logically before 'In Print' (actually being
+// printed) in this pipeline's real-world order, same reasoning the Round 14
+// comment above gives for the existing three. Object key order drives the
+// <option> order in renderDates() below (Object.keys(...).map(...)), so no
+// separate ordering list to keep in sync.
+// Given its own colour ('due-soon', the burnt-orange already used for the
+// "30-90 days to print" auto tier) rather than reusing 'notice' (already
+// spoken for by Delayed/On Hold) or 'ok' (already spoken for by In Print) —
+// keeps all four manual states visually distinct on the card grid.
+//
+// Round 44 (2026-09-05), MOCKUP — Print Status / Status MERGE, per David:
+// "they are working in opposition, unless I update both... is there a way
+// to amalgamate the two?" Before this round there were genuinely TWO
+// separate stored fields David could set independently and which could
+// visibly disagree: this override (schedule-side: Print Ready/In Print/
+// Delayed-On Hold/Out of Print, plus Auto) and t.status (the older
+// title-block field: Not Scheduled/In Progress/Complete/On Hold-Cancelled,
+// see STATUS_VALUES/statusEditSelect above — already made read-only in the
+// title block last round, but the underlying field was still separately
+// live and separately editable down here in Dates & Scheduling. Two knobs,
+// one dial). This map is now the SINGLE list behind ONE control (still this
+// same select in renderDates(), still surfaced read-only in the title block
+// via printStatusPill) that replaces both.
+//
+// Working through every real state, and how each old-field value maps in
+// (see applyUnifiedStatus() below for the actual sync code):
+//   - 'Not Scheduled' / 'In Progress' — Status's two "nothing to see here
+//     yet" / "somebody's working on it" values had no equivalent at all on
+//     the Print Status side (Print Status's Auto branch only ever looked at
+//     dates, never at whether pipeline work had actually started — see the
+//     computeDayInfo() Auto-branch comment below for the live bug that
+//     caused: a title with pipeline stages already moving but no dates yet
+//     used to show "Not scheduled" in Print Status while Status said "In
+//     Progress" right next to it). Folded in as their own manual override
+//     values, AND the Auto branch itself now also checks pipeline activity
+//     (below) so most titles never need the manual override at all — Auto
+//     alone now produces "In Progress" the moment real work starts, exactly
+//     what Status used to do on its own.
+//   - 'Print Ready' / 'In Print' — unchanged, Print Status's own values,
+//     no Status equivalent existed. Both mapped to legacy status 'In
+//     Progress' (still accurate — a book that's print-ready or in-print is,
+//     by any reasonable reading, still "in progress" until it's actually
+//     out/published) purely so any other code still reading t.status
+//     (Progress Report's block-scheduling filter, CSV/Sheet exports) keeps
+//     behaving sensibly without a wider rewrite.
+//   - 'Published' — this is the one field NEW to this list, but not a new
+//     CONCEPT: it's simply Status's 'Complete' promoted from the old
+//     title-block field into this one shared control, so "mark this
+//     published" is available as ONE explicit pick instead of two
+//     differently-named ones in two places (isPublished() already just
+//     checks legacy status==='Complete' under the hood — unchanged).
+//   - 'Out of Print' — unchanged, Print Status's own value (a book that WAS
+//     published and is now retired). No Status equivalent existed; mapped
+//     to legacy 'Complete' since it was, and remains, published.
+//   - 'Delayed/On Hold' vs the old 'On Hold/Cancelled' — THE decision David
+//     specifically asked to be reasoned through, not assumed. These are
+//     NOT the same real-world thing: "Delayed/On Hold" is a schedule-level
+//     pause — the book is still definitely happening, just later or
+//     paused for now (needs the attention ribbon exactly as before, since
+//     it's still something David needs to come back to and un-stick).
+//     "Cancelled" is a dead project — nothing left to schedule, chase, or
+//     flag for attention on. Collapsing those into one bucket (what the old
+//     'On Hold/Cancelled' value did) is exactly the kind of lost distinction
+//     David's brief warned against, so this split them into two separate
+//     values: 'Delayed/On Hold' (kept, attention:true, unchanged meaning)
+//     and a new standalone 'Cancelled' (attention:false — a dead title
+//     shouldn't keep flashing an urgency ribbon; it's settled, same
+//     colour/reasoning as Out of Print). Both map to legacy status 'On
+//     Hold/Cancelled' (the closest existing bucket) purely for old-code
+//     compatibility — the real distinction now lives entirely in this one
+//     field, which is what's actually shown/filtered on everywhere in the
+//     app after this round.
+// Net result (at the time of the Round 44 merge above): 8 real,
+// non-overlapping states (down from 4+4 minus the genuine overlaps, plus the
+// one genuinely new distinction (Cancelled) that merge surfaced) instead of
+// two fields that could contradict each other.
+// FLAGGED to David in the build report: 8 manual options + Auto is a full
+// dropdown — if that reads as too much in practice, the honest trade is
+// fewer options for less precision (e.g. re-merging Cancelled back into
+// Delayed/On Hold, or dropping the rarely-used Print Ready/Out of Print
+// pair) — his call, not guessed past here.
+//
+// Round 45 (2026-09-05), MOCKUP — David's answer to that exact flag, same
+// day: "In Print & Published can just read 'In Print' — collapse those two
+// into one state/label." Down from 8 manual states to 7 (plus Auto).
+// 'Published' is removed as a selectable value; 'In Print' now carries both
+// its own original meaning (actively at the printer) AND what 'Published'
+// used to mean (already available) under one label, per David's own framing
+// that the two didn't need separate wording.
+//
+// What this does and doesn't change underneath the single merged label:
+//   - The AUTO path (no override picked, isPublished(t) true because the
+//     Street Date has passed — see applyStatusAutoRules()/computeDayInfo()
+//     below) is what carried 'Published''s real meaning, and is untouched
+//     mechanically: it still fires exactly when it always did, off the same
+//     t.status==='Complete' check. The ONLY change there is cosmetic — the
+//     label computeDayInfo() hands back for that branch is now 'In Print'
+//     instead of 'Published', so an auto-completed title never gets stuck
+//     showing a retired label. This is the "auto-transition must still fire
+//     into In Print" behaviour — confirmed still working via sample-3
+//     ('Sample Auto-Complete Title') in dev preview.
+//   - The MANUAL 'In Print' override keeps its pre-merge legacyStatus of
+//     'In Progress', deliberately NOT changed to 'Complete' here. Reasoning:
+//     this map only has one row per label now, so one choice has to serve
+//     both the "still actively printing, still worth chasing" reading and
+//     the "already available" reading David just merged together — and
+//     Marcus's live-data check on 2026-08-12 (see the Round 14 comment
+//     above) found the ONLY two real rows already using 'In Print' were
+//     using it for the *first* meaning (still-active), with 'Published' not
+//     even existing as an option yet at that point. Keeping legacyStatus as
+//     'In Progress' preserves those two real rows' existing behaviour
+//     (still counted as not-yet-published for isPublished()/the Progress
+//     Report scope/exports) rather than silently reclassifying live data as
+//     part of a label-only merge David didn't ask to extend that far.
+//     FLAGGED, not silently assumed: if David is manually picking 'In Print'
+//     specifically to mean "already published and available" for a given
+//     title, that title will still show up in the Progress Report and won't
+//     read as isPublished() elsewhere — worth a quick confirm with him
+//     before this goes live if that distinction matters in practice; the
+//     honest fix if it does is a second manual value back
+//     (e.g. re-splitting 'In Print' from an explicit 'Published' pick), the
+//     opposite of what was just asked for today.
+//
+// `legacyStatus`/`attention` per entry drive applyUnifiedStatus()'s sync
+// into the old t.status field and hasAttention()/attentionLabel()'s ribbon
+// respectively — see both below.
 const PRINT_STATUS_OVERRIDES = {
-  'In Print': {colorClass:'ok'},
-  'Delayed/On Hold': {colorClass:'notice'},
-  'Out of Print': {colorClass:'neutral'}
+  'Not Scheduled':    {colorClass:'neutral',   legacyStatus:'Not Scheduled',     attention:false},
+  'In Progress':      {colorClass:'neutral',   legacyStatus:'In Progress',       attention:false},
+  'Print Ready':      {colorClass:'due-soon',  legacyStatus:'In Progress',       attention:false},
+  'In Print':         {colorClass:'ok',        legacyStatus:'In Progress',       attention:false},
+  'Out of Print':     {colorClass:'neutral',   legacyStatus:'Complete',          attention:false},
+  'Delayed/On Hold':  {colorClass:'notice',    legacyStatus:'On Hold/Cancelled', attention:true},
+  'Cancelled':        {colorClass:'neutral',   legacyStatus:'On Hold/Cancelled', attention:false}
 };
+// Round 44 — single write path for the merged control (renderDates()'s
+// select, and the Add Title modal's Status field, both call this now
+// instead of touching t.status/t.dates.printStatusOverride directly). Keeps
+// the legacy t.status field (still what's written to the real Sheet's
+// `status` column, still what isPublished()/Progress Report/any future
+// export read) in lockstep with whatever's picked here, so nothing that
+// still reads the old field goes stale or contradicts the new one.
+// value==='' (Auto) hands t.status back to applyStatusAutoRules()'s
+// automatic control (statusAuto:true) exactly as it worked before this
+// round — Auto was never broken, it's the manual side that used to be two
+// separate controls.
+function applyUnifiedStatus(t, value){
+  t.dates.printStatusOverride = value || '';
+  const cfg = value ? PRINT_STATUS_OVERRIDES[value] : null;
+  if(cfg){
+    t.status = cfg.legacyStatus;
+    t.statusAuto = false;
+  } else {
+    t.statusAuto = true;
+  }
+}
 function computeDayInfo(t){
   if(t.dates.printStatusOverride && PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride]){
     return {kind:'manual', label:t.dates.printStatusOverride, colorClass:PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride].colorClass};
   }
-  if(isPublished(t)) return {kind:'published', label:'Published', colorClass:'published'};
+  // Round 45 (2026-09-05) — label changed from 'Published' to 'In Print'
+  // (the In Print/Published merge, see the PRINT_STATUS_OVERRIDES comment
+  // above); the check itself (t.status==='Complete', still set by
+  // applyStatusAutoRules() the instant the Street Date passes) and the
+  // `kind` tag are both unchanged — this remains the one and only auto path
+  // into what's now shown as "In Print", so nothing here needed to be
+  // rewired, just relabelled. colorClass now reuses 'ok' (already the same
+  // sage colour 'published' was) rather than keeping a second colour key
+  // that would otherwise now mean exactly the same thing.
+  if(isPublished(t)) return {kind:'published', label:'In Print', colorClass:'ok'};
   const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
   if(pd){
     const d=daysUntil(pd);
@@ -1473,6 +1711,20 @@ function computeDayInfo(t){
     }
   }
   if(t.dates.streetDate) return {kind:'nodate', label:'Street: '+formatDate(t.dates.streetDate), colorClass:'neutral', hasStreet:true};
+  // Round 44 (2026-09-05), MOCKUP — Auto-branch gap that was the actual
+  // mechanical cause of "Print Status and Status disagree": this function
+  // used to fall straight to the generic 'Not scheduled' label the instant
+  // there was no street/print date, completely blind to whether pipeline
+  // work had actually started — which is exactly what the OLD, separate
+  // Status field's own auto-rule (applyStatusAutoRules(), item 1 above) DID
+  // check. A title with, say, Contract already moved to 'In Progress' but
+  // no dates picked yet would show Status: "In Progress" right next to
+  // Print Status: "Not scheduled" — a direct, visible contradiction between
+  // the two fields, not just a cosmetic mismatch. Folding the same pipeline
+  // check in here means the single merged Auto state now agrees with what
+  // the old Status field would have said, with no manual override needed
+  // for the common case.
+  if(t.pipeline.stages.some(s=>s.status!=='Not Started')) return {kind:'nodate', label:'In Progress', colorClass:'neutral'};
   return {kind:'nodate', label:'Not scheduled', colorClass:'neutral'};
 }
 function getSectionStatus(t,key){
@@ -1496,7 +1748,15 @@ function getSectionStatus(t,key){
       // left this stripe showing red/overdue regardless, a visible
       // contradiction confirmed live (dev-preview screenshot, same session).
       // Checked first, same override-wins priority as computeDayInfo().
-      if(t.dates.printStatusOverride) return t.dates.printStatusOverride==='Delayed/On Hold' ? 'overdue' : 'complete';
+      // Round 44 — reads the `attention` flag (see PRINT_STATUS_OVERRIDES)
+      // rather than a hardcoded string, same reasoning as hasAttention()'s
+      // equivalent fix above: the merge added override values (Not
+      // Scheduled/In Progress/Published/Cancelled) that must NOT paint this
+      // stripe red — only Delayed/On Hold should.
+      if(t.dates.printStatusOverride){
+        const cfg=PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride];
+        return (cfg && cfg.attention) ? 'overdue' : 'complete';
+      }
       if(isPublished(t))return 'complete';
       if(!t.dates.streetDate)return 'partial';
       const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
@@ -1708,9 +1968,41 @@ function activeBlockFilterHtml(){
 }
 
 // ─── TITLES VIEW ───
+// Round 44 (2026-09-05), MOCKUP — Dashboard sidebar had the exact same
+// two-fields-disagreeing problem as the title-block/Dates & Scheduling pair
+// (filter-status filtered on the legacy t.status field, filter-printtiming
+// separately filtered on computeDayInfo(t).kind — a title filtered to
+// "In Print" via one could vanish/appear inconsistently under the other).
+// Not explicitly asked for in the brief, but leaving two stale, overlapping
+// filter dropdowns standing would undermine the whole point of the merge —
+// flagged in the build report as an included extra, not silently smuggled
+// in. This one function is now the single source of truth both the merged
+// filter-status dropdown (index.html) and this predicate read off, mirroring
+// exactly the same 8-manual-state-plus-Auto list PRINT_STATUS_OVERRIDES /
+// computeDayInfo() already use everywhere else.
+function unifiedStateKey(t){
+  const ov=t.dates.printStatusOverride;
+  // Round 45 — 'Published' dropped from OV_KEYS (no longer a
+  // PRINT_STATUS_OVERRIDES value — see the In Print/Published merge
+  // comment above); the Auto-branch outcome that used to map to the
+  // standalone 'published' filter key now folds into 'in_print' below
+  // instead, same single-label merge applied everywhere else.
+  const OV_KEYS={'Not Scheduled':'not_scheduled','In Progress':'in_progress','Print Ready':'print_ready','In Print':'in_print','Out of Print':'out_of_print','Delayed/On Hold':'delayed_hold','Cancelled':'cancelled'};
+  if(ov && OV_KEYS[ov]) return OV_KEYS[ov];
+  const info=computeDayInfo(t); // ov is empty/unrecognised here, so this is genuinely the Auto branch
+  if(info.kind==='published') return 'in_print';
+  if(info.kind==='overdue') return 'overdue';
+  if(info.kind==='counting') return 'duesoon';
+  if(info.kind==='nodate' && info.label==='In Progress') return 'in_progress';
+  return 'not_scheduled'; // covers both the plain 'Not scheduled' and 'Street: [date]' nodate variants, same grouping the old filter-printtiming's 'notscheduled' option already used
+}
 function renderTitles(){
   let titles=data.titles.filter(t=>{
-    if(filters.status&&t.status!==filters.status)return false;
+    // Round 44 — filters.status now holds one of unifiedStateKey()'s keys
+    // (or '' for All Statuses), replacing both the old t.status compare and
+    // the separate filters.printTiming check that used to live further down
+    // this same filter chain.
+    if(filters.status&&unifiedStateKey(t)!==filters.status)return false;
     // Round 16 (2026-08-12) — BUG FIX. This used to be a raw strict-equality
     // check (t.imprint!==filters.imprint) against whatever literal text the
     // filter dropdown's selected <option value> holds. Confirmed live
@@ -1735,11 +2027,6 @@ function renderTitles(){
     if(filters.block){
       if(filters.block==='__unassigned__'){ if(t.blockId)return false; }
       else if(t.blockId!==filters.block)return false;
-    }
-    if(filters.printTiming){
-      const info=computeDayInfo(t);
-      const map={notscheduled:'nodate',duesoon:'counting',overdue:'overdue',published:'published'};
-      if(info.kind!==map[filters.printTiming])return false;
     }
     if(filters.search){const q=filters.search.toLowerCase();if(!t.title.toLowerCase().includes(q)&&!t.authors.toLowerCase().includes(q))return false;}
     return true;
@@ -1863,10 +2150,66 @@ function onStatusChange(titleId,value){
   debouncedSave(titleId);
   // Full re-render, same reasoning as onImprintChange — status changes are
   // rare/deliberate, and the badge colour class, the card-grid progress bar
-  // ("Published" vs percentage — see renderCard's isPublished() check) and
+  // ("In Print" vs percentage — see renderCard's isPublished() check) and
   // the day-count badge all read off status too, so all of it needs to
   // pick up the change immediately, not just the control itself.
   renderDetail();
+}
+// Round 43 (2026-09-04), MOCKUP — Print Status consolidation.
+// David: two status dropdowns in the detail page could disagree — this one
+// (statusEditSelect, STATUS_VALUES) up in the title block, and the "Print
+// Status" override select down in Dates & Scheduling (printStatusOverride /
+// PRINT_STATUS_OVERRIDES — see the long comment above computeDayInfo()).
+// Both ultimately feed what's shown as this title's print/production status
+// elsewhere (the Dashboard card badge, renderCard's deadlineHtml, reads
+// computeDayInfo(t) directly) — so David could set one here and a different
+// one down there and get a visible contradiction. Fix: Dates & Scheduling's
+// Print Status select stays the ONE editable control; this spot becomes a
+// plain read-only mirror of the exact same computeDayInfo(t) value, so all
+// three (title block, Dates & Scheduling, Dashboard card) read off one
+// function and can never disagree again.
+//
+// FLAGGED (not silently assumed) — statusEditSelect/onStatusChange
+// (STATUS_VALUES: Not Scheduled / In Progress / Complete / On
+// Hold-Cancelled) was, per the Round 9 comment above, a deliberately
+// SEPARATE manual field, added specifically because David wanted status
+// independent of schedule data. Swapping this call site for a read-only
+// mirror removes his only manual path here to flag "On Hold/Cancelled", or
+// to hand-correct "Not Scheduled"/"In Progress". 'Complete' still gets set
+// automatically by applyStatusAutoRules() (unchanged) once the print date
+// passes; "On Hold/Cancelled" has no auto path at all and no exact
+// equivalent among Print Status's options — closest is "Delayed/On Hold".
+// t.status/statusEditSelect/onStatusChange/STATUS_VALUES are left fully
+// intact under the hood (isPublished(), filters, exports all still read
+// t.status) — only this one render call site changes. Confirm with David
+// before this goes live that losing manual On Hold/Not Scheduled/In
+// Progress control from the title block (in exchange for Delayed/On Hold
+// covering the hold case via the single Print Status dropdown) is the
+// trade he actually wants.
+// Factored out so both the initial render (printStatusPill, full markup —
+// title block) and the incremental live-update path (updateDaysDisplay,
+// below — already the function every field that can move computeDayInfo's
+// answer calls: Print Status override itself, Street Date, the
+// auto-calculate toggle) agree on exactly the same label/colour, and this
+// pill can never go stale the way it did in the first pass at this change
+// (confirmed live in this dev preview: picking a new Print Status value
+// updated Dates & Scheduling and the data model immediately, per
+// onPrintStatusOverrideChange, but NOT this pill, until updateDaysDisplay
+// below was taught about it too).
+function printStatusPillParts(t){
+  const info=computeDayInfo(t);
+  // Round 45 — 'published' colour key retired (computeDayInfo() now hands
+  // back 'ok' for that branch too, same colour, one key instead of two).
+  const pair={ok:['--sage-bg','--sage-border'],notice:['--amber-bg','--amber-border'],'due-soon':['--amber-bg','--amber-border'],overdue:['--terra-bg','--terra-border'],neutral:['--neutral-bg','--neutral-border']}[info.colorClass]||['--neutral-bg','--neutral-border'];
+  const label = info.kind==='overdue' ? 'OVERDUE — '+info.label : info.label;
+  return {label,bgVar:pair[0],borderVar:pair[1]};
+}
+function printStatusPill(t){
+  const {label,bgVar,borderVar}=printStatusPillParts(t);
+  // Round 44 — tooltip text updated: this pill mirrors the merged Status
+  // field (renamed from "Print Status" in Dates & Scheduling, see
+  // renderDates() below), not just the print-timing half of it anymore.
+  return `<span id="print-status-pill-${t.id}" class="status-badge" title="Set from Status in Dates &amp; Scheduling below" style="background:var(${bgVar});color:var(${borderVar})">${esc(label)}</span>`;
 }
 
 // ─── ROUND 5: Title/Subtitle/Author real edit controls + contributor-role
@@ -1995,7 +2338,10 @@ function renderCard(t){
   const doneStages=t.pipeline.stages.filter(s=>s.status==='Complete'||s.status==='Not Required').length;
   const pct=totalStages?Math.round(doneStages/totalStages*100):0;
   const barDone=isPublished(t);
-  const progressHtml=`<div class="progress-wrap"><div class="progress-track"><div class="progress-fill ${barDone?'done':''}" style="width:${barDone?100:pct}%"></div></div><div class="progress-label">${barDone?'Published':doneStages+'/'+totalStages}</div></div>`;
+  // Round 45 — label reads 'In Print' now, not 'Published' (In Print/
+  // Published merge, see PRINT_STATUS_OVERRIDES comment); still purely
+  // isPublished(t)-driven, unchanged mechanically.
+  const progressHtml=`<div class="progress-wrap"><div class="progress-track"><div class="progress-fill ${barDone?'done':''}" style="width:${barDone?100:pct}%"></div></div><div class="progress-label">${barDone?'In Print':doneStages+'/'+totalStages}</div></div>`;
   const info=computeDayInfo(t);
   const deadlineHtml=`<div class="card-deadline ${info.colorClass}">${esc(info.label)}</div>`;
   const ik=imprintKey(t.imprint);
@@ -2044,14 +2390,24 @@ function renderDetail(){
   const info=computeDayInfo(t);
   // Round 10, item 4 — computeDayInfo()'s generic no-date fallback (kind
   // 'nodate' with no hasStreet flag, literal label 'Not scheduled') is
-  // suppressed here specifically: statusEditSelect() just above already
-  // shows the same thing via the Status badge, so on a title with neither
-  // dates nor pipeline activity the two used to say essentially the same
-  // thing side by side. The 'Street: [date]' variant (hasStreet:true) and
-  // the real day-count/overdue variants aren't duplicated by the badge, so
-  // those still render exactly as before.
+  // suppressed here specifically: printStatusPill() just below already
+  // shows the same thing via the read-only Print Status pill (was
+  // statusEditSelect()'s Status badge pre-Round-43), so on a title with
+  // neither dates nor pipeline activity the two used to say essentially the
+  // same thing side by side. The 'Street: [date]' variant (hasStreet:true)
+  // and the real day-count/overdue variants aren't duplicated by the pill,
+  // so those still render exactly as before.
+  // Round 43 (2026-09-04), MOCKUP — this span gets its own id now
+  // (streetbox-days-<id>) so updateDaysDisplay() can keep it live too. It
+  // was ALREADY a static snapshot from the last full renderDetail() before
+  // this round — same latent staleness the read-only pill would otherwise
+  // have shipped with (caught live in this dev preview: setting Print
+  // Status left this exact text showing the old "OVERDUE" right next to
+  // the pill it now visibly contradicted, a pre-existing gap this round's
+  // testing surfaced rather than one it introduced — folded into the same
+  // fix since both read off computeDayInfo() and sit inches apart).
   const suppressGenericNoDate = info.kind==='nodate' && !info.hasStreet;
-  const daysHtml = suppressGenericNoDate ? '' : `<span class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
+  const daysHtml = suppressGenericNoDate ? '' : `<span id="streetbox-days-${t.id}" class="card-deadline ${info.colorClass}" style="font-size:.85rem">${esc(info.kind==='overdue'?'OVERDUE':info.label)}</span>`;
   // Badge: any legacy 'Completed'/'Released' literal is remapped to
   // 'Complete' at load (normalizeStatus(), Round 27) so this always sees the
   // single canonical value; badge-complete is the one style for "done".
@@ -2118,8 +2474,10 @@ function renderDetail(){
   //    brief asked the question, Mia's recommendation (approved) was
   //    "after": the name is the scannable part, the pill is a qualifier.
   //  - new order: Title → Subtitle → Author → Street date (own boxed,
-  //    prominent line) → Progress dropdown (status select, not full-width)
-  //    → Pipeline strip (bigger, full box width).
+  //    prominent line) → Progress dropdown (status select, not full-width —
+  //    Round 43 (2026-09-04) replaced this with printStatusPill(t), a
+  //    read-only mirror of Dates & Scheduling's Print Status; see that
+  //    function's comment) → Pipeline strip (bigger, full box width).
   const imprintRibbonHtml=`<div class="detail-imprint-ribbon" data-imprint="${imprintKey(t.imprint)}">${esc(imprintName(t.imprint))}</div>`;
   const streetPrintHtml = (t.dates.streetDate || (pd&&!isPublished(t)) || daysHtml)
     ? `<div class="detail-streetbox">${t.dates.streetDate?`<span>Street: ${esc(formatDate(t.dates.streetDate))}</span>`:''}${pd&&!isPublished(t)?`<span>Print: ${esc(formatDate(pd))}</span>`:''}${daysHtml}</div>`
@@ -2144,7 +2502,7 @@ function renderDetail(){
               </div>
               ${t.authors?`<div class="detail-author-preview" id="detail-author-preview-${t.id}">Displays as: “${esc(contributorLabel(t))}”</div>`:''}
               ${streetPrintHtml}
-              <div class="detail-meta-row detail-progress-row">${statusEditSelect(t)}</div>
+              <div class="detail-meta-row detail-progress-row">${printStatusPill(t)}</div>
               <div class="detail-strip-wrap">
                 <div class="detail-strip-label">Production Pipeline — click to cycle status</div>
                 <div class="detail-strip detail-strip-lg" id="detail-strip-${t.id}">${detailStrip}</div>
@@ -3250,12 +3608,13 @@ function renderPipeline(t){const id=t.id;
 // Item 13 — day-count colour now driven by computeDayInfo()'s shared
 // tiering (item 13 bug fix — "X days" no longer shares the full-red alarm
 // colour with an actually-passed date), and item 15 — a published title
-// shows "Published" here too rather than attempting a day count at all.
+// shows "In Print" here too (Round 45 relabel — was "Published" before the
+// In Print/Published merge) rather than attempting a day count at all.
 function renderDates(t){const id=t.id;const d=t.dates;
   const compPrint=calcAutoPrint(d.streetDate);
   const pdVal=d.autoPrintDate?compPrint:d.printDate;
   const info=computeDayInfo(t);
-  const colorVar={published:'var(--sage)',ok:'var(--sage)',notice:'var(--amber-border)','due-soon':'#B8722E',overdue:'var(--terra)',neutral:'var(--text3)'}[info.colorClass]||'var(--text3)';
+  const colorVar={ok:'var(--sage)',notice:'var(--amber-border)','due-soon':'#B8722E',overdue:'var(--terra)',neutral:'var(--text3)'}[info.colorClass]||'var(--text3)';
   const ddHtml=`<span style="color:${colorVar};font-weight:600">${esc(info.kind==='overdue'?'OVERDUE — '+info.label:info.label)}</span>`;
   // Item 18 (Round 2) — root cause of "the print-date auto-calculate
   // element knocks the row beneath it out of alignment": the checkbox+label
@@ -3278,7 +3637,7 @@ function renderDates(t){const id=t.id;const d=t.dates;
     ${frow('Street Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-streetDate" value="${esc(d.streetDate)}" onchange="onStreetDateChange('${id}',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${d.streetDate?'':' is-empty'}">${esc(d.streetDate?formatDateLong(d.streetDate):'')}</span></div>`)}
     ${frow('Print Date',`<div class="date-long-wrap"><input type="date" class="date-long-display" id="f-${id}-printDate" value="${esc(pdVal)}" ${d.autoPrintDate?'readonly':''} onchange="fc('${id}','dates.printDate',this.value)" oninput="syncDateDisplay(this)"><span class="date-long-overlay${pdVal?'':' is-empty'}">${esc(pdVal?formatDateLong(pdVal):'')}</span></div><label style="font-size:.72rem;color:var(--text3);display:flex;align-items:center;gap:4px;margin-top:4px"><input type="checkbox" ${d.autoPrintDate?'checked':''} onchange="onAutoPrint('${id}',this.checked)"> Auto-calculate (street date −60 days)</label>`)}
     ${frow('Release Note',inp(`f-${id}-releaseNote`,d.releaseNote,'Why a date moved / what’s happening…',`fc('${id}','dates.releaseNote',this.value)`),'full')}
-    ${frow('Print Status',`<div id="f-${id}-daysToprint" style="padding:6px 0 2px;font-size:.9rem">${ddHtml}</div><select id="f-${id}-printStatusOverride" style="margin-top:2px" onchange="onPrintStatusOverrideChange('${id}',this.value)"><option value="" ${!d.printStatusOverride?'selected':''}>Auto (from Print Date)</option>${Object.keys(PRINT_STATUS_OVERRIDES).map(v=>`<option value="${esc(v)}" ${d.printStatusOverride===v?'selected':''}>${esc(v)}</option>`).join('')}</select><div style="font-size:.7rem;color:var(--text3);margin-top:3px">Leave on Auto to derive from Print Date; pick a value here to lock it — it won't be overridden back to Overdue automatically.</div>`)}
+    ${frow('Status',`<div id="f-${id}-daysToprint" style="padding:6px 0 2px;font-size:.9rem">${ddHtml}</div><select id="f-${id}-printStatusOverride" style="margin-top:2px" onchange="onPrintStatusOverrideChange('${id}',this.value)"><option value="" ${!d.printStatusOverride?'selected':''}>Auto (from schedule)</option>${Object.keys(PRINT_STATUS_OVERRIDES).map(v=>`<option value="${esc(v)}" ${d.printStatusOverride===v?'selected':''}>${esc(v)}</option>`).join('')}</select><div style="font-size:.7rem;color:var(--text3);margin-top:3px">Round 44 — this ONE field now replaces the old separate "Print Status" and title-block "Status" controls (they used to be two fields that could disagree — see the PRINT_STATUS_OVERRIDES comment in app.js for the full reasoning). Leave on Auto to derive from Print Date / pipeline activity; pick a value here to lock it in manually — it won't be overridden back automatically until you set it back to Auto.</div>`)}
   </div>`;}
 
 function renderPrint(t){const id=t.id;const p=t.print;
@@ -3955,10 +4314,38 @@ function onAutoPrint(titleId,checked){
 function updateDaysDisplay(titleId){
   const t=getTitle(titleId);if(!t)return;
   const el=document.getElementById(`f-${titleId}-daysToprint`);
-  if(!el)return;
-  const info=computeDayInfo(t);
-  const colorVar={published:'var(--sage)',ok:'var(--sage)',notice:'var(--amber-border)','due-soon':'#B8722E',overdue:'var(--terra)',neutral:'var(--text3)'}[info.colorClass]||'var(--text3)';
-  el.innerHTML=`<span style="color:${colorVar};font-weight:600">${esc(info.kind==='overdue'?'OVERDUE — '+info.label:info.label)}</span>`;
+  if(el){
+    const info=computeDayInfo(t);
+    const colorVar={ok:'var(--sage)',notice:'var(--amber-border)','due-soon':'#B8722E',overdue:'var(--terra)',neutral:'var(--text3)'}[info.colorClass]||'var(--text3)';
+    el.innerHTML=`<span style="color:${colorVar};font-weight:600">${esc(info.kind==='overdue'?'OVERDUE — '+info.label:info.label)}</span>`;
+  }
+  // Round 43 (2026-09-04), MOCKUP — keep the title block's read-only Print
+  // Status pill (printStatusPill(t)) in lockstep with this same
+  // computeDayInfo(t) value. Every existing call site of this function
+  // (Print Status override change, Street Date change, the auto-calculate
+  // print-date checkbox) is exactly the set of things that can move
+  // computeDayInfo's answer, so hanging this off updateDaysDisplay rather
+  // than adding parallel calls everywhere keeps it a single choke point —
+  // same reasoning the function's own original design already used for the
+  // Dates & Scheduling display just above.
+  const pillEl=document.getElementById(`print-status-pill-${titleId}`);
+  if(pillEl){
+    const {label,bgVar,borderVar}=printStatusPillParts(t);
+    pillEl.textContent=label;
+    pillEl.style.background=`var(${bgVar})`;
+    pillEl.style.color=`var(${borderVar})`;
+  }
+  // Round 43 (2026-09-04), MOCKUP — same live-update, for the short
+  // "OVERDUE"/label span that sits inside the streetbox line right under
+  // Street/Print dates (renderDetail's daysHtml/streetPrintHtml — only
+  // rendered at all when there's something to say, see suppressGenericNoDate
+  // there, so this can legitimately be absent).
+  const streetboxEl=document.getElementById(`streetbox-days-${titleId}`);
+  if(streetboxEl){
+    const info=computeDayInfo(t);
+    streetboxEl.className=`card-deadline ${info.colorClass}`;
+    streetboxEl.textContent = info.kind==='overdue' ? 'OVERDUE' : info.label;
+  }
 }
 // Item 3 — the new manual-override control (renderDates()'s
 // #f-<id>-printStatusOverride select). Empty value = back to Auto (fully
@@ -3968,7 +4355,11 @@ function updateDaysDisplay(titleId){
 // Status/statusAuto elsewhere in this app.
 function onPrintStatusOverrideChange(titleId,value){
   const t=getTitle(titleId);if(!t)return;
-  t.dates.printStatusOverride=value;
+  // Round 44 — routed through applyUnifiedStatus() now instead of setting
+  // dates.printStatusOverride directly, so the legacy t.status field (still
+  // read by isPublished()/Progress Report/the real Sheet export) stays in
+  // lockstep with whatever's picked in this one merged control.
+  applyUnifiedStatus(t, value);
   updateDaysDisplay(titleId);
   debouncedSave(titleId);updateSectionHeaders(titleId);
 }
@@ -4002,9 +4393,15 @@ async function confirmAddTitle(){
     title:titleVal,
     subtitle:document.getElementById('new-subtitle').value.trim(),
     authors:document.getElementById('new-authors').value.trim(),
-    imprint:document.getElementById('new-imprint').value,
-    status:document.getElementById('new-status').value
+    imprint:document.getElementById('new-imprint').value
   });
+  // Round 44 — the modal's Status field now speaks the same merged
+  // vocabulary as everywhere else (see index.html's #new-status options),
+  // so it's applied the same way as any other change to this control:
+  // through applyUnifiedStatus(), not a raw t.status assignment. An empty
+  // pick (the default "Not Scheduled") leaves the title on Auto, same as
+  // defTitle()'s own untouched default.
+  applyUnifiedStatus(t, document.getElementById('new-status').value);
   data.titles.push(t);
   document.getElementById('add-title-modal').classList.add('hidden');
   ['new-title','new-subtitle','new-authors'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
@@ -4196,7 +4593,9 @@ function onSearch(v){filters.search=v;renderTitles();}
 function onFilterStatus(v){filters.status=v;renderTitles();}
 function onFilterImprint(v){filters.imprint=v;renderTitles();}
 function onFilterBlock(v){filters.block=v;renderTitles();}
-function onFilterPrintTiming(v){filters.printTiming=v;renderTitles();}
+// Round 44 — onFilterPrintTiming() removed, filter-printtiming <select>
+// removed from index.html; filter-status/onFilterStatus() now covers both
+// (see unifiedStateKey() above).
 function onFilterSort(v){filters.sort=v;renderTitles();}
 // Round 31 (2026-08-26) — Reset Filters, David request. Snaps every
 // Dashboard filter control back to its default/unfiltered state in one
@@ -4210,12 +4609,11 @@ function onFilterSort(v){filters.sort=v;renderTitles();}
 // went back to unfiltered underneath — each control's DOM value has to be
 // reset explicitly here too.
 function resetFilters(){
-  filters = { status:'', imprint:'', search:'', block:'', printTiming:'', sort:'alpha' };
+  filters = { status:'', imprint:'', search:'', block:'', sort:'alpha' };
   const searchEl=document.getElementById('hdr-search'); if(searchEl) searchEl.value='';
   const sortEl=document.getElementById('filter-sort'); if(sortEl) sortEl.value='alpha';
   const imprintEl=document.getElementById('filter-imprint'); if(imprintEl) imprintEl.value='';
   const statusEl=document.getElementById('filter-status'); if(statusEl) statusEl.value='';
-  const ptEl=document.getElementById('filter-printtiming'); if(ptEl) ptEl.value='';
   populateBlockFilter(); // rebuilds the Block <option> list against the now-cleared filters.block
   renderTitles();
 }
@@ -4396,7 +4794,11 @@ function getSectionExportFields(t,key,blockNameById){
         ['Street Date','text', formatDate(t.dates.streetDate)],
         ['Print Date','text', formatDate(pd)+(t.dates.autoPrintDate&&pd?' (auto-calculated: street date minus 60 days)':'')],
         ['Release Note','text', t.dates.releaseNote||''],
-        ['Print Status','text', info.label]
+        // Round 44 — label renamed from 'Print Status' to match the merged
+        // field's new name in renderDates() (this already read
+        // computeDayInfo(t) — the correct, single source of truth — so no
+        // value change needed here, just the label).
+        ['Status','text', info.label]
       ];
     }
     case 'commercial':{
@@ -4520,6 +4922,11 @@ function buildFullTitleSectionsHtml(t){
 <h3>${esc2(label)}</h3>
 <pre>${fragment?esc(fragment):'<span class="empty-field">—</span>'}</pre>
 </div>`;
+  // Round 44 (2026-09-05) — the Status line below now reads
+  // printStatusPillParts(t).label (the same merged/precise value shown in
+  // the title-block pill) instead of the coarser legacy t.status bucket, so
+  // e.g. "Print Ready" or "Delayed/On Hold" shows in this export rather
+  // than being flattened to "In Progress".
   const headerSection=`<section class="src-section">
 <h2 class="src-section-title">Title Record</h2>
 ${fieldBlock('Title', t.title)}
@@ -4527,7 +4934,7 @@ ${fieldBlock('Subtitle', t.subtitle)}
 ${fieldBlock((t.authorInfo.contributorRole||'Author(s)'), t.authors)}
 ${fieldBlock('Displays As', contributorLabel(t))}
 ${fieldBlock('Imprint', imprintName(t.imprint))}
-${fieldBlock('Status', t.status)}
+${fieldBlock('Status', printStatusPillParts(t).label)}
 </section>`;
   const keyContactsSection=`<section class="src-section">
 <h2 class="src-section-title">Key Contacts</h2>
@@ -4701,7 +5108,9 @@ function buildTitleRtf(t){
   out+=rtfFooterGroup();
   out+=h1(t.title+(t.subtitle?' \u2014 '+t.subtitle:''));
   out+=bodyOf('text', contributorLabel(t)||'—');
-  out+=bodyOf('text','Imprint: '+imprintName(t.imprint)+'   |   Status: '+t.status);
+  // Round 44 — same swap as the HTML export above: precise merged label
+  // instead of the coarser legacy t.status bucket.
+  out+=bodyOf('text','Imprint: '+imprintName(t.imprint)+'   |   Status: '+printStatusPillParts(t).label);
   out+=h2('Key Contacts');
   out+=h3('Author Liaison'); out+=bodyOf('text', t.authorLiaison);
   out+=h3('PR Contact'); out+=bodyOf('text', t.publicity.prContact);
