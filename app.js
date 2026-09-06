@@ -3888,7 +3888,14 @@ async function loadPoInvoiceTrackerFor(titleId){
       const pillCls = /paid/i.test(status)&&!/partial/i.test(status) ? 'po-status-paid' : /partial|unpaid/i.test(status) ? 'po-status-ordered' : 'po-status-other';
       return `<tr><td>${esc(r[0]||'')}</td><td>${esc(r[1]||'')}</td><td>${esc(r[2]||'')}</td><td>${esc(r[4]||'')}${esc(r[5]||'')}</td><td><span class="po-status-pill ${pillCls}">${esc(status||'—')}</span></td><td>${esc(r[11]||'')}</td></tr>`;
     }).join('');
-    container.innerHTML = label+`<table class="po-table"><thead><tr><th>Date Recv'd</th><th>Supplier</th><th>Invoice #</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`+poInvoiceOpenLink();
+    // 2026-09-06 — David's ask: spread these 6 columns out instead of Notes
+    // eating most of the box while the rest get squeezed into a narrow strip.
+    // colgroup + .po-table-invoices (table-layout:fixed, see CSS) makes these
+    // percentages actually stick — Notes stays widest since it holds the most
+    // text, but the other 5 get a readable share instead of auto-layout's
+    // "shrink to content" squeeze.
+    const colgroup = '<colgroup><col style="width:10%"><col style="width:14%"><col style="width:12%"><col style="width:10%"><col style="width:10%"><col style="width:44%"></colgroup>';
+    container.innerHTML = label+`<table class="po-table po-table-invoices">${colgroup}<thead><tr><th>Date Recv'd</th><th>Supplier</th><th>Invoice #</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`+poInvoiceOpenLink();
   }catch(e){
     // Same real-Retry fix as loadPrintEstimatesFor above — the once-per-
     // session load gate means "reopen the section" alone wouldn't re-fetch.

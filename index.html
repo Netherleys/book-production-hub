@@ -1282,13 +1282,31 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
 /* ── PO TRACKER SECTION ── */
 .po-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:10px}
 .po-table th{font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:0 8px 6px;text-align:left;border-bottom:1px solid var(--border);font-weight:600}
-.po-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+/* 2026-09-06 — David flagged Date/Supplier/Invoice#/Amount/Status rendering
+   near-invisible ("faded, looks unpopulated") while Notes read fine. Root
+   cause: this rule never set its own `color`, so every cell inherited
+   body{color:var(--text-oncream)} — the pale cream tone meant for text sitting
+   on the DARK page chrome (--bg-page), not this table's light card surface.
+   Every other data table here (isbn-table, report-table, schedule-table)
+   already overrides this with color:var(--text) — po-table was the one
+   left out. Notes only *looked* okay because a dense paragraph of that same
+   pale tone reads as a visible grey block; short strings just vanished.
+   Fixing color here fixes both tables that share this class (Print
+   Estimates + PO/Invoices) in one place. */
+.po-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top;color:var(--text)}
 .po-empty{color:var(--text3);font-size:.85rem;padding:10px 0}
 .po-status-pill{padding:2px 8px;border-radius:10px;font-size:.7rem;font-weight:600}
 .po-status-ordered{background:var(--amber-bg);color:var(--amber-border)}
 .po-status-paid{background:var(--sage-bg);color:var(--sage-border)}
 .po-status-other{background:var(--bg2);color:var(--text3)}
 .po-source-label{font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;margin:10px 0 4px}
+/* 2026-09-06 — David's ask: spread the PO/Invoice table's 6 columns more
+   evenly instead of Notes eating the box and the other 5 being squeezed to
+   a narrow strip. Scoped to this table only (via its own colgroup, set in
+   loadPoInvoiceTrackerFor) — the Print Estimates table above it wasn't
+   flagged for width and keeps its normal auto layout. */
+.po-table-invoices{table-layout:fixed}
+.po-table-invoices td{overflow-wrap:break-word}
 
 /* ── QUICK NOTE CAPTURE (item 32) — fast, low-friction, floating ── */
 /* Item 5 (Round 3) — made bigger/bolder/easier to spot: 50px→64px, icon
