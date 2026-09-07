@@ -3862,6 +3862,29 @@ function printEstimateOpenLink(){
 // the Tracker tab's free-text Notes column — deliberately labelled
 // "best-effort" in the UI rather than presented as a guaranteed join.
 let poInvoiceRowsCache = null;
+// Round 46 (2026-09-07) — fixes David's "$$7,019.47" report on the Round 45
+// contrast/width pass. Root cause: the Amount column was built by blindly
+// concatenating Tracker columns E (Currency, a bare £/$ dropdown value) and
+// F (Invoice Amount) — `${esc(r[4])}${esc(r[5])}`. The Tracker sheet's own
+// Apps Script onEdit trigger auto-formats Invoice Amount cells with their
+// currency symbol already baked in (confirmed via the £574.00 Biddles rows
+// rendering correctly — Currency there reads as blank/unset since £ is the
+// sheet's default and the dropdown never actually wrote into the cell, so
+// blank-Currency + "£574.00" happened to look right by accident). Once a
+// row's Currency cell *is* explicitly set (e.g. "$" picked for a USD
+// supplier like IBI), Invoice Amount already reads "$7,019.47" on its own —
+// concatenating "$" + "$7,019.47" doubles it. Fix: only prepend the
+// Currency column's symbol when Amount doesn't already start with one, so
+// this can't double up in either currency no matter which column carries
+// the symbol.
+function fmtTrackerAmount(currencyRaw, amountRaw){
+  const cur = (currencyRaw||'').toString().trim();
+  const amt = (amountRaw||'').toString().trim();
+  if(!amt) return cur;
+  if(/^[£$€]/.test(amt)) return amt; // Amount already carries its own symbol — trust it, ignore Currency to avoid doubling
+  if(/^[£$€]/.test(cur)) return cur+amt; // Amount is a bare number — prepend Currency's symbol
+  return amt; // neither side has a symbol — show the raw value rather than guess one
+}
 async function loadPoInvoiceTrackerFor(titleId){
   const t=getTitle(titleId);if(!t)return;
   const container=document.getElementById('po-invoice-results-'+titleId);
@@ -3886,7 +3909,7 @@ async function loadPoInvoiceTrackerFor(titleId){
     const rows = matches.map(r=>{
       const status=(r[9]||'').toString();
       const pillCls = /paid/i.test(status)&&!/partial/i.test(status) ? 'po-status-paid' : /partial|unpaid/i.test(status) ? 'po-status-ordered' : 'po-status-other';
-      return `<tr><td>${esc(r[0]||'')}</td><td>${esc(r[1]||'')}</td><td>${esc(r[2]||'')}</td><td>${esc(r[4]||'')}${esc(r[5]||'')}</td><td><span class="po-status-pill ${pillCls}">${esc(status||'—')}</span></td><td>${esc(r[11]||'')}</td></tr>`;
+      return `<tr><td>${esc(r[0]||'')}</td><td>${esc(r[1]||'')}</td><td>${esc(r[2]||'')}</td><td>${esc(fmtTrackerAmount(r[4],r[5]))}</td><td><span class="po-status-pill ${pillCls}">${esc(status||'—')}</span></td><td>${esc(r[11]||'')}</td></tr>`;
     }).join('');
     // 2026-09-06 — David's ask: spread these 6 columns out instead of Notes
     // eating most of the box while the rest get squeezed into a narrow strip.
