@@ -1392,8 +1392,19 @@ td.po-supplier{font-weight:700;color:var(--text)}
 .ot-main{flex:1;min-width:0}
 .ot-title-block h1{font-family:var(--serif);font-size:1.5rem;font-weight:700;color:var(--text-oncream)}
 .ot-title-sub{font-size:.85rem;color:#D8CFBB;margin-bottom:18px}
-.filter-group{margin-bottom:18px}
-.filter-group:last-of-type{margin-bottom:14px}
+/* Round 51 (2026-09-07, David bug report via screenshot) — renamed from bare
+   .filter-group to .ot-filter-group. It was reusing the same class name as
+   the pre-existing Report Toolbar filter-button-group rule above
+   (display:inline-flex, ~line 1226), and since this rule never redeclared
+   `display`, that earlier inline-flex row layout won the cascade and forced
+   the Title filter's search box to sit beside its checklist instead of
+   stacked above it (Printer/Supplier looked "fine" only because it has no
+   search-box sibling to visibly collide with). Renamed rather than patched
+   with a `display:block` override, matching the ot- prefixing convention
+   this whole section already uses for exactly this collision risk (see the
+   Round 49 comment above). */
+.ot-filter-group{margin-bottom:18px}
+.ot-filter-group:last-of-type{margin-bottom:14px}
 .filter-label{font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px;display:block}
 .filter-search{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r4);font-size:.8rem;color:var(--text);background:var(--surface);margin-bottom:6px}
 /* Round 50 — checklist boxes given real breathing room: 200px -> 260px max

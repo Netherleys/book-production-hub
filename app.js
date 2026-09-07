@@ -4264,16 +4264,16 @@ function renderOrderTracker(){
     <div class="ot-shell">
       <aside class="ot-sidebar">
         <div class="ot-sidebar-h">Filters</div>
-        <div class="filter-group">
+        <div class="ot-filter-group">
           <span class="filter-label">Title</span>
           <input type="text" class="filter-search" id="ot-title-search" placeholder="Search titles…" oninput="renderOrderTrackerFilters()">
           <div class="checklist" id="ot-title-checklist"></div>
         </div>
-        <div class="filter-group">
+        <div class="ot-filter-group">
           <span class="filter-label">Printer / Supplier</span>
           <div class="checklist" id="ot-supplier-checklist"></div>
         </div>
-        <div class="filter-group">
+        <div class="ot-filter-group">
           <span class="filter-label">Date Range</span>
           <div class="date-range-row">
             <label for="ot-date-from">From</label>
