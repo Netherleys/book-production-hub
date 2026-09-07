@@ -141,8 +141,14 @@ let qnOpen = false;
 let qnListMode = 'active';
 let assignCtx = null;
 let devMode = false; // true when previewing with sample data, no network writes
-let poLogRowsCache = null; // lazy-loaded PO Log rows from the PO tracker sheet
-let poTabGidCache = null; // tabName(lowercase) -> {gid, title}
+// Round 47 (2026-09-07) — poLogRowsCache (lazy-loaded 'PO Log' tab rows) is
+// gone: the embedded "Matching Print Estimates" table it fed was removed
+// entirely per David's approved mockup (see renderPoTracker/
+// loadPrintEstimatesFor below) in favour of a plain deep-link out to that
+// title's own tab in the workbook. poTabGidCache (already declared here,
+// previously unused) is now put to use as that lookup's session cache — see
+// findEstimatesTabGid().
+let poTabGidCache = null; // spreadsheetId -> [{sheetId,title}, ...] full tab list, lazy-loaded
 // 2026-08-11 (Marcus Webb) — titleIds with an edit that hasn't been
 // confirmed saved to the Sheet yet (scheduled in debouncedSave(), cleared
 // only on a successful saveTitle()). Two jobs: (1) drives the automatic
@@ -3763,9 +3769,12 @@ function copyPrinterRequest(titleId){
 
 // Item 29 design decision (full reasoning in the build report): this box
 // now surfaces THREE things side by side rather than picking just one:
-//   1. The existing per-title print-ESTIMATE pull (unchanged) — ISBN/title-
-//      matched against the older Printer_Quotes_Per_Title_Complete sheet.
-//   2. A NEW, read-only, best-effort pull from the separate "PO & Invoice
+//   1. The existing per-title print-ESTIMATE pull — ISBN/title-matched
+//      against the older Printer_Quotes_Per_Title_Complete sheet. Round 47
+//      (2026-09-07, David's approved mockup) replaced the old embedded
+//      table here with a plain deep-link to that title's own tab — see
+//      loadPrintEstimatesFor/findEstimatesTabGid below.
+//   2. A read-only, best-effort pull from the separate "PO & Invoice
 //      Tracker - Headpress" Sheet (Marcus, 2026-07-24) — that Sheet is
 //      supplier/invoice-centric with NO title or ISBN column (confirmed
 //      live: Tracker!A1:M1 headers are Date Received/Supplier/Invoice #/PO
@@ -3775,7 +3784,10 @@ function copyPrinterRequest(titleId){
 //      that Sheet's free-text Notes column (same "Book Title" substring-
 //      match style already used for the older print-estimate sheet above),
 //      clearly labelled as best-effort so it's never mistaken for a
-//      guaranteed link.
+//      guaranteed link. Round 47 also merges a confirmed PO+Invoice pair
+//      into one row (via shared PO Reference) instead of listing both
+//      separately, and adds a real Qty Ordered column — see
+//      loadPoInvoiceTrackerFor below.
 //   3. A plain manual-entry free-text box (item 29: "David wants to add
 //      info here manually either way") — stored per-title in this app's own
 //      data (productionNotes_json.poManualNotes), independent of either
@@ -3789,11 +3801,10 @@ function renderPoTracker(t){const id=t.id;
     ${frow('PO Tracker ISBN Key (auto)',`<input type="text" value="${esc(key)}" readonly>`)}
     ${frow('Manual Override (title/tab name)',inp(`f-${id}-poOverride`,t.poTrackerTitleOverride,'Exact PO Log "Book Title" text or tab name — use if no ISBN yet','fc(\''+id+'\',\'poTrackerTitleOverride\',this.value)'))}
     <div class="field-group full" id="po-tracker-results-${id}">
-      <label class="field-label">Matching Print Estimates (Printer_Quotes_Per_Title_Complete)</label>
+      <label class="field-label">Print Estimates</label>
       <div class="po-empty">Loading…</div>
     </div>
     <div class="field-group full" id="po-invoice-results-${id}">
-      <div class="po-source-label">Matching POs / Invoices — best-effort match by title name (PO &amp; Invoice Tracker - Headpress)</div>
       <div class="po-empty">Loading…</div>
     </div>
     ${frow('Manual PO/Invoice Notes',richTa(id,'poManual','poManualNotes',t.poManualNotes,'Jot anything here manually — a PO number, a note about an invoice, whatever’s useful, independent of the linked pulls above…'),'full')}
@@ -3804,47 +3815,96 @@ async function loadPoTrackerFor(titleId){
   loadPoInvoiceTrackerFor(titleId);
 }
 
+// Round 47 (2026-09-07) — best-effort lookup of a title's own tab in the
+// Printer_Quotes_Per_Title_Complete workbook (one-tab-per-title convention),
+// used to deep-link the Print Estimates button straight to that tab rather
+// than the workbook root. getSheetGid() (above) already exists for this
+// kind of lookup, but it only does an EXACT tab-name match — fine for the
+// row-delete use it was built for, not good enough here since tab names are
+// sometimes a shortened version of the full title (e.g. "Weird Scenes" for
+// "Weird Scenes Inside the Canyon" — confirmed live in David's approved
+// mockup). So: try getSheetGid's exact match first (cheap, covers the
+// common case where the tab name IS the full title), then fall back to a
+// case-insensitive substring match against the workbook's full tab list
+// (cached per session in poTabGidCache, see getEstimatesTabList) in either
+// direction. Returns null — never a guess — when nothing matches, so the
+// caller falls back to the workbook root link instead of risking a link to
+// the wrong title's tab.
+async function getEstimatesTabList(){
+  if(poTabGidCache) return poTabGidCache;
+  return withAuthRetry(async ()=>{
+    const url = SHEETS_API+CFG.PO_TRACKER_SHEET_ID+'?fields='+encodeURIComponent('sheets.properties(sheetId,title)');
+    const resp = await fetch(url, { headers: await authHeaders() });
+    if(resp.status===401) throw new AuthExpiredError('Sheets metadata GET 401 on Print Estimates tab list');
+    if(!resp.ok){
+      const body = await resp.text().catch(()=>'');
+      throw new Error('Sheets metadata GET '+resp.status+': '+body.slice(0,300));
+    }
+    const j = await resp.json();
+    poTabGidCache = (j.sheets||[]).map(s=>s.properties);
+    return poTabGidCache;
+  });
+}
+async function findEstimatesTabGid(titleText){
+  const needle=(titleText||'').trim();
+  if(!needle) return null;
+  try{
+    const exact = await getSheetGid(CFG.PO_TRACKER_SHEET_ID, needle);
+    if(exact!=null) return exact;
+  }catch(e){ /* no tab named exactly this — fall through to the fuzzy match below */ }
+  try{
+    const tabs = await getEstimatesTabList();
+    const needleLower = needle.toLowerCase();
+    const hit = tabs.find(p=>{
+      const tabName=(p.title||'').toLowerCase().trim();
+      return tabName && (needleLower.includes(tabName) || tabName.includes(needleLower));
+    });
+    return hit ? hit.sheetId : null;
+  }catch(e){
+    console.error('Print Estimates tab lookup failed, falling back to workbook root link:', e);
+    return null;
+  }
+}
+
+// Round 47 (2026-09-07) — replaces the old embedded "Matching Print
+// Estimates" table entirely, per David's approved mockup
+// (_mockups/po_tracker_estimates_link_mockup_2026-09-07.html, rev 5:
+// "estimates are a pre-purchase comparison tool, not a record of what
+// actually happened, so they no longer belong mixed into this box at all").
+// Now just a clean link out, deep-linked to this title's own tab where a
+// match can be found (see findEstimatesTabGid above).
 async function loadPrintEstimatesFor(titleId){
   const t=getTitle(titleId);if(!t)return;
   const container=document.getElementById('po-tracker-results-'+titleId);
   if(!container)return;
-  if(devMode){ container.innerHTML='<div class="po-empty">Dev preview mode — PO tracker data isn\'t fetched (no live sign-in).</div>'; return; }
+  const sourceTag = `<span class="source-tag src-estimates"><span class="src-dot"></span>Source: Printer_Quotes_Per_Title_Complete (estimates — pre-purchase quotes only, not real orders)</span>`;
+  if(devMode){ container.innerHTML=`<label class="field-label">Print Estimates</label>${sourceTag}<div class="po-empty">Dev preview mode — PO tracker data isn't fetched (no live sign-in).</div>`; return; }
   const key=(t.commercial.isbnPbk||t.commercial.isbnHbk||'').trim();
   const override=(t.poTrackerTitleOverride||'').trim();
-  if(!key && !override){ container.innerHTML='<div class="po-empty">No ISBN or manual override set — nothing to match against the print-estimate tracker yet.</div>'; return; }
+  const titleText = override || t.title || '';
+  if(!key && !titleText){ container.innerHTML=`<label class="field-label">Print Estimates</label>${sourceTag}<div class="po-empty">No ISBN, manual override, or title set — nothing to link to yet.</div>`; return; }
   try{
-    if(!poLogRowsCache){
-      // Header row confirmed at row 3 of the live PO Log tab (rows 1-2 are
-      // a title banner + blank spacer row, not part of the table).
-      poLogRowsCache = await sheetsGet(CFG.PO_TRACKER_SHEET_ID, "'PO Log'!A3:L2000");
-    }
-    const dataRows = poLogRowsCache.slice(1);
-    const matches = dataRows.filter(r=>{
-      const bookTitle = (r[1]||'').toString();
-      if(key && bookTitle.includes(key)) return true;
-      if(override && bookTitle.toLowerCase().includes(override.toLowerCase())) return true;
-      return false;
-    });
-    if(!matches.length){
-      container.innerHTML='<div class="po-empty">No matching rows found in the print-estimate tracker\'s \'PO Log\' tab for this ISBN/override.</div>'+printEstimateOpenLink();
-      return;
-    }
-    const rows = matches.map(r=>{
-      const status=(r[7]||'').toString();
-      const pillCls = /paid/i.test(status) ? 'po-status-paid' : /ordered/i.test(status) ? 'po-status-ordered' : 'po-status-other';
-      return `<tr>
-        <td>${esc(r[0]||'')}</td><td>${esc(r[2]||'')}</td><td>${esc(r[3]||'')}</td><td>${esc(r[4]||'')}</td>
-        <td>${esc(r[6]||'')}</td><td><span class="po-status-pill ${pillCls}">${esc(status||'—')}</span></td><td>${esc(r[10]||'')}</td>
-      </tr>`;
-    }).join('');
-    container.innerHTML = `<label class="field-label">Matching Print Estimates (Printer_Quotes_Per_Title_Complete)</label><table class="po-table"><thead><tr><th>Date</th><th>Printer</th><th>Qty</th><th>PO Number</th><th>Total Value</th><th>Status</th><th>Balance</th></tr></thead><tbody>${rows}</tbody></table>`+printEstimateOpenLink();
+    const gid = await findEstimatesTabGid(titleText);
+    const url = 'https://docs.google.com/spreadsheets/d/'+esc(CFG.PO_TRACKER_SHEET_ID)+'/edit'+(gid!=null?('?gid='+gid+'#gid='+gid):'');
+    const tabNote = gid!=null
+      ? 'Opens directly to this title\'s own tab in the workbook.'
+      : 'No matching tab found for this title in the workbook — opening the workbook root instead (best-effort tab match by title name, not a guaranteed link).';
+    container.innerHTML = `<label class="field-label">Print Estimates</label>
+      ${sourceTag}
+      <div class="estimates-link-block">
+        <div class="estimates-link-copy">
+          <b>Printer_Quotes_Per_Title_Complete</b> follows a one-tab-per-title convention. ${esc(tabNote)}
+          <div class="estimates-link-meta">Estimates are a pre-purchase comparison tool, not a record of what actually happened — see the PO &amp; Invoice Tracker below for real orders.</div>
+        </div>
+        <a class="estimates-open-btn" href="${url}" target="_blank" rel="noopener">Open Print Estimates for this title &#8599;</a>
+      </div>`;
   }catch(e){
     // 2026-08-16 — a plain "Retry" button, not just "reopen this section":
     // the once-per-title-per-session load gate (poTrackerLoadedFor, set at
     // open time regardless of outcome) means toggling the accordion closed
     // and open again does NOT actually re-trigger the fetch after a
     // failure — only a direct call to this function does.
-    container.innerHTML='<div class="po-empty">Could not load print-estimate tracker data: '+esc(e.message)+' <button class="btn btn-sm" onclick="loadPrintEstimatesFor(\''+titleId+'\')">Retry</button></div>'+printEstimateOpenLink();
+    container.innerHTML = `<label class="field-label">Print Estimates</label>${sourceTag}<div class="po-empty">Could not load print-estimate link: `+esc(e.message)+` <button class="btn btn-sm" onclick="loadPrintEstimatesFor('`+titleId+`')">Retry</button></div>`+printEstimateOpenLink();
     // Surface the same site-wide Reconnect banner every other auth failure
     // already uses (saveTitle/saveIsbn/loadAllData) — was previously the
     // one auth-failure path in the app that didn't do this.
@@ -3877,19 +3937,125 @@ let poInvoiceRowsCache = null;
 // Currency column's symbol when Amount doesn't already start with one, so
 // this can't double up in either currency no matter which column carries
 // the symbol.
+// Round 47 (2026-09-07) — bug fix (David flagged during mockup work): when
+// Amount is blank this previously returned the bare Currency symbol alone
+// (e.g. just "£"), which rendered as a stray floating symbol in the table.
+// Now returns '' when there's no real amount — callers show "—" instead.
 function fmtTrackerAmount(currencyRaw, amountRaw){
   const cur = (currencyRaw||'').toString().trim();
   const amt = (amountRaw||'').toString().trim();
-  if(!amt) return cur;
+  if(!amt) return '';
   if(/^[£$€]/.test(amt)) return amt; // Amount already carries its own symbol — trust it, ignore Currency to avoid doubling
   if(/^[£$€]/.test(cur)) return cur+amt; // Amount is a bare number — prepend Currency's symbol
   return amt; // neither side has a symbol — show the raw value rather than guess one
 }
+// Round 47 bug fix (David flagged during mockup work): the previous pill
+// logic matched "paid" as a plain substring, so "Unpaid" (which CONTAINS
+// "paid") rendered the green settled-invoice pill instead of amber. Now
+// checks unpaid/partial first, before paid.
+function statusPillClass(status){
+  const s=(status||'').toString().toLowerCase();
+  if(/unpaid|partial/.test(s)) return 'po-status-ordered';
+  if(/paid/.test(s)) return 'po-status-paid';
+  if(/ordered/.test(s)) return 'po-status-ordered';
+  return 'po-status-other';
+}
+
+// Long-form date display ("2026 Sep 04") — same style David asked for on
+// the Turnaround remittance feature (formatLogDate() in Project Build/PKA
+// Dashboard/index.html, requested 2026-09-06). Replicated here rather than
+// shared — that lives in a separate standalone app with no module/build
+// system linking the two. One real difference from the original: that
+// helper assumes ISO (YYYY-MM-DD) input because its source data is already
+// stored that way. This Sheet is read via the Sheets values.get API with no
+// dateTimeRenderOption override, so a date cell comes back as its
+// FORMATTED_VALUE — a locale-formatted string straight off the cell, not
+// necessarily ISO — so this version tries the ISO shape first, then falls
+// back to the browser's native Date parser, then gives up and shows the
+// raw sheet value rather than guessing.
+const LOGFORM_MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function formatLogDate(raw){
+  const s=(raw||'').toString().trim();
+  if(!s) return '&mdash;';
+  const iso=/^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if(iso){
+    const mon=LOGFORM_MONTHS[parseInt(iso[2],10)-1];
+    if(mon) return iso[1]+' '+mon+' '+parseInt(iso[3],10);
+  }
+  const d=new Date(s);
+  if(!isNaN(d.getTime())) return d.getFullYear()+' '+LOGFORM_MONTHS[d.getMonth()]+' '+d.getDate();
+  return esc(s);
+}
+// Sortable Date object (or null) from the same raw cell value formatLogDate()
+// formats for display — used only for the newest-date-first sort.
+function parseTrackerDate(raw){
+  const s=(raw||'').toString().trim();
+  if(!s) return null;
+  const iso=/^(\d{4})-(\d{2})-(\d{2})/.exec(s);
+  if(iso) return new Date(parseInt(iso[1],10),parseInt(iso[2],10)-1,parseInt(iso[3],10));
+  const d=new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+// Best-effort fallback date for standalone-PO rows with no Date Recv'd yet
+// (expected, not a gap — see the po-source-label note below: a receipt date
+// only exists once the order actually arrives): looks for "sent <date>" in
+// the row's own free-text Notes, e.g. "Sent 2026 Sep 04 to Biddles…" or
+// "Purchase order sent 2026 Jul 01 (PO No …)". Free text is inherently
+// inconsistent — this is a best-effort regex, not a guaranteed parse; a row
+// where it finds nothing simply sorts to the bottom rather than showing a
+// wrong date.
+function parseNotesSentDate(notesText){
+  const s=(notesText||'').toString();
+  const m=/\bsent\b[^0-9]{0,15}(\d{4}\s+[A-Za-z]{3,9}\s+\d{1,2}|\d{4}-\d{1,2}-\d{1,2}|[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4})/i.exec(s);
+  if(!m) return null;
+  const d=new Date(m[1]);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// Round 47 (2026-09-07) — best-effort Qty Ordered extraction straight from a
+// Tracker row's free-text Notes column. There's no structured "Items table"
+// available to this app via the Sheets API for the numbered PO Template —
+// that structured quantity data lives inside the individual PO Template
+// FILE itself (a separate Google Doc/Sheet per PO), which this app has no
+// programmatic access to — so this only ever parses the same Notes text
+// already pulled for the Notes column. Deliberately conservative: a
+// multi-title PO's Notes often names several titles each with their own
+// quantity (e.g. "200 copies of JACKsploitation! … also covering Last Orgy
+// By the Cemetery x300"), so this only returns a number when it can tie a
+// quantity specifically to THIS title's own name — no generic "first number
+// in the Notes" fallback, since that risks silently attaching the wrong
+// title's quantity to this row. Genuinely a data-quality ceiling, not a
+// bug: rows this can't confidently parse show a blank Qty Ordered cell
+// rather than a guessed number.
+function parseQtyOrderedForTitle(notesText, titleText){
+  const notes=(notesText||'').toString();
+  const title=(titleText||'').toString().trim();
+  if(!notes || !title) return null;
+  const t_=title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
+  let m;
+  m=new RegExp('([\\d,]+)\\s*copies\\s*of\\s*'+t_,'i').exec(notes); if(m) return m[1];
+  m=new RegExp(t_+'\\s*x\\s*([\\d,]+)','i').exec(notes); if(m) return m[1];
+  m=new RegExp(t_+'[^.]{0,60}?([\\d,]+)\\s*copies','i').exec(notes); if(m) return m[1];
+  return null;
+}
+// Generic (not title-anchored) "actually invoiced" quantity — used only as
+// the invoice-side half of a merged row's variance note, where the row is
+// already known (via the shared PO Reference join, see loadPoInvoiceTrackerFor)
+// to be about this specific title, so there's no multi-title ambiguity to
+// guard against here the way there is in parseQtyOrderedForTitle above.
+function parseInvoiceQtyVariance(notesText){
+  const notes=(notesText||'').toString();
+  const m=/([\d,]+)\s*copies\s*(?:actually\s*)?invoiced/i.exec(notes);
+  return m ? m[1] : null;
+}
+
 async function loadPoInvoiceTrackerFor(titleId){
   const t=getTitle(titleId);if(!t)return;
   const container=document.getElementById('po-invoice-results-'+titleId);
   if(!container)return;
-  if(devMode){ container.innerHTML='<div class="po-source-label">Matching POs / Invoices — best-effort match by title name (PO &amp; Invoice Tracker - Headpress)</div><div class="po-empty">Dev preview mode — not fetched (no live sign-in).</div>'; return; }
+  const sourceTag = `<span class="source-tag src-potracker"><span class="src-dot"></span>Source: PO &amp; Invoice Tracker - Headpress (real orders &amp; invoices — the source of truth for what actually happened)</span>`;
+  const label = `${sourceTag}<div class="po-source-label">Matching POs / Invoices — best-effort match by title name — sorted newest date first (Date Recv'd where present, otherwise the PO-sent date stated in that row's own Notes). A confirmed-matched PO + Invoice pair (same PO Reference) renders as one merged row, not two separate summable rows.</div>`;
+  if(devMode){ container.innerHTML=label+'<div class="po-empty">Dev preview mode — not fetched (no live sign-in).</div>'; return; }
   if(!CFG.PO_INVOICE_TRACKER_SHEET_ID){ container.innerHTML=''; return; }
   const titleNeedle=(t.title||'').trim().toLowerCase();
   if(!titleNeedle){ container.innerHTML=''; return; }
@@ -3901,28 +4067,99 @@ async function loadPoInvoiceTrackerFor(titleId){
       const notes=(r[11]||'').toString().toLowerCase();
       return notes.indexOf(titleNeedle)!==-1;
     });
-    const label = `<div class="po-source-label">Matching POs / Invoices — best-effort match by title name (PO &amp; Invoice Tracker - Headpress)</div>`;
     if(!matches.length){
       container.innerHTML=label+'<div class="po-empty">No rows in the Tracker tab mention this title by name in their Notes — this is a best-effort text match, not a guaranteed link, so absence here doesn\'t mean nothing exists.</div>'+poInvoiceOpenLink();
       return;
     }
-    const rows = matches.map(r=>{
-      const status=(r[9]||'').toString();
-      const pillCls = /paid/i.test(status)&&!/partial/i.test(status) ? 'po-status-paid' : /partial|unpaid/i.test(status) ? 'po-status-ordered' : 'po-status-other';
-      return `<tr><td>${esc(r[0]||'')}</td><td>${esc(r[1]||'')}</td><td>${esc(r[2]||'')}</td><td>${esc(fmtTrackerAmount(r[4],r[5]))}</td><td><span class="po-status-pill ${pillCls}">${esc(status||'—')}</span></td><td>${esc(r[11]||'')}</td></tr>`;
+
+    // Round 47 (2026-09-07) — merge a confirmed PO+Invoice pair into one
+    // row. A row counts as an "invoice row" when it has an Invoice # (col C
+    // / r[2]); a row with no Invoice # is a standalone PO commitment. Two
+    // rows are a confirmed match when they share the same non-blank PO
+    // Reference (col D / r[3]) — that column exists specifically to link an
+    // invoice back to the PO that generated it, so this is a real join key
+    // read straight from the sheet, not a text guess.
+    const poOnly = matches.filter(r=>!(r[2]||'').toString().trim());
+    const invoiceRows = matches.filter(r=>(r[2]||'').toString().trim());
+    const usedPo = new Set(); const usedInv = new Set();
+    const merged = [];
+    invoiceRows.forEach((inv,ii)=>{
+      const invRef=(inv[3]||'').toString().trim().toLowerCase();
+      if(!invRef) return;
+      const poIdx = poOnly.findIndex((p,pi)=>!usedPo.has(pi) && (p[3]||'').toString().trim().toLowerCase()===invRef);
+      if(poIdx!==-1){ merged.push({po:poOnly[poIdx], inv}); usedPo.add(poIdx); usedInv.add(ii); }
+    });
+    const standalonePo = poOnly.filter((p,pi)=>!usedPo.has(pi));
+    const standaloneInv = invoiceRows.filter((inv,ii)=>!usedInv.has(ii));
+
+    const titleText = t.title||'';
+    const built = [];
+
+    merged.forEach(({po,inv})=>{
+      const dateRaw = (inv[0]||'').toString().trim() || (po[0]||'').toString().trim();
+      const poNotes=(po[11]||'').toString(); const invNotes=(inv[11]||'').toString();
+      const sortDate = parseTrackerDate(dateRaw) || parseNotesSentDate(poNotes) || parseNotesSentDate(invNotes);
+      const poQty = parseQtyOrderedForTitle(poNotes, titleText);
+      const invQty = parseQtyOrderedForTitle(invNotes, titleText) || parseInvoiceQtyVariance(invNotes);
+      let qtyHtml=null;
+      if(poQty) qtyHtml = esc(poQty) + (invQty && invQty!==poQty ? `<span class="qty-variance">(invoice: ${esc(invQty)})</span>` : '');
+      else if(invQty) qtyHtml = esc(invQty);
+      const amtDisplay = fmtTrackerAmount(inv[4],inv[5]);
+      const isUSD = /^\$/.test((amtDisplay||'').trim()) || /^\$/.test((inv[4]||'').toString().trim());
+      let notesHtml = `<b>Merged PO + Invoice — one real order.</b> ${esc(poNotes)}`;
+      if(invNotes && invNotes.trim()!==poNotes.trim()) notesHtml += ` ${esc(invNotes)}`;
+      if(isUSD && amtDisplay) notesHtml += ` <span class="usd-secondary">(USD: ${esc(amtDisplay)})</span> — no GBP figure recorded in the Tracker for this row; Amount column shows the real USD figure on file.`;
+      built.push({ sortDate, dateRaw, supplier: inv[1]||po[1]||'', invoiceNum: inv[2]||'', amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml, notesHtml });
+    });
+    standalonePo.forEach(p=>{
+      const notes=(p[11]||'').toString();
+      const qty = parseQtyOrderedForTitle(notes, titleText);
+      built.push({ sortDate: parseTrackerDate(p[0]) || parseNotesSentDate(notes), dateRaw: p[0], supplier: p[1]||'', invoiceNum:'', amtDisplay: fmtTrackerAmount(p[4],p[5]), isUSD: /^\$/.test((p[4]||'').toString().trim()), status:(p[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml: esc(notes) });
+    });
+    standaloneInv.forEach(inv=>{
+      const notes=(inv[11]||'').toString();
+      const qty = parseQtyOrderedForTitle(notes, titleText);
+      const amtDisplay = fmtTrackerAmount(inv[4],inv[5]);
+      const isUSD = /^\$/.test((amtDisplay||'').trim()) || /^\$/.test((inv[4]||'').toString().trim());
+      let notesHtml = esc(notes);
+      if(isUSD && amtDisplay) notesHtml += ` <span class="usd-secondary">(USD: ${esc(amtDisplay)})</span> — no GBP figure recorded in the Tracker for this row.`;
+      built.push({ sortDate: parseTrackerDate(inv[0]) || parseNotesSentDate(notes), dateRaw: inv[0], supplier: inv[1]||'', invoiceNum: inv[2]||'', amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml });
+    });
+
+    // Newest-date-first; rows with no resolvable date (neither a parseable
+    // Date Recv'd nor a Notes-stated PO-sent date) sort last rather than
+    // being guessed at.
+    built.sort((a,b)=>{
+      if(a.sortDate && b.sortDate) return b.sortDate - a.sortDate;
+      if(a.sortDate) return -1;
+      if(b.sortDate) return 1;
+      return 0;
+    });
+
+    const rows = built.map(row=>{
+      const pillCls = statusPillClass(row.status);
+      const dateDisplay = row.dateRaw ? formatLogDate(row.dateRaw) : '&mdash;';
+      const qtyCell = row.qtyHtml ? `<td class="qty-ordered">${row.qtyHtml}</td>` : `<td class="qty-ordered qty-blank">&mdash;</td>`;
+      const amtCell = esc(row.amtDisplay||'—') + (row.isUSD ? '<span class="amount-placeholder-flag">USD — no GBP figure recorded for this row yet</span>' : '');
+      return `<tr>
+        <td>${dateDisplay}</td>
+        <td class="po-supplier">${esc(row.supplier)}</td>
+        <td>${esc(row.invoiceNum||'—')}</td>
+        <td>${amtCell}</td>
+        <td><span class="po-status-pill ${pillCls}">${esc(row.status||'—')}</span></td>
+        ${qtyCell}
+        <td>${row.notesHtml}</td>
+      </tr>`;
     }).join('');
-    // 2026-09-06 — David's ask: spread these 6 columns out instead of Notes
-    // eating most of the box while the rest get squeezed into a narrow strip.
-    // colgroup + .po-table-invoices (table-layout:fixed, see CSS) makes these
-    // percentages actually stick — Notes stays widest since it holds the most
-    // text, but the other 5 get a readable share instead of auto-layout's
-    // "shrink to content" squeeze.
-    const colgroup = '<colgroup><col style="width:10%"><col style="width:14%"><col style="width:12%"><col style="width:10%"><col style="width:10%"><col style="width:44%"></colgroup>';
-    container.innerHTML = label+`<table class="po-table po-table-invoices">${colgroup}<thead><tr><th>Date Recv'd</th><th>Supplier</th><th>Invoice #</th><th>Amount</th><th>Status</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`+poInvoiceOpenLink();
+    // colgroup + .po-table-invoices (table-layout:fixed, see CSS) keeps
+    // these percentages stable rather than auto-layout's shrink-to-content
+    // squeeze — carried over from the approved mockup's column widths.
+    const colgroup = '<colgroup><col style="width:9%"><col style="width:13%"><col style="width:10%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:42%"></colgroup>';
+    container.innerHTML = label+`<table class="po-table po-table-invoices">${colgroup}<thead><tr><th>Date Recv'd</th><th>Supplier</th><th>Invoice #</th><th>Amount</th><th>Status</th><th>Qty Ordered</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`+poInvoiceOpenLink();
   }catch(e){
     // Same real-Retry fix as loadPrintEstimatesFor above — the once-per-
     // session load gate means "reopen the section" alone wouldn't re-fetch.
-    container.innerHTML='<div class="po-empty">Could not load PO &amp; Invoice Tracker data: '+esc(e.message)+' <button class="btn btn-sm" onclick="loadPoInvoiceTrackerFor(\''+titleId+'\')">Retry</button></div>'+poInvoiceOpenLink();
+    container.innerHTML=label+'<div class="po-empty">Could not load PO &amp; Invoice Tracker data: '+esc(e.message)+' <button class="btn btn-sm" onclick="loadPoInvoiceTrackerFor(\''+titleId+'\')">Retry</button></div>'+poInvoiceOpenLink();
     if(isAuthFailure(e)) showReconnect('PO & Invoice Tracker lookup failed: signed out / token expired. Click Reconnect, then use Retry on the section.', true);
     console.error(e);
   }

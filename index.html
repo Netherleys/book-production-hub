@@ -159,7 +159,21 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .h-logo:hover{opacity:.8}
 .h-logo span{color:var(--imprint-headpress)}
 .h-nav{display:flex;gap:2px;flex-shrink:0}
-.h-tab{padding:6px 14px;border-radius:var(--r4);font-size:.85rem;cursor:pointer;background:none;border:none;color:var(--text-oncream-dim);font-family:var(--sans)}
+/* Round 47 (2026-09-06/07) — David: "I sometimes find the grey title text on
+   dark background difficult to read (Progress Report, Calendar, etc) — can
+   make the text a little more of a contrast?" Scoped to inactive nav tab
+   text only, NOT the shared --text-oncream-dim variable itself (that token
+   is also used by 10+ unrelated elements — footer, calendar legend, filter
+   pills, etc. — none of which were flagged, so widening the fix there risks
+   changing things nobody asked to change). #B9AF9B on this header's
+   #242219 background already computes to ~7.3:1 contrast (comfortably past
+   WCAG AA's 4.5:1 for normal text), but the muted/desaturated tone reads as
+   flatter than that ratio suggests, hence the complaint. Bumped to a
+   brighter, slightly less grey warm cream (#D8CFBB) — computes to ~10.3:1
+   against #242219, a clear step up, while staying visibly distinct from
+   both the white .h-tab.active text and the full-bright --text-oncream
+   hover state so the active/inactive/hover hierarchy is unchanged. */
+.h-tab{padding:6px 14px;border-radius:var(--r4);font-size:.85rem;cursor:pointer;background:none;border:none;color:#D8CFBB;font-family:var(--sans)}
 .h-tab:hover{background:rgba(241,234,217,.08);color:var(--text-oncream)}
 .h-tab.active{background:var(--sage);color:#fff;font-weight:600}
 /* Round 20 (2026-08-19) — "Recently Viewed" header dropdown. Styling/tokens
@@ -1307,6 +1321,30 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
    flagged for width and keeps its normal auto layout. */
 .po-table-invoices{table-layout:fixed}
 .po-table-invoices td{overflow-wrap:break-word}
+
+/* Round 47 (2026-09-07) — PO Tracker box redesign, built from David's
+   approved mockup (_mockups/po_tracker_estimates_link_mockup_2026-09-07.html
+   rev 5, "good to go live on this"). Tokens/classes carried over verbatim
+   from that mockup — not re-derived. */
+.source-tag{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:4px 10px;border-radius:20px;margin-bottom:8px}
+.source-tag .src-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
+.source-tag.src-estimates{background:var(--amber-bg);color:var(--amber-border);border:1px solid var(--amber-border)}
+.source-tag.src-estimates .src-dot{background:var(--amber-border)}
+.source-tag.src-potracker{background:var(--sage-bg);color:var(--sage-border);border:1px solid var(--sage-border)}
+.source-tag.src-potracker .src-dot{background:var(--sage-border)}
+.qty-variance{display:block;font-size:.68rem;font-weight:400;color:var(--text3);font-style:italic;margin-top:1px}
+.estimates-link-block{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r8);padding:12px 14px;margin-top:6px;flex-wrap:wrap}
+.estimates-link-copy{font-size:.82rem;color:var(--text2);line-height:1.4}
+.estimates-link-copy b{color:var(--text)}
+.estimates-link-meta{font-size:.72rem;color:var(--text3);margin-top:2px}
+.estimates-open-btn{flex-shrink:0;padding:8px 16px;border-radius:var(--r4);background:var(--sage);color:#fff;font-weight:600;font-size:.85rem;border:1px solid var(--sage-border);cursor:pointer;white-space:nowrap;text-decoration:none;display:inline-block}
+.estimates-open-btn:hover{background:var(--sage-border)}
+td.qty-ordered{color:var(--sage-border);font-weight:700}
+td.qty-ordered .qty-src{font-weight:400;color:var(--text3);font-style:italic}
+td.qty-ordered.qty-blank{color:var(--text3);font-weight:400;font-style:italic}
+td.po-supplier{font-weight:700;color:var(--text)}
+.amount-placeholder-flag{display:block;font-size:.6rem;font-weight:400;color:var(--text3);font-style:italic;margin-top:1px}
+.usd-secondary{font-weight:700}
 
 /* ── QUICK NOTE CAPTURE (item 32) — fast, low-friction, floating ── */
 /* Item 5 (Round 3) — made bigger/bolder/easier to spot: 50px→64px, icon
