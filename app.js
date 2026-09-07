@@ -1848,7 +1848,6 @@ function render(){
   document.getElementById('tab-isbns').classList.toggle('active',view==='isbns');
   const qnTab=document.getElementById('tab-quicknotes'); if(qnTab) qnTab.classList.toggle('active',view==='quicknotes');
   const rptTab=document.getElementById('tab-report'); if(rptTab) rptTab.classList.toggle('active',view==='report');
-  const calTab=document.getElementById('tab-calendar'); if(calTab) calTab.classList.toggle('active',view==='calendar');
   const otTab=document.getElementById('tab-ordertracker'); if(otTab) otTab.classList.toggle('active',view==='ordertracker');
   // Round 15 (2026-08-12) — the old header search/filter row (#search-wrap)
   // moved into the new left-hand filter sidebar (see #filter-panel-wrap in
@@ -1862,7 +1861,13 @@ function render(){
   document.getElementById('filter-panel-wrap').style.display=view==='titles'?'contents':'none';
   document.getElementById('btn-add-title').style.display=view==='titles'?'inline-block':'none';
   const main=document.getElementById('main');
-  main.className='main-'+view; // item 11/2 — width split by view (titles=full width, detail=slimmer, isbns=medium)
+  // Round 50 (2026-09-07) — Calendar folded into the Report view as a mode
+  // toggle rather than its own top-level view (see renderReport()/
+  // setReportMode() below), but its 7-column month grid still wants the
+  // same 1280px width Order Tracker uses, not the narrower 1100px table
+  // width the Report side is happy with — main-report-cal layers that on
+  // top of main-report when reportMode is 'calendar' (see index.html).
+  main.className='main-'+view+(view==='report'&&reportMode==='calendar'?' main-report-cal':''); // item 11/2 — width split by view (titles=full width, detail=slimmer, isbns=medium)
   // Item 6 (Round 2) — muted-green page background is scoped to the
   // detail/title view only (see body[data-view="detail"] in index.html);
   // every other view keeps the existing dark chrome.
@@ -1872,7 +1877,6 @@ function render(){
   else if(view==='isbns')renderISBNs();
   else if(view==='quicknotes')renderQuickNotesList();
   else if(view==='report')renderReport();
-  else if(view==='calendar')renderCalendar();
   else if(view==='ordertracker')renderOrderTracker();
   populateQuickNoteTitles();
   // Round 20 (2026-08-19) — header dropdown lives outside #main (it's part
@@ -1902,7 +1906,13 @@ function gotoISBNs(){flushPendingSave(selectedId);view='isbns';render();}
 function gotoReport(){flushPendingSave(selectedId);view='report';render();}
 function gotoDetail(id){if(selectedId&&selectedId!==id)flushPendingSave(selectedId);view='detail';selectedId=id;render();}
 function gotoQuickNotesList(){flushPendingSave(selectedId);view='quicknotes';render();}
-function gotoCalendar(){flushPendingSave(selectedId);view='calendar';render();}
+// Round 50 (2026-09-07) — Calendar is no longer its own top-level view/nav
+// tab; it's a mode toggle inside the Progress Report page (see
+// setReportMode() near renderReport()). gotoCalendar() had no other callers
+// (only the removed nav button) so it's gone rather than left as dead code —
+// jump straight to the Report view in Calendar mode instead, if anything
+// ever needs a direct "open the calendar" entry point again.
+function gotoCalendar(){flushPendingSave(selectedId);view='report';reportMode='calendar';render();}
 // Round 49 (2026-09-07) — Order Tracker nav entry, same goto* pattern as
 // every other top-level tab (flush any pending detail-page save first, then
 // swap view and re-render).
@@ -4041,7 +4051,19 @@ function parseQtyOrderedForTitle(notesText, titleText){
   const t_=title.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
   let m;
   m=new RegExp('([\\d,]+)\\s*copies\\s*of\\s*'+t_,'i').exec(notes); if(m) return m[1];
-  m=new RegExp(t_+'\\s*x\\s*([\\d,]+)','i').exec(notes); if(m) return m[1];
+  // Round 50 (2026-09-07) — the live Tracker's real Notes text almost always
+  // writes "TITLE (ISBN) xNNN", not "TITLE xNNN" — confirmed against the
+  // actual Sheet content (e.g. "Pink Tsunami (978-1-915316-41-7) x200"),
+  // which the old immediate-adjacency version of this regex never matched,
+  // one of the two real causes behind the badly-wrong "400 books" total
+  // (see buildAllOrderRows()'s Round 50 comment for the other — blank rows
+  // inflating the ORDER count; this one under-counts the BOOK total).
+  // Bounded to 40 non-period chars, same [^.]{0,N} guard the "copies"
+  // pattern below already uses, so a multi-title Notes string (several
+  // titles each with their own "(ISBN) xNNN") still pairs each title with
+  // its OWN nearby quantity rather than drifting onto a different title's
+  // number further down the sentence.
+  m=new RegExp(t_+'[^.]{0,40}?\\s*x\\s*([\\d,]+)','i').exec(notes); if(m) return m[1];
   m=new RegExp(t_+'[^.]{0,60}?([\\d,]+)\\s*copies','i').exec(notes); if(m) return m[1];
   return null;
 }
@@ -4154,13 +4176,13 @@ async function loadPoInvoiceTrackerFor(titleId){
       if(invNotes && invNotes.trim()!==poNotes.trim()) notesHtml += ` ${esc(invNotes)}`;
       if(isUSD && amtDisplay) notesHtml += ` <span class="usd-secondary">(USD: ${esc(amtDisplay)})</span> — no GBP figure recorded in the Tracker for this row; Amount column shows the real USD figure on file.`;
       const poRef=(po[3]||inv[3]||'').toString().trim();
-      built.push({ sortDate, dateRaw, supplier: inv[1]||po[1]||'', invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, po), amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml, notesHtml });
+      built.push({ sortDate, dateRaw, supplier: cleanSupplierName(inv[1]||po[1]||''), invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, po), amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml, notesHtml });
     });
     standalonePo.forEach(p=>{
       const notes=(p[11]||'').toString();
       const qty = parseQtyOrderedForTitle(notes, titleText);
       const poRef=(p[3]||'').toString().trim();
-      built.push({ sortDate: parseTrackerDate(p[0]) || parseNotesSentDate(notes), dateRaw: p[0], supplier: p[1]||'', invoiceNum:'', poRefHtml: poRefLink(poRef, p), amtDisplay: fmtTrackerAmount(p[4],p[5]), isUSD: /^\$/.test((p[4]||'').toString().trim()), status:(p[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml: esc(notes) });
+      built.push({ sortDate: parseTrackerDate(p[0]) || parseNotesSentDate(notes), dateRaw: p[0], supplier: cleanSupplierName(p[1]||''), invoiceNum:'', poRefHtml: poRefLink(poRef, p), amtDisplay: fmtTrackerAmount(p[4],p[5]), isUSD: /^\$/.test((p[4]||'').toString().trim()), status:(p[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml: esc(notes) });
     });
     standaloneInv.forEach(inv=>{
       const notes=(inv[11]||'').toString();
@@ -4170,7 +4192,7 @@ async function loadPoInvoiceTrackerFor(titleId){
       let notesHtml = esc(notes);
       if(isUSD && amtDisplay) notesHtml += ` <span class="usd-secondary">(USD: ${esc(amtDisplay)})</span> — no GBP figure recorded in the Tracker for this row.`;
       const poRef=(inv[3]||'').toString().trim();
-      built.push({ sortDate: parseTrackerDate(inv[0]) || parseNotesSentDate(notes), dateRaw: inv[0], supplier: inv[1]||'', invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, inv), amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml });
+      built.push({ sortDate: parseTrackerDate(inv[0]) || parseNotesSentDate(notes), dateRaw: inv[0], supplier: cleanSupplierName(inv[1]||''), invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, inv), amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml });
     });
 
     // Newest-date-first; rows with no resolvable date (neither a parseable
@@ -4339,9 +4361,55 @@ async function loadOrderTrackerData(){
 // name appears in that source's Notes (best-effort substring match, same
 // convention already used per-title — a source naming no known title still
 // surfaces once, under "(Unmatched)", so nothing is silently dropped).
+// Round 50 (2026-09-07, David bug report via screenshot) — INVESTIGATION
+// FINDING, not a guess: the banner read "Showing 1004 orders, 400 books
+// ordered total" against a real, previously hand-verified dataset of 9 real
+// POs/invoices fanning out to ~20 real title-line rows / ~9,268 books
+// (_mockups/all_orders_page_sidebar_mockup_2026-09-07.html). Pulled the live
+// "PO & Invoice Tracker - Headpress" Sheet directly (Google Drive connector)
+// to find the actual root cause rather than guess past it:
+//   Tracker!A2:M1000 (loadOrderTrackerData() above) really does return ~988
+//   blank rows past the sheet's 12 real data rows — but those blank rows are
+//   NOT all-empty: column E (Currency) is pre-filled with '£' by the sheet's
+//   own data-validation default on every row in the range, real or not. The
+//   OLD split below (`!(r[2]||'').trim()` = no Invoice#) put every one of
+//   those ~988 blank rows into poOnly, and since a blank row never merges
+//   with anything, each became its own standalone "(Unmatched)" source with
+//   0 qty — one spurious row per blank sheet row. That's the 1004.
+// Fix: drop any raw row with nothing in it across every column EXCEPT
+// Currency before the PO/Invoice split — a real row always has at least a
+// date, supplier, invoice#, PO ref, amount, status, or notes; the Currency
+// column alone proves nothing.
+const OT_MEANINGFUL_COLS = [0,1,2,3,5,6,7,8,9,10,11,12]; // every Tracker!A2:M column except E (Currency, index 4)
+// Round 50 (2026-09-07, David bug report via screenshot) — a Supplier cell
+// in the live Tracker can carry a full diagnostic explanation instead of
+// (or bolted onto) a clean name — the real live value for one row is
+// literally "Sheridan (per filename — PO's own Supplier field left blank;
+// inferred from Estimate contact Kathy Brown, Quote No. 254085)", typed
+// straight into the Sheet's Supplier column by whoever did that
+// reconciliation rather than left in Notes where that reasoning already
+// lives verbatim (checked — it does). Left as-is, that whole sentence was
+// leaking into the Printer/Supplier filter checklist as its OWN checkbox
+// label, and into the table's Supplier cell too. Strips a trailing
+// parenthetical off the display/filter value whenever it reads as an
+// explanatory aside rather than a short, genuine name qualifier (e.g. a
+// legitimate "(UK)"/"(Ltd)" suffix) — heuristic: long (>20 chars) OR itself
+// contains a dash/semicolon/colon, signals a real short qualifier would
+// never trip. Falls back to the untouched original string otherwise (the
+// normal case — a clean supplier name with no parenthetical at all).
+function cleanSupplierName(raw){
+  const s=(raw||'').toString().trim();
+  const m=/^(.*?)\s*\(([^()]*)\)\s*$/.exec(s);
+  if(!m) return s;
+  const base=m[1], paren=m[2];
+  if(!base) return s; // nothing before the paren to fall back to — leave as-is
+  const looksExplanatory = paren.length>20 || /[—\-;:]/.test(paren);
+  return looksExplanatory ? base.trim() : s;
+}
 function buildAllOrderRows(rawRows, trackerGid){
-  const poOnly = rawRows.filter(r=>!(r[2]||'').toString().trim());
-  const invoiceRows = rawRows.filter(r=>(r[2]||'').toString().trim());
+  const realRows = rawRows.filter(r => r && OT_MEANINGFUL_COLS.some(i => (r[i]||'').toString().trim()!==''));
+  const poOnly = realRows.filter(r=>!(r[2]||'').toString().trim());
+  const invoiceRows = realRows.filter(r=>(r[2]||'').toString().trim());
   const usedPo = new Set(); const usedInv = new Set();
   const merged = [];
   invoiceRows.forEach((inv,ii)=>{
@@ -4372,7 +4440,7 @@ function buildAllOrderRows(rawRows, trackerGid){
     const poRef=(po[3]||inv[3]||'').toString().trim();
     sources.push({ kind:'merged', poNotes, invNotes, dateRaw,
       sortDate: parseTrackerDate(dateRaw) || parseNotesSentDate(poNotes) || parseNotesSentDate(invNotes),
-      supplier: inv[1]||po[1]||'', invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, po),
+      supplier: cleanSupplierName(inv[1]||po[1]||''), invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, po),
       amtDisplay, isUSD, status:(inv[9]||'').toString() });
   });
   standalonePo.forEach(p=>{
@@ -4380,7 +4448,7 @@ function buildAllOrderRows(rawRows, trackerGid){
     const poRef=(p[3]||'').toString().trim();
     sources.push({ kind:'po', poNotes:notes, invNotes:'', dateRaw:p[0],
       sortDate: parseTrackerDate(p[0]) || parseNotesSentDate(notes),
-      supplier: p[1]||'', invoiceNum:'', poRefHtml: poRefLink(poRef, p),
+      supplier: cleanSupplierName(p[1]||''), invoiceNum:'', poRefHtml: poRefLink(poRef, p),
       amtDisplay: fmtTrackerAmount(p[4],p[5]), isUSD: /^\$/.test((p[4]||'').toString().trim()), status:(p[9]||'').toString() });
   });
   standaloneInv.forEach(inv=>{
@@ -4390,7 +4458,7 @@ function buildAllOrderRows(rawRows, trackerGid){
     const poRef=(inv[3]||'').toString().trim();
     sources.push({ kind:'inv', poNotes:'', invNotes:notes, dateRaw:inv[0],
       sortDate: parseTrackerDate(inv[0]) || parseNotesSentDate(notes),
-      supplier: inv[1]||'', invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, inv),
+      supplier: cleanSupplierName(inv[1]||''), invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, inv),
       amtDisplay, isUSD, status:(inv[9]||'').toString() });
   });
 
@@ -4466,16 +4534,21 @@ function renderOrderTrackerFilters(){
   const titleCount = n => allOrderRowsCache.filter(r=>r.titleName===n).length;
   const supplierCount = n => allOrderRowsCache.filter(r=>r.supplier===n).length;
 
+  // Round 50 (2026-09-07, David bug report via screenshot) — label text now
+  // wraps in its own .cl-text span (ellipsis-truncated, full name in
+  // title="") instead of a bare text node sitting next to .cnt, so a long
+  // title/supplier name can never wrap raggedly into the count — see the
+  // .checklist .cl-text/.cnt rules in index.html for the CSS half of this.
   const tc = document.getElementById('ot-title-checklist');
   if(tc){
     tc.innerHTML = titleNames.filter(n=>n.toLowerCase().includes(titleSearch.toLowerCase())).map(n=>
-      `<label><input type="checkbox" class="ot-title-cb" value="${esc(n)}" ${otFilters.titles.has(n)?'checked':''}>${esc(n)}<span class="cnt">${titleCount(n)}</span></label>`
+      `<label title="${esc(n)}"><input type="checkbox" class="ot-title-cb" value="${esc(n)}" ${otFilters.titles.has(n)?'checked':''}><span class="cl-text">${esc(n)}</span><span class="cnt">${titleCount(n)}</span></label>`
     ).join('');
   }
   const sc = document.getElementById('ot-supplier-checklist');
   if(sc){
     sc.innerHTML = supplierNames.map(n=>
-      `<label><input type="checkbox" class="ot-supplier-cb" value="${esc(n)}" ${otFilters.suppliers.has(n)?'checked':''}>${esc(n)}<span class="cnt">${supplierCount(n)}</span></label>`
+      `<label title="${esc(n)}"><input type="checkbox" class="ot-supplier-cb" value="${esc(n)}" ${otFilters.suppliers.has(n)?'checked':''}><span class="cl-text">${esc(n)}</span><span class="cnt">${supplierCount(n)}</span></label>`
     ).join('');
   }
   document.querySelectorAll('.ot-title-cb').forEach(cb=>cb.addEventListener('change', e=>{
@@ -5834,7 +5907,27 @@ function downloadWordFile(titleId){
 // pipeline notes — that's existing app-wide behaviour (not new here), but
 // worth knowing if a title unexpectedly disappears.
 let reportFilter = 'all';
+// Round 50 (2026-09-07) — which of the two sub-views the merged Progress
+// Report/Calendar page is currently showing ('report' | 'calendar'). See
+// setReportMode()/renderReport() below.
+let reportMode = 'report';
 
+// Round 50 (2026-09-07) — same override-awareness computeDayInfo()/
+// isPublished() already have (a manual printStatusOverride wins over any
+// date-vs-today math), now applied to THIS function too. Bug, confirmed
+// live: reportRows() computed printDays/streetDays purely off dates vs
+// today, blind to printStatusOverride, so a title David had explicitly
+// moved into a later-stage manual status could still show as OVERDUE here
+// even though the whole point of setting that override is "this title isn't
+// running off the auto date-math any more" — confirmed on "Last Orgy By the
+// Cemetery" (Status: Print Ready), which showed two OVERDUE flags despite
+// David having already marked it print-ready. Same 4-value set as
+// hasAttention()/attentionLabel() already treat as "later-stage" —
+// 'Not Scheduled'/'In Progress' deliberately excluded: those are EARLY-stage
+// overrides (see the Round 44 PRINT_STATUS_OVERRIDES comment) where a missed
+// Print/Street date is still exactly the meaningful "you're behind" signal
+// this report exists to surface.
+const REPORT_LATE_STAGE_OVERRIDES = new Set(['Print Ready','In Print','Delayed/On Hold','Cancelled']);
 function reportRows(){
   return data.titles
     .filter(t => !isPublished(t))
@@ -5846,10 +5939,12 @@ function reportRows(){
         .sort((a,b) => a.expectedDate<b.expectedDate?-1:a.expectedDate>b.expectedDate?1:0);
       const pipelineNotes = pipelineDated.map(s => s.notes ? `${formatDate(s.expectedDate)} – ${s.name} – ${s.notes}` : `${formatDate(s.expectedDate)} – ${s.name}`);
       const earliestPipelineDate = pipelineDated.length ? pipelineDated[0].expectedDate : null;
+      const lateStageOverride = REPORT_LATE_STAGE_OVERRIDES.has(t.dates.printStatusOverride);
       return {
         id: t.id, title: t.title,
         printDate: effPrint, printAuto: !!t.dates.autoPrintDate, printDays: daysUntil(effPrint),
         streetDate: t.dates.streetDate, streetDays: daysUntil(t.dates.streetDate),
+        lateStageOverride, printStatusOverride: t.dates.printStatusOverride||'',
         pipelineNotes, earliestPipelineDays: daysUntil(earliestPipelineDate)
       };
     })
@@ -5898,8 +5993,19 @@ function reportRelLabel(days){
   if(days===1) return 'TOMORROW';
   return `IN ${days} ${reportDayWord(days)}`;
 }
-function reportDateCell(dateStr, days, auto){
+// Round 50 — overrideLabel param: when the row's title carries a late-stage
+// manual printStatusOverride (see REPORT_LATE_STAGE_OVERRIDES above), the
+// override wins outright, same as computeDayInfo() — the date still shows
+// (useful reference), but its colour/sub-label reflects the manual status
+// instead of a raw days-vs-today OVERDUE/soon computation that override was
+// specifically set to move past.
+function reportDateCell(dateStr, days, auto, overrideLabel){
   if(!dateStr) return '<span class="rpt-dash">—</span>';
+  if(overrideLabel){
+    const sub = `<span class="rpt-date-sub">${esc(overrideLabel.toUpperCase())}</span>`;
+    const autoNote = auto ? ' <span class="rpt-dash" style="font-style:italic;font-weight:400">(auto-calc)</span>' : '';
+    return `<span class="rpt-normal">${esc(formatDate(dateStr))}${autoNote}${sub}</span>`;
+  }
   const cls = reportDateColorClass(days);
   const sub = days!==null ? `<span class="rpt-date-sub">${esc(reportRelLabel(days))}</span>` : '';
   const autoNote = auto ? ' <span class="rpt-dash" style="font-style:italic;font-weight:400">(auto-calc)</span>' : '';
@@ -5910,18 +6016,23 @@ function reportNotesCell(notes){
   return notes.map(n => `<div class="rpt-note-line">${esc(n)}</div>`).join('');
 }
 function reportRowHtml(r){
+  const overrideLabel = r.lateStageOverride ? r.printStatusOverride : null;
   return `<tr>
       <td class="rpt-col-title"><button class="rpt-item-title" onclick="gotoDetail('${esc(r.id)}')">${esc(r.title)}</button></td>
       <td class="rpt-col-notes">${reportNotesCell(r.pipelineNotes)}</td>
-      <td class="rpt-col-date">${reportDateCell(r.printDate, r.printDays, r.printAuto)}</td>
-      <td class="rpt-col-date">${reportDateCell(r.streetDate, r.streetDays, false)}</td>
+      <td class="rpt-col-date">${reportDateCell(r.printDate, r.printDays, r.printAuto, overrideLabel)}</td>
+      <td class="rpt-col-date">${reportDateCell(r.streetDate, r.streetDays, false, overrideLabel)}</td>
     </tr>`;
 }
 function reportSummaryHtml(){
   // Headline count is scoped to titles with a Print Deadline and/or Street
   // Date (the two colour-coded columns) — pipeline-only titles (Group B)
   // aren't reflected here since neither of their columns is colour-coded.
-  const dated = reportRows().filter(r => r.streetDate || r.printDate);
+  // Round 50 — lateStageOverride titles excluded from both counts too, same
+  // reasoning as reportDateCell()'s override branch above: an
+  // already-overdue-looking date on a title David has explicitly moved past
+  // the auto date-math shouldn't inflate the "N overdue" headline either.
+  const dated = reportRows().filter(r => (r.streetDate || r.printDate) && !r.lateStageOverride);
   let overdue = 0, soon = 0;
   dated.forEach(r => {
     const days = [r.printDays, r.streetDays].filter(d => d !== null);
@@ -6000,48 +6111,95 @@ function scheduleBlockHtml(){
     </div>`;
 }
 
+// Round 50 (2026-09-07, David-approved mockup: _mockups/
+// progress_report_calendar_merge_mockup_2026-09-07.html — "Progress
+// Report/Calendar mockup - good call, I'm happy with that.") — the
+// standalone Calendar nav tab is gone; Calendar is now a view TOGGLE inside
+// this page instead, reusing the exact Active/Archived pill-toggle pattern
+// (.qn-mode-toggle/.qn-mode-btn) Quick Notes already established, per the
+// mockup's own design reasoning: Report and Calendar aren't a LIST of
+// destinations (which is what earns a sidebar, e.g. Order Tracker's), they're
+// two different SHAPES of the same underlying date data, and there are only
+// ever two of them. Report opens first (matches what the old standalone
+// "Progress Report" tab did); Calendar is one click away via the toggle, not
+// buried further than it used to be. Nothing inside either view changes —
+// same 4-way filter/Copy-Export/Print/Popout on the Report side, same
+// Prev/Next/Today/Print Month/Print Year/Sync to Google Calendar (Round 33)
+// on the Calendar side — only the entry point moved. Both sub-views are
+// always rendered into their own container (#view-report/#view-calendar);
+// setReportMode() below just toggles which one is visible, so switching
+// modes is instant and never re-fetches anything.
 function renderReport(){
   const main=document.getElementById('main');
+  document.body.dataset.reportMode = reportMode; // read by the @media print rules in index.html — see the Round 50 comment there
   main.innerHTML = `
     <div class="rpt-page-head">
       <h2 style="font-family:var(--serif);font-weight:normal;font-size:1.3rem">Progress Report</h2>
       <div class="rpt-summary-line" id="rpt-summary-line">${reportSummaryHtml()}</div>
     </div>
-    ${scheduleBlockHtml()}
-    <div class="rpt-toolbar">
-      <div class="filter-group" role="group" aria-label="Filter">
-        <!-- Order per David's explicit confirmation (2026-08-20): All,
-             Street Date, Print Deadline, Pipeline Notes — All leftmost.
-             Differs from the v3 mockup file's own button order
-             (Street/Print/All/Pipeline); this live build follows David's
-             later word over the mockup. -->
-        <button class="filter-btn ${reportFilter==='all'?'active':''}" onclick="setReportFilter('all')">All</button>
-        <button class="filter-btn ${reportFilter==='street'?'active':''}" onclick="setReportFilter('street')">Street Date</button>
-        <button class="filter-btn ${reportFilter==='print'?'active':''}" onclick="setReportFilter('print')">Print Deadline</button>
-        <button class="filter-btn ${reportFilter==='pipeline'?'active':''}" onclick="setReportFilter('pipeline')">Pipeline Notes</button>
+    <div class="qn-mode-toggle" role="group" aria-label="Progress Report view">
+      <button type="button" class="qn-mode-btn ${reportMode==='report'?'active':''}" id="mode-report-btn" onclick="setReportMode('report')">Report</button>
+      <button type="button" class="qn-mode-btn ${reportMode==='calendar'?'active':''}" id="mode-cal-btn" onclick="setReportMode('calendar')">Calendar</button>
+    </div>
+    <div id="view-report" class="${reportMode==='report'?'':'hidden'}">
+      ${scheduleBlockHtml()}
+      <div class="rpt-toolbar">
+        <div class="filter-group" role="group" aria-label="Filter">
+          <!-- Order per David's explicit confirmation (2026-08-20): All,
+               Street Date, Print Deadline, Pipeline Notes — All leftmost.
+               Differs from the v3 mockup file's own button order
+               (Street/Print/All/Pipeline); this live build follows David's
+               later word over the mockup. -->
+          <button class="filter-btn ${reportFilter==='all'?'active':''}" onclick="setReportFilter('all')">All</button>
+          <button class="filter-btn ${reportFilter==='street'?'active':''}" onclick="setReportFilter('street')">Street Date</button>
+          <button class="filter-btn ${reportFilter==='print'?'active':''}" onclick="setReportFilter('print')">Print Deadline</button>
+          <button class="filter-btn ${reportFilter==='pipeline'?'active':''}" onclick="setReportFilter('pipeline')">Pipeline Notes</button>
+        </div>
+        <div class="rpt-toolbar-right">
+          <button class="btn btn-primary btn-sm" onclick="openReportExport()">Copy / Export</button>
+          <button class="btn btn-sm" onclick="window.print()">Print</button>
+          ${isPopoutReport
+            ? `<button class="btn btn-sm" id="rpt-popout-refresh-btn" onclick="refreshPopoutReport()">&#8635; Refresh</button>`
+            : `<button class="btn btn-sm" onclick="openReportPopout()">Open in New Window</button>`}
+        </div>
       </div>
-      <div class="rpt-toolbar-right">
-        <button class="btn btn-primary btn-sm" onclick="openReportExport()">Copy / Export</button>
-        <button class="btn btn-sm" onclick="window.print()">Print</button>
-        ${isPopoutReport
-          ? `<button class="btn btn-sm" id="rpt-popout-refresh-btn" onclick="refreshPopoutReport()">&#8635; Refresh</button>`
-          : `<button class="btn btn-sm" onclick="openReportPopout()">Open in New Window</button>`}
+      <div class="rpt-table-card">
+        <div class="rpt-table-scroll">
+          <table class="report-table">
+            <thead>
+              <tr><th>Book Title</th><th>Pipeline Notes</th><th>Print Deadline</th><th>Street Date</th></tr>
+            </thead>
+            <tbody id="rpt-tbody"></tbody>
+          </table>
+        </div>
+        <div id="rpt-empty" class="rpt-empty" style="display:none">Nothing matches this filter right now.</div>
       </div>
     </div>
-    <div class="rpt-table-card">
-      <div class="rpt-table-scroll">
-        <table class="report-table">
-          <thead>
-            <tr><th>Book Title</th><th>Pipeline Notes</th><th>Print Deadline</th><th>Street Date</th></tr>
-          </thead>
-          <tbody id="rpt-tbody"></tbody>
-        </table>
-      </div>
-      <div id="rpt-empty" class="rpt-empty" style="display:none">Nothing matches this filter right now.</div>
-    </div>`;
+    <div id="view-calendar" class="${reportMode==='calendar'?'':'hidden'}"></div>`;
   renderReportTable();
+  renderCalendar();
 }
 function setReportFilter(f){ reportFilter=f; renderReport(); }
+// Round 50 — pure visibility toggle, no re-render: both sub-views are
+// already fully built (renderReport() above always renders both), so
+// switching modes is just a class flip, not a rebuild.
+function setReportMode(mode){
+  reportMode = mode;
+  document.body.dataset.reportMode = mode;
+  const repBtn=document.getElementById('mode-report-btn'), calBtn=document.getElementById('mode-cal-btn');
+  if(repBtn) repBtn.classList.toggle('active', mode==='report');
+  if(calBtn) calBtn.classList.toggle('active', mode==='calendar');
+  const vr=document.getElementById('view-report'), vc=document.getElementById('view-calendar');
+  if(vr) vr.classList.toggle('hidden', mode!=='report');
+  if(vc) vc.classList.toggle('hidden', mode!=='calendar');
+  // Calendar's 7-column month grid wants the wider 1280px cap Order Tracker
+  // uses; Report's table is happy at the narrower 1100px width — see
+  // .main-report-cal in index.html and the matching main.className logic in
+  // render() (which only runs on a full view change, hence this direct
+  // class toggle here too for the same-page mode switch).
+  const main=document.getElementById('main');
+  if(main) main.classList.toggle('main-report-cal', mode==='calendar');
+}
 function renderReportTable(){
   const result = getReportRows(reportFilter);
   const tbody = document.getElementById('rpt-tbody');
@@ -6074,8 +6232,12 @@ function reportExportLine(r){
   lines.push(r.title);
   if(r.pipelineNotes.length) r.pipelineNotes.forEach(n => lines.push('  Pipeline: ' + n));
   else lines.push('  Pipeline: —');
-  lines.push('  Print Deadline: ' + (r.printDate ? `${formatDate(r.printDate)}${r.printDays<0?' (OVERDUE)':r.printDays<=30?' (soon)':''}${r.printAuto?' (auto-calc)':''}` : '—'));
-  lines.push('  Street Date: ' + (r.streetDate ? `${formatDate(r.streetDate)}${r.streetDays<0?' (OVERDUE)':r.streetDays<=30?' (soon)':''}` : '—'));
+  // Round 50 — same override-awareness as reportDateCell(): a late-stage
+  // manual status overrides the raw days-vs-today (OVERDUE)/(soon) tag here
+  // too, so Copy/Export never disagrees with what the on-screen table shows.
+  const statusTag = r.lateStageOverride ? ` (${r.printStatusOverride.toUpperCase()})` : '';
+  lines.push('  Print Deadline: ' + (r.printDate ? `${formatDate(r.printDate)}${r.lateStageOverride?statusTag:(r.printDays<0?' (OVERDUE)':r.printDays<=30?' (soon)':'')}${r.printAuto?' (auto-calc)':''}` : '—'));
+  lines.push('  Street Date: ' + (r.streetDate ? `${formatDate(r.streetDate)}${r.lateStageOverride?statusTag:(r.streetDays<0?' (OVERDUE)':r.streetDays<=30?' (soon)':'')}` : '—'));
   lines.push('');
   return lines;
 }
@@ -6236,8 +6398,21 @@ function calLegendHtml(){
     <span class="cal-legend-item"><span class="cal-legend-swatch cal-entry-print"></span>Print Date</span>
   </div>`;
 }
+// Round 50 (2026-09-07) — retargeted from #main to #view-calendar: Calendar
+// is now a sub-view rendered inside the merged Progress Report page (see
+// renderReport() above) rather than owning the whole page itself. Internal
+// logic (grid math, entries, toolbar, Sync to Google Calendar) is otherwise
+// untouched — reused as-is, not rebuilt, per the mockup's own framing that
+// nothing inside either view should change, only the entry point. The
+// on-screen "Calendar" <h2> is dropped (Progress Report's own page-head
+// title already covers it now, immediately above the Report/Calendar
+// toggle); the PRINT-only month heading (.cal-print-month-head) is kept —
+// still needed so Print Month still states which month it is on paper (see
+// its own Round 36 comment below), independent of whichever screen title is
+// or isn't showing above it.
 function renderCalendar(){
-  const main=document.getElementById('main');
+  const container=document.getElementById('view-calendar');
+  if(!container) return; // not on the Report view (or its Calendar mode not yet rendered) — nothing to draw into
   const monthLabel = new Date(calYear,calMonth,1).toLocaleDateString('en-GB',{month:'long',year:'numeric'});
   const entries = calendarEntriesForMonth(calYear,calMonth);
   const byDay={};
@@ -6253,9 +6428,8 @@ function renderCalendar(){
     const cls=['cal-cell']; if(!c.inMonth) cls.push('outside'); if(c.dow>=5) cls.push('weekend'); if(dayEntries.length) cls.push('has-entries');
     return `<div class="${cls.join(' ')}"><div class="cal-cell-daynum">${c.dt.getDate()}</div><div class="cal-cell-entries">${calCellEntriesHtml(dayEntries)}</div></div>`;
   }).join('');
-  main.innerHTML = `
+  container.innerHTML = `
     <div class="cal-page-head">
-      <h2 class="cal-page-title" style="font-family:var(--serif);font-weight:normal;font-size:1.3rem">Calendar</h2>
       <!-- Round 36 (2026-08-26, David bug report) — Print Month had NO month
            name anywhere on the printed page: the only place the current
            month showed was .cal-month-label inside .cal-toolbar, and the
@@ -6263,9 +6437,8 @@ function renderCalendar(){
            see @media print in index.html — toolbar controls are
            meaningless on paper). This heading is the fix: screen-hidden
            (.cal-print-month-head, display:none by default), shown only in
-           print, right where the generic "Calendar" title was — so the
-           printed page always states which month it is. Format per David's
-           explicit ask, item 3: "Month Name (N)". -->
+           print — so the printed page always states which month it is.
+           Format per David's explicit ask, item 3: "Month Name (N)". -->
       <h2 class="cal-print-month-head">${esc(calMonthNumLabel(calMonth))} ${calYear}</h2>
       ${calLegendHtml()}
     </div>

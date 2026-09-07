@@ -264,9 +264,15 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* Round 24 (2026-08-20) — Progress Report, same width treatment as ISBN
    Manager (a report/table view, not a card grid). */
 #main.main-report{max-width:1100px;margin:0 auto}
-/* Round 32 (2026-08-26) — Calendar. Wider than the report/ISBN views since
-   it's a 7-column week grid, not a table. */
-#main.main-calendar{max-width:1280px;margin:0 auto}
+/* Round 50 (2026-09-07) — Calendar is no longer its own top-level view (see
+   the Progress Report/Calendar merge, renderReport()/setReportMode() in
+   app.js) so #main never carries class "main-calendar" any more — but its
+   7-column week grid still wants more room than the Report table's 1100px,
+   same 1280px cap the old standalone Calendar view used. main-report-cal is
+   layered ON TOP of main-report (both classes present together) whenever
+   the Calendar sub-view is active, so this rule needs the extra specificity
+   of both classes to win over the plain #main.main-report rule above. */
+#main.main-report.main-report-cal{max-width:1280px}
 /* Round 49 (2026-09-07) — Order Tracker. Same 1280px cap as Calendar (it's a
    wide table + sidebar, not a card grid) — the .ot-shell flex row inside
    (sidebar + table) supplies its own internal gap, no extra shell padding
@@ -1369,7 +1375,19 @@ td.po-supplier{font-weight:700;color:var(--text)}
    from the PO Tracker section above — same underlying Tracker data, same
    row conventions, just spanning every title instead of one. */
 .ot-shell{display:flex;align-items:flex-start;gap:22px}
-.ot-sidebar{width:270px;flex-shrink:0;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);padding:16px;position:sticky;top:calc(var(--hh) + 16px)}
+/* Round 50 (2026-09-07, David bug report via screenshot) — sidebar widened
+   270px -> 320px, and the Title/Supplier checklist item markup below now
+   wraps its own label text in a dedicated .cl-text span (see
+   renderOrderTrackerFilters() in app.js) instead of a bare text node, so it
+   can be truncated on its own rather than wrapping raggedly across the
+   count. At 270px there simply wasn't enough room for a real title like
+   "Hollywood Haunts the World" to sit next to its count without wrapping
+   mid-word and colliding with the number — the extra 50px alone doesn't
+   fully fix a name that long, so this is paired with the ellipsis
+   truncation + native title-attribute tooltip below (same convention
+   .po-title/.isbn already establish elsewhere in this page for long text in
+   a tight column) rather than relying on width alone. */
+.ot-sidebar{width:320px;flex-shrink:0;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);padding:16px;position:sticky;top:calc(var(--hh) + 16px)}
 .ot-sidebar-h{font-family:var(--serif);font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:14px}
 .ot-main{flex:1;min-width:0}
 .ot-title-block h1{font-family:var(--serif);font-size:1.5rem;font-weight:700;color:var(--text-oncream)}
@@ -1378,11 +1396,25 @@ td.po-supplier{font-weight:700;color:var(--text)}
 .filter-group:last-of-type{margin-bottom:14px}
 .filter-label{font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px;display:block}
 .filter-search{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r4);font-size:.8rem;color:var(--text);background:var(--surface);margin-bottom:6px}
-.checklist{max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r4);background:var(--surface);padding:4px 0}
-.checklist label{display:flex;align-items:center;gap:7px;padding:4px 8px;font-size:.8rem;color:var(--text2);cursor:pointer}
+/* Round 50 — checklist boxes given real breathing room: 200px -> 260px max
+   height (fewer scroll-within-scroll clicks for a full title/supplier list)
+   and each row now min-height 30px (was collapsing to font-line-height
+   alone, ~22px, which is part of why a wrapped 2-3 line label felt so
+   cramped against its neighbours). */
+.checklist{max-height:260px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r4);background:var(--surface);padding:4px 0}
+.checklist label{display:flex;align-items:center;gap:7px;padding:5px 8px;min-height:30px;font-size:.8rem;color:var(--text2);cursor:pointer}
 .checklist label:hover{background:var(--surface2)}
 .checklist input[type=checkbox]{accent-color:var(--sage);width:14px;height:14px;flex-shrink:0}
-.checklist .cnt{margin-left:auto;font-size:.68rem;color:var(--text3)}
+/* Round 50 — the label text is now its own span (.cl-text), truncated with
+   an ellipsis on a single line rather than left as a bare text node free to
+   wrap across multiple lines and run into the count. Full untruncated name
+   is still available via the native title="" tooltip set in app.js. .cnt
+   gets flex-shrink:0 + its own left margin (replacing the old
+   margin-left:auto, which depended on .cl-text correctly consuming the
+   remaining space to push it right — now explicit either way) so the count
+   number can never itself be squeezed or wrapped. */
+.checklist .cl-text{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.checklist .cnt{flex-shrink:0;margin-left:6px;font-size:.68rem;color:var(--text3)}
 .date-range-row{display:flex;flex-direction:column;gap:6px}
 .date-range-row label{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.03em;font-weight:600}
 .date-range-row input[type=date]{width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.8rem;color:var(--text);background:var(--surface)}
@@ -1592,7 +1624,11 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
    full — adding the suffix too would have doubled up on the exact same
    words in monochrome print. ── */
 @media print{
-  #app-header,#reconnect-banner,#quick-note-fab,#quick-note-panel,.rpt-toolbar,.rv-wrap,#app-footer,.modal-overlay,#filter-panel-wrap{display:none!important}
+  /* Round 50 (2026-09-07) — .qn-mode-toggle (the Report/Calendar switch,
+     and Quick Notes' Active/Archived switch) added to the hide-list: it's a
+     screen-only view control, meaningless on paper, same reasoning as
+     .rpt-toolbar/.cal-toolbar just below. */
+  #app-header,#reconnect-banner,#quick-note-fab,#quick-note-panel,.rpt-toolbar,.rv-wrap,#app-footer,.modal-overlay,#filter-panel-wrap,.qn-mode-toggle{display:none!important}
   body{background:#fff!important;color:#000!important;padding:0!important}
   .layout-wrap{padding:0}
   #main{padding:0}
@@ -1638,9 +1674,24 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
      or without it). */
   .cal-toolbar,.cal-sync-status{display:none!important}
   .cal-page-head{margin-bottom:10px}
+  /* Round 50 (2026-09-07) — Calendar is now a sub-view of the merged
+     Progress Report page (see renderReport()/renderCalendar() in app.js),
+     which always carries its OWN .rpt-page-head ("Progress Report" title +
+     overdue/soon chips) above the Report/Calendar toggle — content that's
+     specific to the Report side and meaningless above a printed Calendar
+     month. document.body.dataset.reportMode (set in renderReport()/
+     setReportMode()) says which sub-view is actually showing; hide the
+     Report page-head only while Calendar is the one being printed. */
+  body[data-report-mode="calendar"] .rpt-page-head{display:none}
   /* Round 36 (2026-08-26, David bug report fix) — swap the generic
      "Calendar" title for the month-specific print-only heading, see
-     .cal-print-month-head comment above and calMonthNumLabel() in app.js. */
+     .cal-print-month-head comment above and calMonthNumLabel() in app.js.
+     (Round 50: the screen-only "Calendar" <h2>/.cal-page-title this used to
+     swap out for has been removed outright — Progress Report's own
+     page-head title covers that now — so this rule is a harmless no-op
+     kept only because the print-month heading toggle below still needs
+     something to reference conceptually; safe to delete if .cal-page-title
+     is ever fully retired from the CSS.) */
   .cal-page-title{display:none}
   .cal-print-month-head{display:block;font-family:var(--serif);font-weight:600;font-size:1.2rem;color:#000;margin:0}
   .cal-legend{color:#000}
@@ -1681,13 +1732,6 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
   <div class="h-logo" onclick="gotoTitles()" role="button" tabindex="0" title="Go to All Titles" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();gotoTitles();}">Book <span>Production Hub</span></div>
   <nav class="h-nav">
     <button class="h-tab active" id="tab-titles" onclick="gotoTitles()">All Titles</button>
-    <!-- Round 49 (2026-09-07, David-approved mockup: _mockups/
-         all_orders_page_sidebar_mockup_2026-09-07.html — "This mockup is
-         spot-on. let's make it live.") — standalone Order Tracker, every
-         real order/invoice row across ALL titles from the same PO & Invoice
-         Tracker Sheet, with sidebar Title/Supplier/Date filters. Placed
-         right after All Titles, matching the mockup's own tab order. -->
-    <button class="h-tab" id="tab-ordertracker" onclick="gotoOrderTracker()">Order Tracker</button>
     <!-- Item 5 (Round 2) — Quick Notes list/index view, so David can see
          which titles have notes without opening each one individually. -->
     <button class="h-tab" id="tab-quicknotes" onclick="gotoQuickNotesList()">Quick Notes</button>
@@ -1695,13 +1739,25 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
     <!-- Round 24 (2026-08-20) — Progress Report, replacing "Push To Todoist"
          entirely (see the removed button in .h-actions below, and
          openTodoistModal/copyTodoist removed from app.js). Same nav-tab
-         pattern as Quick Notes/ISBN Manager. -->
+         pattern as Quick Notes/ISBN Manager.
+         Round 50 (2026-09-07, David-approved mockup: _mockups/
+         progress_report_calendar_merge_mockup_2026-09-07.html — "Progress
+         Report/Calendar mockup - good call, I'm happy with that.") — the
+         standalone Calendar tab that used to sit here is GONE; Calendar is
+         now a view toggle INSIDE this Progress Report page (see
+         renderReport()/setReportMode() in app.js) rather than its own
+         top-level nav destination. -->
     <button class="h-tab" id="tab-report" onclick="gotoReport()">Progress Report</button>
-    <!-- Round 32 (2026-08-26, David request) — in-app Calendar, same
-         nav-tab pattern as Quick Notes/ISBN Manager/Progress Report so it's
-         reachable from anywhere, not tucked inside a single title's Dates &
-         Scheduling section. -->
-    <button class="h-tab" id="tab-calendar" onclick="gotoCalendar()">Calendar</button>
+    <!-- Round 49 (2026-09-07, David-approved mockup: _mockups/
+         all_orders_page_sidebar_mockup_2026-09-07.html — "This mockup is
+         spot-on. let's make it live.") — standalone Order Tracker, every
+         real order/invoice row across ALL titles from the same PO & Invoice
+         Tracker Sheet, with sidebar Title/Supplier/Date filters.
+         Round 50 (2026-09-07, David) — repositioned from right after All
+         Titles to LAST: "All Titles, Quick Notes (books working) and ending
+         with Order Tracker (books finished)" — the nav now reads as a
+         logical progression from books-in-progress to books-finished. -->
+    <button class="h-tab" id="tab-ordertracker" onclick="gotoOrderTracker()">Order Tracker</button>
   </nav>
   <!-- Round 20 (2026-08-19, David-approved mockup: _mockups/
        recently_viewed_nav_mockup_2026-08-19.html) — "Recently Viewed" nav
