@@ -267,6 +267,12 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* Round 32 (2026-08-26) — Calendar. Wider than the report/ISBN views since
    it's a 7-column week grid, not a table. */
 #main.main-calendar{max-width:1280px;margin:0 auto}
+/* Round 49 (2026-09-07) — Order Tracker. Same 1280px cap as Calendar (it's a
+   wide table + sidebar, not a card grid) — the .ot-shell flex row inside
+   (sidebar + table) supplies its own internal gap, no extra shell padding
+   needed since .layout-wrap already provides the edge inset every view
+   shares. */
+#main.main-ordertracker{max-width:1280px;margin:0 auto}
 /* ── FILTER SIDEBAR (Round 15, 2026-08-12) ──
    David approved a mockup (dashboard_sidebar_filters_mockup_2026-08-12.html,
    Project Build/Book Production Hub/_mockups/) moving the All Titles
@@ -1354,6 +1360,60 @@ td.po-supplier{font-weight:700;color:var(--text)}
 .amount-placeholder-flag{display:block;font-size:.6rem;font-weight:400;color:var(--text3);font-style:italic;margin-top:1px}
 .usd-secondary{font-weight:700}
 
+/* ── ORDER TRACKER (Round 49, 2026-09-07) — standalone all-titles page,
+   built live from David's approved mockup (_mockups/
+   all_orders_page_sidebar_mockup_2026-09-07.html). Sidebar/table classes
+   below are new (prefixed ot- where they'd otherwise collide); the table
+   itself reuses .po-table/.po-status-pill/.qty-variance/.usd-secondary/
+   .amount-placeholder-flag/td.po-supplier/td.qty-ordered/.po-empty verbatim
+   from the PO Tracker section above — same underlying Tracker data, same
+   row conventions, just spanning every title instead of one. */
+.ot-shell{display:flex;align-items:flex-start;gap:22px}
+.ot-sidebar{width:270px;flex-shrink:0;background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);padding:16px;position:sticky;top:calc(var(--hh) + 16px)}
+.ot-sidebar-h{font-family:var(--serif);font-size:.95rem;font-weight:700;color:var(--text);margin-bottom:14px}
+.ot-main{flex:1;min-width:0}
+.ot-title-block h1{font-family:var(--serif);font-size:1.5rem;font-weight:700;color:var(--text-oncream)}
+.ot-title-sub{font-size:.85rem;color:#D8CFBB;margin-bottom:18px}
+.filter-group{margin-bottom:18px}
+.filter-group:last-of-type{margin-bottom:14px}
+.filter-label{font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;font-weight:600;margin-bottom:6px;display:block}
+.filter-search{width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:var(--r4);font-size:.8rem;color:var(--text);background:var(--surface);margin-bottom:6px}
+.checklist{max-height:200px;overflow-y:auto;border:1px solid var(--border);border-radius:var(--r4);background:var(--surface);padding:4px 0}
+.checklist label{display:flex;align-items:center;gap:7px;padding:4px 8px;font-size:.8rem;color:var(--text2);cursor:pointer}
+.checklist label:hover{background:var(--surface2)}
+.checklist input[type=checkbox]{accent-color:var(--sage);width:14px;height:14px;flex-shrink:0}
+.checklist .cnt{margin-left:auto;font-size:.68rem;color:var(--text3)}
+.date-range-row{display:flex;flex-direction:column;gap:6px}
+.date-range-row label{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.03em;font-weight:600}
+.date-range-row input[type=date]{width:100%;padding:5px 7px;border:1px solid var(--border);border-radius:var(--r4);font-size:.8rem;color:var(--text);background:var(--surface)}
+.reset-btn{width:100%;padding:7px 0;border-radius:var(--r4);border:1px solid var(--border2);background:var(--surface);color:var(--text2);font-size:.78rem;font-weight:600;cursor:pointer}
+.reset-btn:hover{background:#EDE6D3}
+.summary-bar{background:var(--sage-bg);border:1px solid var(--sage-border);border-radius:var(--r8);padding:12px 16px;margin-bottom:16px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.summary-text{font-size:.9rem;color:var(--sage-border);font-weight:600}
+.summary-text b{font-size:1.05rem}
+.summary-sub{font-size:.72rem;color:var(--text3);font-weight:400;margin-top:2px}
+.active-filter-chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{background:var(--surface);border:1px solid var(--sage-border);color:var(--sage-border);font-size:.7rem;font-weight:600;padding:2px 8px;border-radius:12px}
+.orders-table-wrap{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);overflow-x:auto}
+.po-table-alltitles{table-layout:fixed;min-width:960px;margin-top:0}
+.po-table-alltitles td{overflow-wrap:break-word}
+.po-table-alltitles th{position:sticky;top:0;background:var(--surface2)}
+td.po-title{font-weight:600;color:var(--text)}
+td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--text3)}
+.po-table tbody tr:hover{background:rgba(75,110,83,.05)}
+.no-results{padding:30px 16px;text-align:center;color:var(--text3);font-size:.85rem}
+.po-table tfoot td{padding:10px 8px;border-top:2px solid var(--border2);border-bottom:none;font-weight:700;background:var(--surface2);color:var(--text)}
+.po-table tfoot td.total-label{text-align:right;color:var(--text3);text-transform:uppercase;font-size:.68rem;letter-spacing:.04em}
+.po-table tfoot td.qty-ordered{color:var(--sage-border);font-size:.85rem;white-space:nowrap}
+.note-panel{margin:18px 0 0;background:var(--surface2);color:var(--text);border:1px solid var(--card-border);border-radius:var(--r8);padding:14px 18px;font-size:.83rem;line-height:1.55}
+.note-panel b{color:var(--text)}
+.note-panel h3{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:6px}
+.note-panel a{color:var(--sage)}
+@media (max-width:900px){
+  .ot-shell{flex-direction:column}
+  .ot-sidebar{position:static;width:100%}
+}
+
 /* ── QUICK NOTE CAPTURE (item 32) — fast, low-friction, floating ── */
 /* Item 5 (Round 3) — made bigger/bolder/easier to spot: 50px→64px, icon
    scaled up to match, a visible white ring added (it previously blended
@@ -1621,6 +1681,13 @@ td.po-supplier{font-weight:700;color:var(--text)}
   <div class="h-logo" onclick="gotoTitles()" role="button" tabindex="0" title="Go to All Titles" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();gotoTitles();}">Book <span>Production Hub</span></div>
   <nav class="h-nav">
     <button class="h-tab active" id="tab-titles" onclick="gotoTitles()">All Titles</button>
+    <!-- Round 49 (2026-09-07, David-approved mockup: _mockups/
+         all_orders_page_sidebar_mockup_2026-09-07.html — "This mockup is
+         spot-on. let's make it live.") — standalone Order Tracker, every
+         real order/invoice row across ALL titles from the same PO & Invoice
+         Tracker Sheet, with sidebar Title/Supplier/Date filters. Placed
+         right after All Titles, matching the mockup's own tab order. -->
+    <button class="h-tab" id="tab-ordertracker" onclick="gotoOrderTracker()">Order Tracker</button>
     <!-- Item 5 (Round 2) — Quick Notes list/index view, so David can see
          which titles have notes without opening each one individually. -->
     <button class="h-tab" id="tab-quicknotes" onclick="gotoQuickNotesList()">Quick Notes</button>

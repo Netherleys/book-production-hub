@@ -1849,6 +1849,7 @@ function render(){
   const qnTab=document.getElementById('tab-quicknotes'); if(qnTab) qnTab.classList.toggle('active',view==='quicknotes');
   const rptTab=document.getElementById('tab-report'); if(rptTab) rptTab.classList.toggle('active',view==='report');
   const calTab=document.getElementById('tab-calendar'); if(calTab) calTab.classList.toggle('active',view==='calendar');
+  const otTab=document.getElementById('tab-ordertracker'); if(otTab) otTab.classList.toggle('active',view==='ordertracker');
   // Round 15 (2026-08-12) — the old header search/filter row (#search-wrap)
   // moved into the new left-hand filter sidebar (see #filter-panel-wrap in
   // index.html, right after </header>). Same show-only-on-'titles' toggle
@@ -1872,6 +1873,7 @@ function render(){
   else if(view==='quicknotes')renderQuickNotesList();
   else if(view==='report')renderReport();
   else if(view==='calendar')renderCalendar();
+  else if(view==='ordertracker')renderOrderTracker();
   populateQuickNoteTitles();
   // Round 20 (2026-08-19) — header dropdown lives outside #main (it's part
   // of the persistent #app-header, never touched by the innerHTML swaps
@@ -1901,6 +1903,10 @@ function gotoReport(){flushPendingSave(selectedId);view='report';render();}
 function gotoDetail(id){if(selectedId&&selectedId!==id)flushPendingSave(selectedId);view='detail';selectedId=id;render();}
 function gotoQuickNotesList(){flushPendingSave(selectedId);view='quicknotes';render();}
 function gotoCalendar(){flushPendingSave(selectedId);view='calendar';render();}
+// Round 49 (2026-09-07) — Order Tracker nav entry, same goto* pattern as
+// every other top-level tab (flush any pending detail-page save first, then
+// swap view and re-render).
+function gotoOrderTracker(){flushPendingSave(selectedId);view='ordertracker';render();}
 // Item 1 (Round 2) — see render()'s comment above for why this exists.
 // Measured on a rAF tick so it runs after the browser has actually laid
 // out the just-injected HTML (offsetHeight would still read the PREVIOUS
@@ -4210,6 +4216,355 @@ async function loadPoInvoiceTrackerFor(titleId){
 }
 function poInvoiceOpenLink(){
   return `<p style="margin-top:8px"><a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">Open full PO &amp; Invoice Tracker &#8599;</a></p>`;
+}
+
+// ── ORDER TRACKER (Round 49, 2026-09-07) ──────────────────────────────────
+// Standalone "every order across every title" page, built from David's
+// approved mockup (_mockups/all_orders_page_sidebar_mockup_2026-09-07.html,
+// "This mockup is spot-on. let's make it live."). Reuses the exact same PO
+// & Invoice Tracker Sheet, the same poInvoiceRowsCache (fetched once,
+// shared with the per-title PO Tracker box above — opening a title detail
+// page first means this view doesn't re-fetch), and the same merged-row /
+// qty-parsing / date / amount / PO-Reference-link helpers defined above
+// rather than re-deriving any of it.
+//
+// allOrderRowsCache holds the fully BUILT (merged + broken-out-by-title)
+// row list, computed once from poInvoiceRowsCache and cached for the rest
+// of the session — filtering/sorting below runs against this cached array,
+// never re-fetching or re-merging on every filter change.
+let allOrderRowsCache = null;
+let otTrackerGid = null;
+let otFilters = { titles: new Set(), suppliers: new Set(), dateFrom: '', dateTo: '' };
+
+function renderOrderTracker(){
+  const main=document.getElementById('main');
+  main.innerHTML = `
+    <div class="ot-shell">
+      <aside class="ot-sidebar">
+        <div class="ot-sidebar-h">Filters</div>
+        <div class="filter-group">
+          <span class="filter-label">Title</span>
+          <input type="text" class="filter-search" id="ot-title-search" placeholder="Search titles…" oninput="renderOrderTrackerFilters()">
+          <div class="checklist" id="ot-title-checklist"></div>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Printer / Supplier</span>
+          <div class="checklist" id="ot-supplier-checklist"></div>
+        </div>
+        <div class="filter-group">
+          <span class="filter-label">Date Range</span>
+          <div class="date-range-row">
+            <label for="ot-date-from">From</label>
+            <input type="date" id="ot-date-from" onchange="onOrderTrackerDateChange()">
+            <label for="ot-date-to">To</label>
+            <input type="date" id="ot-date-to" onchange="onOrderTrackerDateChange()">
+          </div>
+        </div>
+        <button class="reset-btn" onclick="resetOrderTrackerFilters()">Reset all filters</button>
+      </aside>
+      <main class="ot-main">
+        <div class="ot-title-block"><h1>Order Tracker</h1></div>
+        <div class="ot-title-sub">Every order/invoice row in the PO &amp; Invoice Tracker, across all titles — filter by title, printer, or date to narrow the list and recompute the total below.</div>
+        <div class="summary-bar">
+          <div>
+            <div class="summary-text" id="ot-summary-text">Loading…</div>
+            <div class="summary-sub">Qty Ordered summed across visible rows only — merged PO+Invoice rows count once (PO qty), any invoice-side variance shown as a non-summable note, not added in.</div>
+          </div>
+          <div class="active-filter-chips" id="ot-chip-row"></div>
+        </div>
+        <div class="orders-table-wrap">
+          <table class="po-table po-table-alltitles" id="ot-table">
+            <colgroup><col style="width:7%"><col style="width:14%"><col style="width:11%"><col style="width:7%"><col style="width:8%"><col style="width:7%"><col style="width:7%"><col style="width:6%"><col style="width:33%"></colgroup>
+            <thead><tr><th>Date</th><th>Title</th><th>Supplier</th><th>Invoice #</th><th>PO Reference</th><th>Amount</th><th>Status</th><th>Qty Ordered</th><th>Notes</th></tr></thead>
+            <tbody id="ot-tbody"><tr><td colspan="9" class="po-empty">Loading…</td></tr></tbody>
+            <tfoot><tr>
+              <td class="total-label" colspan="7">Total (visible rows)</td>
+              <td class="qty-ordered" id="ot-footer-total">0</td>
+              <td></td>
+            </tr></tfoot>
+          </table>
+          <div class="no-results" id="ot-no-results" hidden>No orders match the current filters.</div>
+        </div>
+        <div class="note-panel">
+          <h3>What this shows</h3>
+          Reuses the same row conventions already established in the per-title PO Tracker box: merged PO+Invoice rows where a supplier invoice has been matched, bold Supplier and Qty Ordered, GBP as the primary tracked Amount with USD folded into Notes as a secondary reference where the supplier invoiced in USD, long-form dates, and non-summable qty-variance notes. A <b>Title</b> column is added here since, unlike the per-title box, this view spans every title at once. Multi-title POs are broken out into one row per title — each row's Qty Ordered is that title's own line quantity within the PO, not the PO's combined total — so the summary total stays accurate when filtered to a single title. A row whose Notes don't name any currently-known title still shows once, under "(Unmatched)", rather than being silently dropped. <a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">Open full PO &amp; Invoice Tracker &#8599;</a>
+        </div>
+      </main>
+    </div>`;
+  if(devMode){
+    document.getElementById('ot-tbody').innerHTML = '<tr><td colspan="9" class="po-empty">Dev preview mode — not fetched (no live sign-in).</td></tr>';
+    return;
+  }
+  if(!CFG.PO_INVOICE_TRACKER_SHEET_ID){
+    document.getElementById('ot-tbody').innerHTML = '<tr><td colspan="9" class="po-empty">PO &amp; Invoice Tracker not configured.</td></tr>';
+    return;
+  }
+  if(allOrderRowsCache){
+    renderOrderTrackerFilters();
+    applyOrderTrackerFilters();
+  } else {
+    loadOrderTrackerData();
+  }
+}
+
+async function loadOrderTrackerData(){
+  const tbody=document.getElementById('ot-tbody');
+  try{
+    // Shared cache with loadPoInvoiceTrackerFor above — if a title detail
+    // page's PO Tracker box already fetched this session, reuse it rather
+    // than hitting the Sheets API again.
+    if(!poInvoiceRowsCache){
+      poInvoiceRowsCache = await sheetsGet(CFG.PO_INVOICE_TRACKER_SHEET_ID, "Tracker!A2:M1000");
+    }
+    if(otTrackerGid==null){
+      try{ otTrackerGid = await getSheetGid(CFG.PO_INVOICE_TRACKER_SHEET_ID, 'Tracker'); }
+      catch(e){ otTrackerGid = null; }
+    }
+    allOrderRowsCache = buildAllOrderRows(poInvoiceRowsCache, otTrackerGid);
+    if(document.getElementById('ot-tbody')){ // still on this view — user may have navigated away while this awaited
+      renderOrderTrackerFilters();
+      applyOrderTrackerFilters();
+    }
+  }catch(e){
+    if(tbody) tbody.innerHTML = `<tr><td colspan="9" class="po-empty">Could not load PO &amp; Invoice Tracker data: ${esc(e.message)} <button class="btn btn-sm" onclick="loadOrderTrackerData()">Retry</button></td></tr>`;
+    if(isAuthFailure(e)) showReconnect('Order Tracker lookup failed: signed out / token expired. Click Reconnect, then use Retry.', true);
+    console.error(e);
+  }
+}
+
+// Builds the full, per-title-broken-out row list from the raw Tracker
+// values — same PO+Invoice merge-by-PO-Reference logic as
+// loadPoInvoiceTrackerFor, just run ONCE globally instead of per title, then
+// fanned out: each merged/standalone source becomes one row per title whose
+// name appears in that source's Notes (best-effort substring match, same
+// convention already used per-title — a source naming no known title still
+// surfaces once, under "(Unmatched)", so nothing is silently dropped).
+function buildAllOrderRows(rawRows, trackerGid){
+  const poOnly = rawRows.filter(r=>!(r[2]||'').toString().trim());
+  const invoiceRows = rawRows.filter(r=>(r[2]||'').toString().trim());
+  const usedPo = new Set(); const usedInv = new Set();
+  const merged = [];
+  invoiceRows.forEach((inv,ii)=>{
+    const invRef=(inv[3]||'').toString().trim().toLowerCase();
+    if(!invRef) return;
+    const poIdx = poOnly.findIndex((p,pi)=>!usedPo.has(pi) && (p[3]||'').toString().trim().toLowerCase()===invRef);
+    if(poIdx!==-1){ merged.push({po:poOnly[poIdx], inv}); usedPo.add(poIdx); usedInv.add(ii); }
+  });
+  const standalonePo = poOnly.filter((p,pi)=>!usedPo.has(pi));
+  const standaloneInv = invoiceRows.filter((inv,ii)=>!usedInv.has(ii));
+
+  const trackerRowNum = r => { const idx = rawRows.indexOf(r); return idx===-1 ? null : idx+2; };
+  const poRefLink = (poRef, sourceRow) => {
+    if(!poRef) return '&mdash;';
+    if(trackerGid==null) return esc(poRef);
+    const rowNum = trackerRowNum(sourceRow);
+    if(rowNum==null) return esc(poRef);
+    const url = `https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit#gid=${trackerGid}&range=A${rowNum}`;
+    return `<a href="${url}" target="_blank" rel="noopener">${esc(poRef)}</a>`;
+  };
+
+  const sources = [];
+  merged.forEach(({po,inv})=>{
+    const dateRaw = (inv[0]||'').toString().trim() || (po[0]||'').toString().trim();
+    const poNotes=(po[11]||'').toString(); const invNotes=(inv[11]||'').toString();
+    const amtDisplay = fmtTrackerAmount(inv[4],inv[5]);
+    const isUSD = /^\$/.test((amtDisplay||'').trim()) || /^\$/.test((inv[4]||'').toString().trim());
+    const poRef=(po[3]||inv[3]||'').toString().trim();
+    sources.push({ kind:'merged', poNotes, invNotes, dateRaw,
+      sortDate: parseTrackerDate(dateRaw) || parseNotesSentDate(poNotes) || parseNotesSentDate(invNotes),
+      supplier: inv[1]||po[1]||'', invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, po),
+      amtDisplay, isUSD, status:(inv[9]||'').toString() });
+  });
+  standalonePo.forEach(p=>{
+    const notes=(p[11]||'').toString();
+    const poRef=(p[3]||'').toString().trim();
+    sources.push({ kind:'po', poNotes:notes, invNotes:'', dateRaw:p[0],
+      sortDate: parseTrackerDate(p[0]) || parseNotesSentDate(notes),
+      supplier: p[1]||'', invoiceNum:'', poRefHtml: poRefLink(poRef, p),
+      amtDisplay: fmtTrackerAmount(p[4],p[5]), isUSD: /^\$/.test((p[4]||'').toString().trim()), status:(p[9]||'').toString() });
+  });
+  standaloneInv.forEach(inv=>{
+    const notes=(inv[11]||'').toString();
+    const amtDisplay = fmtTrackerAmount(inv[4],inv[5]);
+    const isUSD = /^\$/.test((amtDisplay||'').trim()) || /^\$/.test((inv[4]||'').toString().trim());
+    const poRef=(inv[3]||'').toString().trim();
+    sources.push({ kind:'inv', poNotes:'', invNotes:notes, dateRaw:inv[0],
+      sortDate: parseTrackerDate(inv[0]) || parseNotesSentDate(notes),
+      supplier: inv[1]||'', invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, inv),
+      amtDisplay, isUSD, status:(inv[9]||'').toString() });
+  });
+
+  const rows = [];
+  const allTitles = data.titles;
+  sources.forEach(src=>{
+    const combinedNotes = ((src.poNotes||'')+' '+(src.invNotes||'')).toLowerCase();
+    const matchedTitles = allTitles.filter(t=>t.title && combinedNotes.indexOf(t.title.trim().toLowerCase())!==-1);
+
+    let notesHtml;
+    if(src.kind==='merged'){
+      notesHtml = `<b>Merged PO + Invoice — one real order.</b> ${esc(src.poNotes)}`;
+      if(src.invNotes && src.invNotes.trim()!==src.poNotes.trim()) notesHtml += ` ${esc(src.invNotes)}`;
+      if(src.isUSD && src.amtDisplay) notesHtml += ` <span class="usd-secondary">(USD: ${esc(src.amtDisplay)})</span> — no GBP figure recorded in the Tracker for this row; Amount column shows the real USD figure on file.`;
+    } else {
+      const notes = src.kind==='po' ? src.poNotes : src.invNotes;
+      notesHtml = esc(notes);
+      if(src.isUSD && src.amtDisplay) notesHtml += ` <span class="usd-secondary">(USD: ${esc(src.amtDisplay)})</span> — no GBP figure recorded in the Tracker for this row.`;
+    }
+
+    const pushRow = (titleObj) => {
+      const titleName = titleObj ? titleObj.title : '(Unmatched)';
+      const isbn = titleObj ? ((titleObj.commercial && (titleObj.commercial.isbnPbk||titleObj.commercial.isbnHbk||titleObj.commercial.isbnEbk)) || '') : '';
+      let qtyRawStr = null, qtyHtml = null;
+      if(titleObj){
+        if(src.kind==='merged'){
+          const poQty = parseQtyOrderedForTitle(src.poNotes, titleObj.title);
+          const invQty = parseQtyOrderedForTitle(src.invNotes, titleObj.title) || parseInvoiceQtyVariance(src.invNotes);
+          if(poQty){ qtyRawStr=poQty; qtyHtml = esc(poQty) + (invQty && invQty!==poQty ? `<span class="qty-variance">(invoice: ${esc(invQty)})</span>` : ''); }
+          else if(invQty){ qtyRawStr=invQty; qtyHtml = esc(invQty); }
+        } else {
+          const notes = src.kind==='po' ? src.poNotes : src.invNotes;
+          const q = parseQtyOrderedForTitle(notes, titleObj.title);
+          if(q){ qtyRawStr=q; qtyHtml = esc(q); }
+        }
+      }
+      rows.push({
+        titleName, isbn, dateRaw: src.dateRaw, sortDate: src.sortDate,
+        supplier: src.supplier, invoiceNum: src.invoiceNum, poRefHtml: src.poRefHtml,
+        amtDisplay: src.amtDisplay, isUSD: src.isUSD, status: src.status,
+        qtyHtml, qtyRaw: qtyRawStr ? (parseInt(String(qtyRawStr).replace(/,/g,''),10)||0) : 0,
+        notesHtml
+      });
+    };
+    if(matchedTitles.length) matchedTitles.forEach(pushRow);
+    else pushRow(null);
+  });
+
+  // Newest-date-first; rows with no resolvable date sort last (same
+  // convention as loadPoInvoiceTrackerFor's per-title sort above).
+  rows.sort((a,b)=>{
+    if(a.sortDate && b.sortDate) return b.sortDate - a.sortDate;
+    if(a.sortDate) return -1;
+    if(b.sortDate) return 1;
+    return 0;
+  });
+  return rows;
+}
+
+// Rebuilds the Title/Supplier sidebar checklists from allOrderRowsCache —
+// counts reflect the already-broken-out-by-title row list (so a multi-title
+// PO counts once per title it covers, matching the mockup's own
+// titleCount()/supplierCount() behaviour), filtered by the live title
+// search box. Re-run on every title-search keystroke and after any filter
+// change that could alter counts (currently counts are dataset-wide, not
+// re-filtered by the OTHER active filters, matching the mockup).
+function renderOrderTrackerFilters(){
+  if(!allOrderRowsCache) return;
+  const searchEl = document.getElementById('ot-title-search');
+  const titleSearch = searchEl ? searchEl.value : '';
+  const titleNames = [...new Set(allOrderRowsCache.map(r=>r.titleName))].sort((a,b)=>a.localeCompare(b));
+  const supplierNames = [...new Set(allOrderRowsCache.map(r=>r.supplier).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+  const titleCount = n => allOrderRowsCache.filter(r=>r.titleName===n).length;
+  const supplierCount = n => allOrderRowsCache.filter(r=>r.supplier===n).length;
+
+  const tc = document.getElementById('ot-title-checklist');
+  if(tc){
+    tc.innerHTML = titleNames.filter(n=>n.toLowerCase().includes(titleSearch.toLowerCase())).map(n=>
+      `<label><input type="checkbox" class="ot-title-cb" value="${esc(n)}" ${otFilters.titles.has(n)?'checked':''}>${esc(n)}<span class="cnt">${titleCount(n)}</span></label>`
+    ).join('');
+  }
+  const sc = document.getElementById('ot-supplier-checklist');
+  if(sc){
+    sc.innerHTML = supplierNames.map(n=>
+      `<label><input type="checkbox" class="ot-supplier-cb" value="${esc(n)}" ${otFilters.suppliers.has(n)?'checked':''}>${esc(n)}<span class="cnt">${supplierCount(n)}</span></label>`
+    ).join('');
+  }
+  document.querySelectorAll('.ot-title-cb').forEach(cb=>cb.addEventListener('change', e=>{
+    if(e.target.checked) otFilters.titles.add(e.target.value); else otFilters.titles.delete(e.target.value);
+    applyOrderTrackerFilters();
+  }));
+  document.querySelectorAll('.ot-supplier-cb').forEach(cb=>cb.addEventListener('change', e=>{
+    if(e.target.checked) otFilters.suppliers.add(e.target.value); else otFilters.suppliers.delete(e.target.value);
+    applyOrderTrackerFilters();
+  }));
+}
+function onOrderTrackerDateChange(){
+  const fromEl=document.getElementById('ot-date-from'), toEl=document.getElementById('ot-date-to');
+  otFilters.dateFrom = fromEl ? fromEl.value : '';
+  otFilters.dateTo = toEl ? toEl.value : '';
+  applyOrderTrackerFilters();
+}
+function resetOrderTrackerFilters(){
+  otFilters = { titles:new Set(), suppliers:new Set(), dateFrom:'', dateTo:'' };
+  const ts=document.getElementById('ot-title-search'); if(ts) ts.value='';
+  const df=document.getElementById('ot-date-from'); if(df) df.value='';
+  const dt=document.getElementById('ot-date-to'); if(dt) dt.value='';
+  renderOrderTrackerFilters();
+  applyOrderTrackerFilters();
+}
+
+// AND-combines Title/Supplier/Date filters against allOrderRowsCache and
+// recomputes both the summary banner and the tfoot Qty Ordered total from
+// the same visible-row set — never from a separately-tracked running total,
+// so the two numbers can't drift apart. A row with no resolvable date is
+// excluded once either date bound is set (can't confirm it falls in range —
+// best-effort, per the same "absence doesn't mean nothing exists" framing
+// used elsewhere in this Tracker integration) but stays visible when no
+// date filter is active.
+function applyOrderTrackerFilters(){
+  const tbody=document.getElementById('ot-tbody');
+  const noResults=document.getElementById('ot-no-results');
+  const footerTotal=document.getElementById('ot-footer-total');
+  const summaryText=document.getElementById('ot-summary-text');
+  const chipRow=document.getElementById('ot-chip-row');
+  if(!tbody || !allOrderRowsCache) return;
+
+  const fromD = otFilters.dateFrom ? new Date(otFilters.dateFrom+'T00:00:00') : null;
+  const toD = otFilters.dateTo ? new Date(otFilters.dateTo+'T23:59:59') : null;
+
+  const visible = allOrderRowsCache.filter(r=>{
+    if(otFilters.titles.size && !otFilters.titles.has(r.titleName)) return false;
+    if(otFilters.suppliers.size && !otFilters.suppliers.has(r.supplier)) return false;
+    if(fromD && (!r.sortDate || r.sortDate < fromD)) return false;
+    if(toD && (!r.sortDate || r.sortDate > toD)) return false;
+    return true;
+  });
+
+  if(!visible.length){
+    tbody.innerHTML='';
+  } else {
+    tbody.innerHTML = visible.map(r=>{
+      const dateDisplay = r.dateRaw ? formatLogDate(r.dateRaw) : '&mdash;';
+      const pillCls = statusPillClass(r.status);
+      const qtyCell = r.qtyHtml ? `<td class="qty-ordered">${r.qtyHtml}</td>` : `<td class="qty-ordered qty-blank">&mdash;</td>`;
+      const amtCell = esc(r.amtDisplay||'—') + (r.isUSD ? '<span class="amount-placeholder-flag">USD — no GBP figure recorded for this row yet</span>' : '');
+      return `<tr>
+        <td>${dateDisplay}</td>
+        <td class="po-title">${esc(r.titleName)}${r.isbn?`<span class="isbn">${esc(r.isbn)}</span>`:''}</td>
+        <td class="po-supplier">${esc(r.supplier)}</td>
+        <td>${esc(r.invoiceNum||'—')}</td>
+        <td class="po-ref">${r.poRefHtml}</td>
+        <td>${amtCell}</td>
+        <td><span class="po-status-pill ${pillCls}">${esc(r.status||'—')}</span></td>
+        ${qtyCell}
+        <td class="po-notes">${r.notesHtml}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  if(noResults) noResults.hidden = visible.length!==0;
+
+  const totalQty = visible.reduce((sum,r)=>sum+(r.qtyRaw||0),0);
+  if(summaryText) summaryText.innerHTML = `Showing <b>${visible.length}</b> order${visible.length===1?'':'s'}, <b>${totalQty.toLocaleString('en-GB')}</b> books ordered total`;
+  if(footerTotal) footerTotal.textContent = totalQty.toLocaleString('en-GB');
+
+  if(chipRow){
+    const chips=[];
+    otFilters.titles.forEach(t=>chips.push(`Title: ${t}`));
+    otFilters.suppliers.forEach(s=>chips.push(`Supplier: ${s}`));
+    if(otFilters.dateFrom) chips.push(`From ${otFilters.dateFrom}`);
+    if(otFilters.dateTo) chips.push(`To ${otFilters.dateTo}`);
+    chipRow.innerHTML = chips.map(c=>`<span class="chip">${esc(c)}</span>`).join('');
+  }
 }
 
 // Item 12 (Round 2) — PR Contact moved OUT of this box, into the new
