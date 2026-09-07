@@ -866,8 +866,20 @@ select.status-badge:focus{outline:none;border-color:var(--sage)}
 .accord-header.stripe-complete{border-left-color:var(--sage)}
 .accord-header.stripe-partial{border-left-color:var(--amber)}
 .accord-header.stripe-overdue{border-left-color:var(--terra)}
-.accord-header-inner{display:flex;align-items:center;justify-content:space-between;flex:1;padding:12px 16px}
-.accord-label{font-family:var(--serif);font-size:.95rem;font-weight:600;color:var(--text)}
+.accord-header-inner{display:flex;align-items:center;justify-content:space-between;flex:1;padding:12px 16px;gap:10px;min-width:0}
+.accord-label-group{display:flex;align-items:baseline;gap:8px;min-width:0;overflow:hidden}
+.accord-label{font-family:var(--serif);font-size:.95rem;font-weight:600;color:var(--text);flex-shrink:0}
+/* David 2026-09-07: "when I am deep-diving in a title like this, Box 10
+   for instance, I am relying on memory for what the title is; is it
+   possible to include the book title name in the box headers... (name in
+   different colour)". Reuses --imprint-headpress — already a purely
+   decorative text-accent elsewhere (the app's own logo wordmark, see
+   .h-logo span above) rather than one of the functional status colours
+   (--sage/--amber/--terra already spoken for by the stripe-complete/
+   partial/overdue border on this same header) — so the title name reads
+   as supplementary info, never mistaken for a status signal. Lighter
+   weight + ellipsis keeps it quiet across 10+ repeats down the page. */
+.accord-title-tag{font-family:var(--serif);font-size:.82rem;font-weight:500;color:var(--imprint-headpress);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
 .accord-arrow{font-size:1.1rem;color:var(--text3);transition:transform .2s;display:inline-block}
 .accord-arrow.open{transform:rotate(90deg)}
 .accord-body{display:none;padding:16px;border-top:1px solid var(--border)}
@@ -1326,12 +1338,8 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
    approved mockup (_mockups/po_tracker_estimates_link_mockup_2026-09-07.html
    rev 5, "good to go live on this"). Tokens/classes carried over verbatim
    from that mockup — not re-derived. */
-.source-tag{display:inline-flex;align-items:center;gap:6px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:4px 10px;border-radius:20px;margin-bottom:8px}
-.source-tag .src-dot{width:7px;height:7px;border-radius:50%;display:inline-block}
-.source-tag.src-estimates{background:var(--amber-bg);color:var(--amber-border);border:1px solid var(--amber-border)}
-.source-tag.src-estimates .src-dot{background:var(--amber-border)}
-.source-tag.src-potracker{background:var(--sage-bg);color:var(--sage-border);border:1px solid var(--sage-border)}
-.source-tag.src-potracker .src-dot{background:var(--sage-border)}
+/* .source-tag block removed 2026-09-07 — David: "I don't need this info,
+   pls remove" on the two "Source: ..." labels. */
 .qty-variance{display:block;font-size:.68rem;font-weight:400;color:var(--text3);font-style:italic;margin-top:1px}
 .estimates-link-block{display:flex;align-items:center;justify-content:space-between;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:var(--r8);padding:12px 14px;margin-top:6px;flex-wrap:wrap}
 .estimates-link-copy{font-size:.82rem;color:var(--text2);line-height:1.4}

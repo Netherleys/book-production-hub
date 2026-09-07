@@ -2984,7 +2984,10 @@ function renderAccordionSection(t,key){
   return `<div class="accord-section${prominentCls}" id="asec-${akey}">
     <div class="accord-header stripe-${st}" data-accord-header="${akey}" onclick="toggleAccord('${t.id}','${key}')">
       <div class="accord-header-inner">
-        <span class="accord-label">${SECTION_LABELS[key]||key}</span>
+        <span class="accord-label-group">
+          <span class="accord-label">${SECTION_LABELS[key]||key}</span>
+          <span class="accord-title-tag">${esc(t.title||'')}</span>
+        </span>
         <span class="accord-arrow ${open?'open':''}">&#8250;</span>
       </div>
     </div>
@@ -3877,12 +3880,11 @@ async function loadPrintEstimatesFor(titleId){
   const t=getTitle(titleId);if(!t)return;
   const container=document.getElementById('po-tracker-results-'+titleId);
   if(!container)return;
-  const sourceTag = `<span class="source-tag src-estimates"><span class="src-dot"></span>Source: Printer_Quotes_Per_Title_Complete (estimates — pre-purchase quotes only, not real orders)</span>`;
-  if(devMode){ container.innerHTML=`<label class="field-label">Print Estimates</label>${sourceTag}<div class="po-empty">Dev preview mode — PO tracker data isn't fetched (no live sign-in).</div>`; return; }
+  if(devMode){ container.innerHTML=`<label class="field-label">Print Estimates</label><div class="po-empty">Dev preview mode — PO tracker data isn't fetched (no live sign-in).</div>`; return; }
   const key=(t.commercial.isbnPbk||t.commercial.isbnHbk||'').trim();
   const override=(t.poTrackerTitleOverride||'').trim();
   const titleText = override || t.title || '';
-  if(!key && !titleText){ container.innerHTML=`<label class="field-label">Print Estimates</label>${sourceTag}<div class="po-empty">No ISBN, manual override, or title set — nothing to link to yet.</div>`; return; }
+  if(!key && !titleText){ container.innerHTML=`<label class="field-label">Print Estimates</label><div class="po-empty">No ISBN, manual override, or title set — nothing to link to yet.</div>`; return; }
   try{
     const gid = await findEstimatesTabGid(titleText);
     const url = 'https://docs.google.com/spreadsheets/d/'+esc(CFG.PO_TRACKER_SHEET_ID)+'/edit'+(gid!=null?('?gid='+gid+'#gid='+gid):'');
@@ -3890,7 +3892,6 @@ async function loadPrintEstimatesFor(titleId){
       ? 'Opens directly to this title\'s own tab in the workbook.'
       : 'No matching tab found for this title in the workbook — opening the workbook root instead (best-effort tab match by title name, not a guaranteed link).';
     container.innerHTML = `<label class="field-label">Print Estimates</label>
-      ${sourceTag}
       <div class="estimates-link-block">
         <div class="estimates-link-copy">
           <b>Printer_Quotes_Per_Title_Complete</b> follows a one-tab-per-title convention. ${esc(tabNote)}
@@ -3904,7 +3905,7 @@ async function loadPrintEstimatesFor(titleId){
     // open time regardless of outcome) means toggling the accordion closed
     // and open again does NOT actually re-trigger the fetch after a
     // failure — only a direct call to this function does.
-    container.innerHTML = `<label class="field-label">Print Estimates</label>${sourceTag}<div class="po-empty">Could not load print-estimate link: `+esc(e.message)+` <button class="btn btn-sm" onclick="loadPrintEstimatesFor('`+titleId+`')">Retry</button></div>`+printEstimateOpenLink();
+    container.innerHTML = `<label class="field-label">Print Estimates</label><div class="po-empty">Could not load print-estimate link: `+esc(e.message)+` <button class="btn btn-sm" onclick="loadPrintEstimatesFor('`+titleId+`')">Retry</button></div>`+printEstimateOpenLink();
     // Surface the same site-wide Reconnect banner every other auth failure
     // already uses (saveTitle/saveIsbn/loadAllData) — was previously the
     // one auth-failure path in the app that didn't do this.
@@ -4053,8 +4054,7 @@ async function loadPoInvoiceTrackerFor(titleId){
   const t=getTitle(titleId);if(!t)return;
   const container=document.getElementById('po-invoice-results-'+titleId);
   if(!container)return;
-  const sourceTag = `<span class="source-tag src-potracker"><span class="src-dot"></span>Source: PO &amp; Invoice Tracker - Headpress (real orders &amp; invoices — the source of truth for what actually happened)</span>`;
-  const label = `${sourceTag}<div class="po-source-label">Matching POs / Invoices — best-effort match by title name — sorted newest date first (Date Recv'd where present, otherwise the PO-sent date stated in that row's own Notes). A confirmed-matched PO + Invoice pair (same PO Reference) renders as one merged row, not two separate summable rows.</div>`;
+  const label = `<div class="po-source-label">Matching POs / Invoices — best-effort match by title name — sorted newest date first (Date Recv'd where present, otherwise the PO-sent date stated in that row's own Notes). A confirmed-matched PO + Invoice pair (same PO Reference) renders as one merged row, not two separate summable rows.</div>`;
   if(devMode){ container.innerHTML=label+'<div class="po-empty">Dev preview mode — not fetched (no live sign-in).</div>'; return; }
   if(!CFG.PO_INVOICE_TRACKER_SHEET_ID){ container.innerHTML=''; return; }
   const titleNeedle=(t.title||'').trim().toLowerCase();
@@ -4092,6 +4092,44 @@ async function loadPoInvoiceTrackerFor(titleId){
     const standalonePo = poOnly.filter((p,pi)=>!usedPo.has(pi));
     const standaloneInv = invoiceRows.filter((inv,ii)=>!usedInv.has(ii));
 
+    // Regression fix (David flagged 2026-09-07 reviewing the live
+    // JACKsploitation! page after Round 47): the PO Reference value (col D
+    // / r[3] — the dropdown-validated "PO-0001" style number for numbered-
+    // template POs) was already being read off every row for the merge-join
+    // above, but was never actually surfaced back to the row objects for
+    // display — it went in as a join key and came out nowhere. Restoring it
+    // here as its own column (see rows.map below), and — where practically
+    // achievable — as a real clickable link straight to that row in the
+    // live Tracker sheet, not just plain text.
+    //
+    // Link target chosen deliberately: the filed PO PDF under David's local
+    // `D:\ADMIN\POs and Invoices - Headpress\` folder was considered but
+    // ruled out — this site is hosted on GitHub Pages and a `file://`
+    // path to a machine-specific local drive isn't resolvable/clickable
+    // from that context (no web server can serve or even verify a local
+    // Windows path exists), so it would silently fail on any device other
+    // than the one it was typed on. The Tracker sheet itself IS a genuine
+    // clickable web link, and Google Sheets supports a `#gid=<tab>&range=
+    // A<row>` URL fragment that opens straight to (and highlights) that
+    // exact row — so that's the real hyperlink target used below.
+    // getSheetGid() already caches its own lookups (_sheetGidCache) so this
+    // costs nothing extra on repeat opens. If the gid lookup fails for any
+    // reason (offline, permissions, tab renamed), this falls back to a
+    // plain unlinked PO Reference number rather than blocking the whole
+    // section — per David's "if a tough call, simply the number will do".
+    let trackerGid = null;
+    try{ trackerGid = await getSheetGid(CFG.PO_INVOICE_TRACKER_SHEET_ID, 'Tracker'); }
+    catch(e){ trackerGid = null; }
+    const trackerRowNum = r => { const idx = poInvoiceRowsCache.indexOf(r); return idx===-1 ? null : idx+2; };
+    const poRefLink = (poRef, sourceRow) => {
+      if(!poRef) return '&mdash;';
+      if(trackerGid==null) return esc(poRef);
+      const rowNum = trackerRowNum(sourceRow);
+      if(rowNum==null) return esc(poRef);
+      const url = `https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit#gid=${trackerGid}&range=A${rowNum}`;
+      return `<a href="${url}" target="_blank" rel="noopener">${esc(poRef)}</a>`;
+    };
+
     const titleText = t.title||'';
     const built = [];
 
@@ -4109,12 +4147,14 @@ async function loadPoInvoiceTrackerFor(titleId){
       let notesHtml = `<b>Merged PO + Invoice — one real order.</b> ${esc(poNotes)}`;
       if(invNotes && invNotes.trim()!==poNotes.trim()) notesHtml += ` ${esc(invNotes)}`;
       if(isUSD && amtDisplay) notesHtml += ` <span class="usd-secondary">(USD: ${esc(amtDisplay)})</span> — no GBP figure recorded in the Tracker for this row; Amount column shows the real USD figure on file.`;
-      built.push({ sortDate, dateRaw, supplier: inv[1]||po[1]||'', invoiceNum: inv[2]||'', amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml, notesHtml });
+      const poRef=(po[3]||inv[3]||'').toString().trim();
+      built.push({ sortDate, dateRaw, supplier: inv[1]||po[1]||'', invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, po), amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml, notesHtml });
     });
     standalonePo.forEach(p=>{
       const notes=(p[11]||'').toString();
       const qty = parseQtyOrderedForTitle(notes, titleText);
-      built.push({ sortDate: parseTrackerDate(p[0]) || parseNotesSentDate(notes), dateRaw: p[0], supplier: p[1]||'', invoiceNum:'', amtDisplay: fmtTrackerAmount(p[4],p[5]), isUSD: /^\$/.test((p[4]||'').toString().trim()), status:(p[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml: esc(notes) });
+      const poRef=(p[3]||'').toString().trim();
+      built.push({ sortDate: parseTrackerDate(p[0]) || parseNotesSentDate(notes), dateRaw: p[0], supplier: p[1]||'', invoiceNum:'', poRefHtml: poRefLink(poRef, p), amtDisplay: fmtTrackerAmount(p[4],p[5]), isUSD: /^\$/.test((p[4]||'').toString().trim()), status:(p[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml: esc(notes) });
     });
     standaloneInv.forEach(inv=>{
       const notes=(inv[11]||'').toString();
@@ -4123,7 +4163,8 @@ async function loadPoInvoiceTrackerFor(titleId){
       const isUSD = /^\$/.test((amtDisplay||'').trim()) || /^\$/.test((inv[4]||'').toString().trim());
       let notesHtml = esc(notes);
       if(isUSD && amtDisplay) notesHtml += ` <span class="usd-secondary">(USD: ${esc(amtDisplay)})</span> — no GBP figure recorded in the Tracker for this row.`;
-      built.push({ sortDate: parseTrackerDate(inv[0]) || parseNotesSentDate(notes), dateRaw: inv[0], supplier: inv[1]||'', invoiceNum: inv[2]||'', amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml });
+      const poRef=(inv[3]||'').toString().trim();
+      built.push({ sortDate: parseTrackerDate(inv[0]) || parseNotesSentDate(notes), dateRaw: inv[0], supplier: inv[1]||'', invoiceNum: inv[2]||'', poRefHtml: poRefLink(poRef, inv), amtDisplay, isUSD, status:(inv[9]||'').toString(), qtyHtml: qty?esc(qty):null, notesHtml });
     });
 
     // Newest-date-first; rows with no resolvable date (neither a parseable
@@ -4145,6 +4186,7 @@ async function loadPoInvoiceTrackerFor(titleId){
         <td>${dateDisplay}</td>
         <td class="po-supplier">${esc(row.supplier)}</td>
         <td>${esc(row.invoiceNum||'—')}</td>
+        <td class="po-ref">${row.poRefHtml}</td>
         <td>${amtCell}</td>
         <td><span class="po-status-pill ${pillCls}">${esc(row.status||'—')}</span></td>
         ${qtyCell}
@@ -4153,9 +4195,11 @@ async function loadPoInvoiceTrackerFor(titleId){
     }).join('');
     // colgroup + .po-table-invoices (table-layout:fixed, see CSS) keeps
     // these percentages stable rather than auto-layout's shrink-to-content
-    // squeeze — carried over from the approved mockup's column widths.
-    const colgroup = '<colgroup><col style="width:9%"><col style="width:13%"><col style="width:10%"><col style="width:8%"><col style="width:8%"><col style="width:10%"><col style="width:42%"></colgroup>';
-    container.innerHTML = label+`<table class="po-table po-table-invoices">${colgroup}<thead><tr><th>Date Recv'd</th><th>Supplier</th><th>Invoice #</th><th>Amount</th><th>Status</th><th>Qty Ordered</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`+poInvoiceOpenLink();
+    // squeeze — carried over from the approved mockup's column widths. PO
+    // Reference column added back in on the regression fix above (was
+    // never a visible column even before Round 47 — see that comment).
+    const colgroup = '<colgroup><col style="width:8%"><col style="width:11%"><col style="width:8%"><col style="width:9%"><col style="width:7%"><col style="width:8%"><col style="width:8%"><col style="width:41%"></colgroup>';
+    container.innerHTML = label+`<table class="po-table po-table-invoices">${colgroup}<thead><tr><th>Date Recv'd</th><th>Supplier</th><th>Invoice #</th><th>PO Reference</th><th>Amount</th><th>Status</th><th>Qty Ordered</th><th>Notes</th></tr></thead><tbody>${rows}</tbody></table>`+poInvoiceOpenLink();
   }catch(e){
     // Same real-Retry fix as loadPrintEstimatesFor above — the once-per-
     // session load gate means "reopen the section" alone wouldn't re-fetch.
