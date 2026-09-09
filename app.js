@@ -125,6 +125,14 @@ const isPopoutReport = new URLSearchParams(location.search).get('popout') === 'r
 // Round 44 — filters.printTiming removed (merged into filters.status, now
 // holding a unifiedStateKey() value, see renderTitles()/onFilterStatus()).
 let accordionOpen = {}, filters = { status:'', imprint:'', search:'', block:'', sort:'alpha' }, isbnFilter = 'all';
+// Round 52 (2026-09-09, David request) — ISBN Manager sort state. No
+// existing table in this app has a click-header sort control to match (the
+// Dashboard's sort is a <select>, see onFilterSort() — not applicable to a
+// plain data table like this one), so this is a fresh, standard
+// click-column-header-to-toggle-ascending/descending pattern, consistent
+// with the small-caps/muted styling the rest of this table already uses.
+// col: null (unsorted/Sheet row order) | 'isbn' | 'title'; dir: 'asc'|'desc'.
+let isbnSort = { col:null, dir:'asc' };
 let isbnLocked = {}; // titleId -> {isbnPbk:bool, isbnHbk:bool, isbnEbk:bool} — true = locked (default). Item 18 lock mechanism, session-only by design (see build report).
 // Round 22, item 1 — same lock mechanism, applied to Cover & Folder Links'
 // three fields (coverThumbnailFile, imagesFolderLink, workingFolderLink).
@@ -252,6 +260,29 @@ function dotColor(status){ if(status==='Complete'||status==='Not Required') retu
 // needs to look for the old strings again — see that function for the
 // self-healing migration.
 function isPublished(t){ return t.status==='Complete'; }
+// Round 52 (2026-09-09, David request) — display-only "counts as In Print"
+// check, separate from isPublished() above. Deliberately NOT folded into
+// isPublished() itself, because isPublished() is also the exclusion filter
+// reportRows() uses to drop a title from the Progress Report table entirely
+// (Round 24 comment) — the Round 50 fix specifically chose to keep a
+// manually-overridden title (e.g. Print Status: "In Print") VISIBLE there
+// with its override label, not vanish it, and legacyStatus for the 'In
+// Print' override is deliberately kept as 'In Progress' rather than
+// 'Complete' for exactly that reason (see the PRINT_STATUS_OVERRIDES /
+// Round 45 comment block above computeDayInfo() — this exact ambiguity was
+// flagged there as needing David's confirmation "if that distinction
+// matters in practice"). Today's report confirms it does, but only for
+// this one place: renderCard()'s progress-bar footer. Investigation: the
+// SAME card already shows "In Print" correctly on its deadline pill
+// (computeDayInfo() checks the override first), but the progress-bar
+// footer below it was still reading raw isPublished(t) (t.status==
+// 'Complete') and showing a stage-count fraction instead — two parts of
+// one card visibly disagreeing, confirmed on "Last Orgy By the Cemetery"
+// (David screenshot). This helper is exactly isPublished(t) plus the one
+// override value ('In Print') David's actual usage shows he means as
+// "done, no more schedule tracking needed" — 'Out of Print' doesn't need
+// adding here since its legacyStatus already maps to 'Complete'.
+function isPublishedForDisplay(t){ return isPublished(t) || t.dates.printStatusOverride==='In Print'; }
 // Round 27 — legacy-value remap, same self-healing pattern
 // normalizePrintStatusOverride() (further down) already uses for its own
 // old-literal-value cleanup: applied once, at load (rowToTitle), so any
@@ -2359,10 +2390,13 @@ function renderCard(t){
   // comment above).
   const doneStages=t.pipeline.stages.filter(s=>s.status==='Complete'||s.status==='Not Required').length;
   const pct=totalStages?Math.round(doneStages/totalStages*100):0;
-  const barDone=isPublished(t);
+  // Round 52 — was purely isPublished(t)-driven (see that Round 45 comment,
+  // now stale); switched to isPublishedForDisplay(t) so a manual Print
+  // Status "In Print" override fills/labels this bar the same way the
+  // deadline pill above it already does, instead of the two disagreeing.
+  const barDone=isPublishedForDisplay(t);
   // Round 45 — label reads 'In Print' now, not 'Published' (In Print/
-  // Published merge, see PRINT_STATUS_OVERRIDES comment); still purely
-  // isPublished(t)-driven, unchanged mechanically.
+  // Published merge, see PRINT_STATUS_OVERRIDES comment).
   const progressHtml=`<div class="progress-wrap"><div class="progress-track"><div class="progress-fill ${barDone?'done':''}" style="width:${barDone?100:pct}%"></div></div><div class="progress-label">${barDone?'In Print':doneStages+'/'+totalStages}</div></div>`;
   const info=computeDayInfo(t);
   const deadlineHtml=`<div class="card-deadline ${info.colorClass}">${esc(info.label)}</div>`;
@@ -4704,9 +4738,45 @@ function renderFutureEdition(t){const id=t.id;const f=t.futureEdition;
 // rendered or editable from this UI.
 
 // ─── ISBN VIEW ───
+// Round 52 (2026-09-09, David request) — click a column header to sort by
+// Book Title (Assigned To) or ISBN Number; click again to reverse. Mirrors
+// setQnListMode()'s simple state-var-then-full-rerender pattern already used
+// elsewhere in this file rather than a heavier framework-style approach.
+function setIsbnSort(col){
+  if(isbnSort.col===col){ isbnSort.dir = isbnSort.dir==='asc' ? 'desc' : 'asc'; }
+  else { isbnSort={col, dir:'asc'}; }
+  renderISBNs();
+}
+function isbnSortIndicator(col){
+  if(isbnSort.col!==col) return '<span class="isbn-sort-arrow isbn-sort-arrow-inactive">&#8645;</span>';
+  return `<span class="isbn-sort-arrow">${isbnSort.dir==='asc'?'&#9650;':'&#9660;'}</span>`;
+}
 function renderISBNs(){
   const main=document.getElementById('main');
   const all=isbnFilter==='unassigned'?data.isbns.filter(r=>!r.assignedToTitleId&&!r.legacyArchived):data.isbns;
+  // Sorted on a copy so data.isbns' own order (which round-trips to the
+  // Sheet's row order via saveIsbn()) is never touched by a display choice —
+  // same "sort a .slice(), never the source array" convention renderTitles()
+  // already uses above for the Dashboard grid.
+  if(isbnSort.col){
+    const dirMul = isbnSort.dir==='asc' ? 1 : -1;
+    all.sort((a,b)=>{
+      if(isbnSort.col==='isbn'){
+        return isbnNormalize(a.isbn).localeCompare(isbnNormalize(b.isbn), undefined, {numeric:true}) * dirMul;
+      }
+      // 'title' — sort by the assigned title's name. Unassigned/legacy-
+      // archive rows have no real title text to sort on, so (regardless of
+      // asc/desc direction) they're sent to the end rather than clustering
+      // at the top on a descending sort, same "blanks never read as
+      // smallest" reasoning dateSortKey() uses for date sorts elsewhere in
+      // this file.
+      const an=(a.assignedToTitleName||'').trim(), bn=(b.assignedToTitleName||'').trim();
+      if(!an && !bn) return 0;
+      if(!an) return 1;
+      if(!bn) return -1;
+      return an.localeCompare(bn, undefined, {sensitivity:'base'}) * dirMul;
+    });
+  }
   const rows=all.map((r)=>{
     const fmtBadge=r.format?`<span class="isbn-badge isbn-badge-${r.format.toLowerCase()}">${esc(r.format)}</span>`:'<span class="isbn-badge isbn-badge-other">—</span>';
     const assigned=r.legacyArchived?`<span class="isbn-legacy">Archive: ${esc(r.assignedToTitleName)}</span>`:r.assignedToTitleId?esc(r.assignedToTitleName):'<em style="color:var(--text-muted)">Unassigned</em>';
@@ -4724,7 +4794,12 @@ function renderISBNs(){
     </div>
   </div>
   ${!data.isbns.length?'<p style="color:var(--text3);margin-bottom:14px">The ISBNs tab is empty — per Marcus\'s delivery report, pool migration wasn\'t in his scope for this build. Whoever owns this needs to confirm where the live pool currently lives (e.g. the old ISBN Headpress.xlsx / Headpress Hub\'s local data) and import it here.</p>':''}
-  <table class="isbn-table"><thead><tr><th>ISBN</th><th>Format</th><th>Assigned To</th><th>Nielsen Notified</th></tr></thead>
+  <table class="isbn-table"><thead><tr>
+    <th class="isbn-th-sortable" onclick="setIsbnSort('isbn')" title="Sort by ISBN Number">ISBN ${isbnSortIndicator('isbn')}</th>
+    <th>Format</th>
+    <th class="isbn-th-sortable" onclick="setIsbnSort('title')" title="Sort by Book Title">Assigned To ${isbnSortIndicator('title')}</th>
+    <th>Nielsen Notified</th>
+  </tr></thead>
   <tbody>${rows}</tbody></table>
   <div id="add-isbn-form" class="hidden" style="margin-top:14px;background:var(--surface);border-radius:var(--r8);padding:16px;box-shadow:var(--shadow-sm)">
     <div class="field-grid"><div class="field-group"><label class="field-label">ISBN</label><input type="text" id="new-isbn-val" placeholder="978-1-..."></div>
@@ -6065,6 +6140,25 @@ function reportSummaryHtml(){
 // same overdue/warn/normal logic driving every other date in this report)
 // rather than a second parallel threshold, so "overdue" means the same
 // thing here as everywhere else on this screen.
+// Round 52 (2026-09-09, David request) — override-awareness fix. This block
+// (Round 39) was built BEFORE Round 50 added lateStageOverride handling to
+// reportRows()/reportRowHtml() (the table further down) — that round fixed
+// the exact same class of bug there ("Last Orgy By the Cemetery" showing
+// OVERDUE despite a manual Print Status override) but never touched this
+// separate Release Schedule block above it, so it kept computing raw
+// days-vs-today off streetDate/streetDays with no idea a manual override
+// (Print Ready/In Print/Delayed-On Hold/Cancelled) had been set. Confirmed
+// live: David set "Last Orgy By the Cemetery"'s Print Status to "In Print"
+// (Dates & Scheduling) — its underlying Street Date (2026-08-21) is genuine,
+// unchanged data, not stale — but this block still rendered it as
+// "−19 days (overdue)" because it never looked at the override at all.
+// Fix ports the exact same lateStageOverride pattern reportRows()/
+// reportDateCell() already use: the row stays visible (still useful to see
+// which block a title landed in) but the date/margin cells show the
+// override label instead of a raw overdue calculation once one applies —
+// same REPORT_LATE_STAGE_OVERRIDES set, same 'rpt-normal' neutral styling,
+// so this block can no longer contradict the table below it on the same
+// title.
 function scheduleRows(){
   const blockNameById={}; (data.blocks||[]).forEach(b=>{ blockNameById[b.block_id]=b.block_name; });
   return data.titles
@@ -6072,15 +6166,19 @@ function scheduleRows(){
     .map(t => ({
       id: t.id, title: t.title,
       blockLabel: blockNameById[t.blockId] || t.dates.releaseBlock || t.blockId,
-      streetDate: t.dates.streetDate, streetDays: daysUntil(t.dates.streetDate)
+      streetDate: t.dates.streetDate, streetDays: daysUntil(t.dates.streetDate),
+      lateStageOverride: REPORT_LATE_STAGE_OVERRIDES.has(t.dates.printStatusOverride),
+      printStatusOverride: t.dates.printStatusOverride||''
     }))
     .sort((a,b) => a.streetDays-b.streetDays || reportByTitle(a,b));
 }
-function scheduleDateCell(dateStr, days){
+function scheduleDateCell(dateStr, days, overrideLabel){
+  if(overrideLabel) return `<span class="rpt-normal">${esc(formatDate(dateStr))}</span>`;
   const cls = reportDateColorClass(days);
   return `<span class="${cls}">${esc(formatDate(dateStr))}</span>`;
 }
-function scheduleMarginCell(days){
+function scheduleMarginCell(days, overrideLabel){
+  if(overrideLabel) return `<span class="rpt-normal">${esc(overrideLabel.toUpperCase())}</span>`;
   const cls = reportDateColorClass(days);
   const num = days<0 ? ('−'+Math.abs(days)) : String(days);
   const unitWord = Math.abs(days)===1 ? 'day' : 'days';
@@ -6088,11 +6186,12 @@ function scheduleMarginCell(days){
   return `<span class="${cls}"><span class="sched-margin-num">${num}</span><span class="sched-margin-unit">${esc(unit)}</span></span>`;
 }
 function scheduleRowHtml(r){
+  const overrideLabel = r.lateStageOverride ? r.printStatusOverride : null;
   return `<tr>
       <td class="sched-col-title"><button class="sched-item-title" onclick="gotoDetail('${esc(r.id)}')">${esc(r.title)}</button></td>
       <td class="sched-col-block">${esc(r.blockLabel)}</td>
-      <td class="sched-col-date">${scheduleDateCell(r.streetDate, r.streetDays)}</td>
-      <td class="sched-col-margin">${scheduleMarginCell(r.streetDays)}</td>
+      <td class="sched-col-date">${scheduleDateCell(r.streetDate, r.streetDays, overrideLabel)}</td>
+      <td class="sched-col-margin">${scheduleMarginCell(r.streetDays, overrideLabel)}</td>
     </tr>`;
 }
 function scheduleBlockHtml(){

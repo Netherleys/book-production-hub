@@ -1185,6 +1185,16 @@ textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:
 .isbn-badge-ebk{background:#e0eef8;color:#2a5a8a}
 .isbn-badge-hbk{background:#f0ece0;color:#6a5a2a}
 .isbn-badge-other{background:var(--bg2);color:var(--text3)}
+/* Round 52 (2026-09-09, David request) — click-header sort on the ISBN
+   table (ISBN Number / Book Title columns). Sortable headers keep the same
+   uppercase muted label styling as every other header cell, just gain a
+   pointer cursor and a small arrow glyph; inactive columns show a faint
+   neutral up/down glyph (discoverable, not distracting) and the active
+   column shows a single solid triangle pointing the current direction. */
+.isbn-th-sortable{cursor:pointer;user-select:none;white-space:nowrap}
+.isbn-th-sortable:hover{color:var(--text)}
+.isbn-sort-arrow{display:inline-block;margin-left:3px;font-size:.7rem}
+.isbn-sort-arrow-inactive{opacity:.35}
 /* ── PROGRESS REPORT (Round 24, 2026-08-20) — replaces "Push To Todoist"
    entirely. Built to match the David-approved mockup: _mockups/
    ProgressReport_Mockup_2026-08-20_v3.html. One deliberate divergence from
