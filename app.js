@@ -4779,7 +4779,26 @@ function renderISBNs(){
   }
   const rows=all.map((r)=>{
     const fmtBadge=r.format?`<span class="isbn-badge isbn-badge-${r.format.toLowerCase()}">${esc(r.format)}</span>`:'<span class="isbn-badge isbn-badge-other">—</span>';
-    const assigned=r.legacyArchived?`<span class="isbn-legacy">Archive: ${esc(r.assignedToTitleName)}</span>`:r.assignedToTitleId?esc(r.assignedToTitleName):'<em style="color:var(--text-muted)">Unassigned</em>';
+    // Round 53 (2026-09-09, David-reported bug) — "Archive" was only ever
+    // driven by legacyArchived, a flag that's TRUE solely for pre-system
+    // pool rows that were never linked to a real Title record (no
+    // assignedToTitleId). isbnAssign() force-sets legacyArchived=false the
+    // instant an ISBN gets linked to a real title, and nothing ever flips
+    // it back — so a linked title that later actually finishes (Status:
+    // Complete, or the "In Print" Print Status override) could never show
+    // Archive here no matter how done the book was (confirmed live: Hollywood
+    // Haunts The World, Pink Tsunami, Born To Lose, Gathering of the Tribe:
+    // Sex, JACKsploitation! — 5 titles / 10 rows, all Complete/Completed,
+    // silently stuck showing the plain title instead of Archive). Same bug
+    // shape as today's Progress Report / Dashboard card fixes: a real
+    // completion signal exists (isPublishedForDisplay(), added earlier today
+    // for exactly this "is this book actually done" question) but this
+    // render path never checked it — display-only, legacyArchived itself is
+    // left untouched (still means "no linked Title record") so nothing about
+    // the persisted Sheet data changes.
+    const linkedTitle = r.assignedToTitleId ? getTitle(r.assignedToTitleId) : null;
+    const showArchive = r.legacyArchived || !!(linkedTitle && isPublishedForDisplay(linkedTitle));
+    const assigned=showArchive?`<span class="isbn-legacy">Archive: ${esc(r.assignedToTitleName)}</span>`:r.assignedToTitleId?esc(r.assignedToTitleName):'<em style="color:var(--text-muted)">Unassigned</em>';
     const assignBtn=(!r.assignedToTitleId&&!r.legacyArchived)?`<button class="btn btn-sm" onclick="isbnAssign('${esc(r.isbn)}')">Assign to Title</button>`:'';
     return `<tr><td>${esc(r.isbn)}</td><td>${fmtBadge}</td><td class="isbn-assign-cell">${assigned} ${assignBtn}</td>
       <td><input type="checkbox" ${r.nielsenNotified?'checked':''} onchange="isbnNielsen('${esc(r.isbn)}',this.checked)"></td></tr>`;
