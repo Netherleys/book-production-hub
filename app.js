@@ -6528,18 +6528,33 @@ function renderReportTable(){
 // COMPUTED from each title's own real Street Date at render time — never
 // hand-typed — so it can't drift the way the old Sheet did.
 //
-// Scope selector deliberately does NOT filter by the Titles sheet's
-// `blockId` field. Confirmed by hand while building the mockup: blockId
-// "2027-1-2-february-july" is currently tagged on 3 titles that don't
-// belong (Born To Lose, JACKsploitation!, No Diggin' Here — all already
-// published in 2026 or unscheduled, a stale/leftover assignment) while
-// several titles that DO have real Feb–Jul 2027 Street Dates aren't tagged
-// with it at all. Filtering by real Street Date falling inside the
-// selected block's own date RANGE (parsed from its block_name — e.g.
-// "2027 (1/2) February-July") sidesteps that data-quality gap entirely
-// rather than inheriting it. blockId itself is left exactly as-is in the
-// Sheet — flagged to Thomas/David separately as its own follow-up fix, not
-// silently patched here.
+// Round 56 (2026-09-10, David correction) — scope selector filters by each
+// title's actual `blockId` field again (its Release Block assignment),
+// NOT a date-range computed from the block's name. Round 54's original
+// version filtered by real Street Date falling inside the block's parsed
+// date range specifically to route around a data-quality problem found
+// while building the mockup — but that approach had a real side effect
+// David didn't want: "Last Orgy By the Cemetery" missed its Street Date
+// (2026-08-21, now in the past) and dropped out of its block entirely once
+// Round 55 added a past-date exclusion on top. David's call: a title that's
+// already past its date still belongs in its ORIGINAL Release Block — the
+// block is a fixed assignment, not a live date-membership test. So: back
+// to blockId, and the past-date exclusion from Round 55 is gone.
+//
+// The actual data-quality claim from Round 54's comment here was RE-CHECKED
+// properly this round (a precise row-boundary scan against the real Sheet,
+// not the looser proximity-based check used originally) and turned out to
+// be WRONG on 2 of its 3 claimed titles — JACKsploitation! (already
+// correctly 2026-h2) and No Diggin' Here (already correctly
+// not-yet-assigned) were fine all along. The real, verified correction list
+// is much smaller: Born To Lose (blank blockId, should be 2026-h1), The
+// Devils (not-yet-assigned, should be 2027-1-2-february-july — it has a
+// real 2027-07-01 Street Date), and Last Orgy By the Cemetery itself
+// (currently 2026-h1, should be 2026-h2 — this is what made it look "in
+// the wrong place" in the first place, independent of the date-exclusion
+// issue above). None of these three are written to the Sheet by this
+// commit — flagged to Thomas/Marcus as an actual data fix, not guessed at
+// or worked around in code a second time.
 //
 // Persistence: the Sent checkbox and Notes field are stored in this
 // browser's localStorage only (bookhub_promocal_v1), NOT written back to
@@ -6561,41 +6576,21 @@ const PROMO_EMAIL_STEPS = [
   {label:'30 Days Out', offsetDays:-30},
   {label:'Street Date', offsetDays:0},
 ];
-const PROMO_MONTH_IDX = {jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,sept:8,september:8,oct:9,october:9,nov:10,november:10,dec:11,december:11};
-// Parses a block_name like "2027 (1/2) February-July" or "2026 (2/2)
-// Aug-Jan" into an inclusive {start,end} Date range. Returns null for
-// anything that doesn't look like a real dated window (e.g. "Not Yet
-// Assigned", or a bare "2027" year-only placeholder) — callers skip those
-// from the block-scope selector rather than guessing.
-function parseBlockDateRange(blockName){
-  if(!blockName) return null;
-  const m = String(blockName).match(/(\d{4}).*?([A-Za-z]{3,})\s*-\s*([A-Za-z]{3,})/);
-  if(!m) return null;
-  const year = parseInt(m[1],10);
-  const startIdx = PROMO_MONTH_IDX[m[2].toLowerCase()];
-  const endIdx = PROMO_MONTH_IDX[m[3].toLowerCase()];
-  if(startIdx===undefined || endIdx===undefined || !year) return null;
-  const endYear = endIdx < startIdx ? year+1 : year; // e.g. Aug-Jan crosses a year boundary
-  const start = new Date(year, startIdx, 1);
-  const end = new Date(endYear, endIdx+1, 0); // last day of end month
-  return {start,end};
-}
+// Round 56 — block list for the scope selector now reuses the SAME
+// sortBlocksNewestFirst() comparator that already drives the All Titles
+// filter sidebar and the per-title Release Block dropdown (see
+// getReleaseBlocks()/populateBlockFilter() above) — this is the "check
+// whether the other views share a selector component" fix: they do, via
+// this shared function, and it was already newest-first there. Promo
+// Calendar's own block-name date parsing is gone along with the date-range
+// scoping above, so it just needed to start calling the same shared
+// comparator instead of sorting oldest-first on its own.
 function promoScopeBlocks(){
-  return (data.blocks||[])
-    .filter(b=>b.block_id!=='not-yet-assigned')
-    .map(b=>({...b, range:parseBlockDateRange(b.block_name)}))
-    .filter(b=>b.range)
-    .sort((a,b)=>a.range.start-b.range.end);
+  return sortBlocksNewestFirst((data.blocks||[]).filter(b=>b.block_id!=='not-yet-assigned'));
 }
 function promoDefaultBlockId(){
   const blocks = promoScopeBlocks();
-  if(!blocks.length) return null;
-  const now = new Date();
-  const current = blocks.find(b=>now>=b.range.start && now<=b.range.end);
-  if(current) return current.block_id;
-  const future = blocks.filter(b=>b.range.start>now).sort((a,b)=>a.range.start-b.range.start);
-  if(future.length) return future[0].block_id;
-  return blocks[blocks.length-1].block_id;
+  return blocks.length ? blocks[0].block_id : null; // newest first — see above
 }
 function promoLoadState(){
   try{ return JSON.parse(localStorage.getItem('bookhub_promocal_v1')||'{}'); }catch(e){ return {}; }
@@ -6625,26 +6620,22 @@ function renderPromoCalendar(){
   if(!promoBlockId) promoBlockId = promoDefaultBlockId();
   if(!blocks.length || !promoBlockId){
     main.innerHTML = `<h1 style="font-size:1.5rem;font-weight:700;color:var(--text-oncream);margin-bottom:10px">Promo Calendar</h1>
-      <div class="pc-empty">No dated Release Block found to scope this by (Blocks tab needs a name like "2027 (1/2) February-July" — see the Manage Release Blocks modal on All Titles).</div>`;
+      <div class="pc-empty">No Release Blocks found (see the Manage Release Blocks modal on All Titles to add one).</div>`;
     return;
   }
   const activeBlock = blocks.find(b=>b.block_id===promoBlockId) || blocks[0];
-  // Round 55 (2026-09-10, David bug report) — "Last Orgy By the Cemetery"
-  // was showing in the 2026 (2/2) Aug-Jan block. Checked directly against
-  // the live Sheet: its Street Date (2026-08-21) genuinely IS inside that
-  // block's range — not a filter bug — but the title is already published
-  // (Print Status override: In Print, per Round 52). A promo DRIP calendar
-  // for a book that's already out has nothing left to schedule (all 6 email
-  // slots, including this one's own Street Date row, would be historical),
-  // so it reads as noise rather than a real to-do. Fix: also require the
-  // title's own Street Date to not have passed yet — this is a judgment
-  // call (flagged as such), not the only defensible reading, but it directly
-  // matches what a "what do I still need to send" calendar should show.
-  const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
+  // Round 56 (2026-09-10, David correction) — scoped by each title's own
+  // blockId assignment again, not a date-range test. Round 55's "exclude
+  // titles whose Street Date has passed" rule is gone too, per David: "Last
+  // Orgy missed its deadline but still belongs in the original Release
+  // Block" — a title that's already past its date still belongs wherever
+  // it was assigned; a fixed assignment, not a live membership test. A
+  // title still needs a real Street Date to compute the 6 email slots
+  // against, so that part of the filter stays.
   const scopeTitles = data.titles
-    .filter(t=>t.dates && t.dates.streetDate)
+    .filter(t=>t.blockId===activeBlock.block_id && t.dates && t.dates.streetDate)
     .map(t=>({t, street:new Date(t.dates.streetDate)}))
-    .filter(x=>!isNaN(x.street) && x.street>=activeBlock.range.start && x.street<=activeBlock.range.end && x.street>=todayMidnight)
+    .filter(x=>!isNaN(x.street))
     .sort((a,b)=>a.street-b.street);
   const state = promoLoadState();
   const optionsHtml = blocks.map(b=>`<option value="${esc(b.block_id)}" ${b.block_id===activeBlock.block_id?'selected':''}>${esc(b.block_name)}</option>`).join('');
@@ -6697,7 +6688,7 @@ function renderPromoCalendar(){
         <tbody>${rowsHtml}</tbody>
       </table></div>
     </div>`;
-  }).join('') : `<div class="pc-empty">No titles with a Street Date fall inside "${esc(activeBlock.block_name)}" right now.</div>`;
+  }).join('') : `<div class="pc-empty">No titles assigned to "${esc(activeBlock.block_name)}" have a Street Date set yet.</div>`;
   main.innerHTML = `
     <h1 style="font-size:1.5rem;font-weight:700;color:var(--text-oncream);margin-bottom:6px">Promo Calendar</h1>
     <div class="pc-page-sub">Newsletter drip schedule per title — announcement through street date. Dates are computed live from each title's own Street Date, not hand-typed.</div>
