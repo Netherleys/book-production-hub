@@ -209,7 +209,11 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    specificity for the exact same <input id="hdr-search"> element (its id
    is unchanged, only relocated), silently reintroducing the old
    flex/max-width:220px header sizing inside the new full-width sidebar. */
-.h-actions{display:flex;align-items:center;gap:8px;flex-shrink:0}
+/* Round 53 (2026-09-10) — margin-left:auto pins this block to the header's
+   true right edge (see the identity-modal comment above #app-header for
+   the full context) instead of just trailing wherever the nav/Recently-
+   Viewed happen to end. */
+.h-actions{display:flex;align-items:center;gap:8px;flex-shrink:0;margin-left:auto}
 .btn{padding:6px 14px;border-radius:var(--r4);border:1px solid var(--border);background:var(--surface);color:var(--text2);font-size:.82rem;cursor:pointer;font-family:var(--sans);transition:background .15s}
 .btn:hover{background:var(--bg2)}
 .btn-primary{background:var(--sage);color:#fff;border-color:var(--sage-border);font-weight:600}
@@ -1311,7 +1315,12 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
 .qn-group-header{display:flex;align-items:center;gap:10px;padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border)}
 .qn-group-header:hover{background:var(--surface-hover)}
 .qn-list-title{font-family:var(--serif);font-weight:600;font-size:.95rem;color:var(--text);white-space:nowrap}
-.qn-list-count{font-size:.68rem;color:var(--sage-border);background:var(--sage-bg);border-radius:10px;padding:1px 8px;flex-shrink:0;margin-left:auto}
+.qn-list-count{font-size:.68rem;color:var(--sage-border);background:var(--sage-bg);border-radius:10px;padding:1px 8px;flex-shrink:0;margin-left:auto;font-weight:600}
+/* Round 53 (2026-09-10) — groups with at least one open note get the
+   amber "needs attention" treatment instead of the calm sage default, so
+   a scan down the Quick Notes tab surfaces which books actually need a
+   look without opening each group. */
+.qn-list-count.has-open{background:var(--amber-bg);color:var(--amber-border)}
 .qn-group-notes{display:flex;flex-direction:column}
 .qn-note-row{display:flex;align-items:flex-start;gap:10px;padding:10px 14px;border-top:1px dashed var(--border)}
 .qn-group-notes .qn-note-row:first-child{border-top:none}
@@ -1322,6 +1331,95 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
 .qn-note-row.archived .qn-note-text{color:var(--text3)}
 .qn-restore-btn{flex-shrink:0;background:none;border:1px solid var(--border2);border-radius:var(--r4);color:var(--sage-border);cursor:pointer;padding:3px 9px;font-size:.78rem}
 .qn-restore-btn:hover{background:var(--sage-bg)}
+
+/* Round 53 (2026-09-10, David-approved mockup: _mockups/
+   quicknotes_david_jen_channel_mockup_2026-09-10.html — "Quick Notes —
+   approved as-is") — repurposed as a per-book David/Jen channel.
+   Author avatar + colour (reuses the app's existing imprint-colour idiom —
+   a distinct hue per "side", not a wash) and an explicit Mark Resolved
+   action (per David's locked-in decision 2026-09-10: no implicit
+   clear-on-reply). Resolution itself reuses the SAME archived/archivedTs
+   fields the old Active/Archived list already had — "Resolved" is just the
+   new label on data that was always this shape; no Sheet schema change. */
+.who-pill{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;font-weight:700;padding:4px 11px;border-radius:20px;border:1px solid transparent}
+.who-pill.who-signed{background:rgba(75,110,83,.22);color:#BFE3C7;border-color:rgba(75,110,83,.55)}
+.who-pill.who-notsigned{background:rgba(255,0,0,.14);color:#ffb3ab;border-color:rgba(255,0,0,.45)}
+.who-pill::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:currentColor}
+.qn-badge{display:inline-flex;align-items:center;justify-content:center;min-width:16px;height:16px;padding:0 4px;margin-left:6px;border-radius:9px;background:var(--terra);color:#fff;font-size:.62rem;font-weight:800;vertical-align:2px}
+.qn2-avatar{width:26px;height:26px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:.68rem;font-weight:800;color:#fff}
+.qn2-avatar.david{background:var(--sage-border)}
+.qn2-avatar.jen{background:#3E6E96}
+.qn-note-row{align-items:flex-start}
+.qn-note-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:2px}
+.qn-note-author{font-weight:700;font-size:.82rem}
+.qn-note-author.david{color:var(--sage-border)}
+.qn-note-author.jen{color:#3E6E96}
+.qn-note-author.unknown{color:var(--text3);font-style:italic;font-weight:600}
+.qn-note-status{font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 8px;border-radius:10px;margin-left:auto}
+.qn-note-status.open{background:var(--amber-bg);color:var(--amber-border)}
+.qn-note-status.resolved{background:var(--sage-bg);color:var(--sage-border)}
+.qn-resolve-btn{flex-shrink:0;background:var(--sage);border:1px solid var(--sage-border);border-radius:var(--r4);color:#fff;cursor:pointer;padding:4px 11px;font-size:.76rem;font-weight:600}
+.qn-resolve-btn:hover{background:var(--sage-border)}
+.qn-identity-link{background:none;border:none;color:var(--text-oncream-dim);text-decoration:underline;font-size:.72rem;cursor:pointer;margin-left:8px}
+.qn-identity-link:hover{color:var(--text-oncream)}
+.qn-compose-inline{background:var(--surface);border:1.5px solid var(--card-border);border-radius:var(--r8);padding:14px 16px;margin-top:8px;box-shadow:var(--shadow-sm)}
+.qn-compose-inline-row{display:flex;gap:10px;margin-bottom:8px;flex-wrap:wrap}
+.qn-compose-inline select{flex:1;min-width:160px}
+
+/* ── PIPELINE / RELEASE SCHEDULE section labels (Round 53, David-approved
+   mockup: _mockups/progress_report_section_labels_mockup_2026-09-10.html) ── */
+.pipeline-block-head{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin:0 0 4px}
+.pipeline-block-head h3{font-family:var(--serif);font-weight:normal;font-size:1.05rem;color:var(--text-oncream);position:relative;padding-left:14px}
+.pipeline-block-head h3::before{content:"";position:absolute;left:0;top:3px;bottom:3px;width:4px;border-radius:2px;background:var(--sage)}
+.pipeline-block-sub{font-size:.8rem;color:var(--text-oncream-dim);margin-bottom:14px}
+/* Background wash across the WHOLE Release Schedule block (heading+sub+
+   table), not just the table header the block already tinted — this is
+   what keeps it visually offset from Pipeline now that Pipeline also has
+   its own heading in matching weight. Same --imprint-headpress token this
+   block already used elsewhere, just extended, not a new colour. */
+.sched-block-wrap{background:color-mix(in srgb, var(--imprint-headpress) 6%, transparent);border-radius:var(--r12);padding:16px 16px 4px;margin-left:-16px;margin-right:-16px}
+
+/* ── PROMO CALENDAR (Round 53, David-approved mockup: _mockups/
+   newsletter_promo_calendar_mockup_2026-09-10.html — "loved it") ── */
+#main.main-promocal{max-width:1180px;margin:0 auto}
+.pc-page-sub{font-size:.85rem;color:var(--text-oncream-dim);margin:6px 0 14px;max-width:760px;line-height:1.5}
+.pc-hint{font-size:.78rem;color:var(--amber-border);background:rgba(224,168,104,.1);border:1px solid rgba(224,168,104,.3);border-radius:var(--r4);padding:7px 12px;margin-bottom:16px;max-width:760px;line-height:1.5}
+.pc-scope-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 20px}
+.pc-scope-row select{font-family:var(--sans);font-size:.85rem;padding:6px 10px;border-radius:var(--r4);border:1px solid var(--border2);background:var(--surface)}
+.pc-title-card{background:var(--surface);border:1.5px solid var(--card-border);border-radius:var(--r12);box-shadow:var(--shadow-md);margin-bottom:20px;overflow:hidden}
+.pc-title-head{display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.pc-title-head .imp-bar{width:5px;align-self:stretch;border-radius:3px;background:var(--imprint-headpress);flex-shrink:0}
+.pc-title-main{display:flex;flex-direction:column;gap:2px}
+.pc-title-link{font-weight:700;font-size:1.02rem;color:var(--sage-border);text-decoration:underline;text-decoration-color:transparent;transition:text-decoration-color .12s;background:none;border:none;cursor:pointer;text-align:left;font-family:var(--sans);padding:0}
+.pc-title-link:hover{text-decoration-color:var(--sage-border)}
+.pc-title-author{font-size:.8rem;color:var(--text2)}
+table.pc-table{width:100%;border-collapse:collapse;table-layout:fixed}
+table.pc-table th{text-align:left;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;padding:8px 16px;border-bottom:1px solid var(--border2)}
+table.pc-table td{padding:9px 16px;border-bottom:1px solid var(--border);font-size:.85rem;color:var(--text2);vertical-align:middle}
+table.pc-table tr:last-child td{border-bottom:none}
+.pc-email-label{font-weight:700;color:var(--text)}
+.pc-email-num{color:var(--text3);font-weight:400;font-size:.78rem}
+.pc-date{font-weight:700;white-space:nowrap}
+.pc-date.overdue{color:var(--terra)}
+.pc-date.soon{color:var(--amber-border)}
+.pc-date.future{color:var(--text)}
+.pc-status{display:inline-flex;align-items:center;gap:5px;font-size:.72rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:3px 10px;border-radius:20px}
+.pc-status.st-notstarted{background:var(--neutral-bg);color:var(--neutral-border)}
+.pc-status.st-scheduled{background:var(--amber-bg);color:var(--amber-border)}
+.pc-status.st-sent{background:var(--sage-bg);color:var(--sage-border)}
+.pc-status.st-overdue{background:var(--terra-bg);color:var(--terra-border)}
+.pc-notes-field{width:100%;font-family:var(--sans);font-size:.8rem;color:var(--text);background:var(--surface);border:1px solid var(--border2);border-radius:var(--r4);padding:6px 9px}
+.pc-notes-field:hover{border-color:var(--sage-border)}
+.pc-notes-field:focus{outline:none;border-color:var(--sage);box-shadow:0 0 0 2px var(--sage-bg)}
+.pc-row-check{width:16px;height:16px;accent-color:var(--sage);cursor:pointer}
+.pc-summary-line{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px}
+.pc-chip{display:inline-flex;align-items:center;gap:6px;background:rgba(241,234,217,.07);border:1px solid rgba(241,234,217,.18);border-radius:20px;padding:5px 12px;font-size:.78rem;color:var(--text-oncream-dim)}
+.pc-chip b{color:var(--text-oncream)}
+.pc-dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.pc-legend{display:flex;gap:16px;flex-wrap:wrap;font-size:.74rem;color:var(--text-oncream-dim);margin:4px 0 30px}
+.pc-legend span{display:inline-flex;align-items:center;gap:5px}
+.pc-empty{padding:26px 18px;color:var(--text-oncream-dim);font-size:.9rem;text-align:center}
+
 /* ── PRINTER CONTACTS ── */
 .printer-contacts{display:flex;flex-direction:column;gap:6px}
 .printer-row{display:flex;gap:8px;align-items:center}
@@ -1755,7 +1853,13 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
     <button class="h-tab active" id="tab-titles" onclick="gotoTitles()">All Titles</button>
     <!-- Item 5 (Round 2) — Quick Notes list/index view, so David can see
          which titles have notes without opening each one individually. -->
-    <button class="h-tab" id="tab-quicknotes" onclick="gotoQuickNotesList()">Quick Notes</button>
+    <!-- Round 53 (2026-09-10, David-approved mockup: _mockups/
+         quicknotes_david_jen_channel_mockup_2026-09-10.html — "All good.
+         Let's go!") — badge shows count of OPEN (unresolved) notes across
+         every title, computed in updateQuickNotesBadge() (app.js), called
+         from render() and after every note mutation. Hidden (not "0") when
+         the count is zero, same show-only-when-relevant idiom as #rv-wrap. -->
+    <button class="h-tab" id="tab-quicknotes" onclick="gotoQuickNotesList()">Quick Notes<span class="qn-badge" id="qn-tab-badge" style="display:none"></span></button>
     <button class="h-tab" id="tab-isbns" onclick="gotoISBNs()">ISBN Manager</button>
     <!-- Round 24 (2026-08-20) — Progress Report, replacing "Push To Todoist"
          entirely (see the removed button in .h-actions below, and
@@ -1769,6 +1873,15 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
          renderReport()/setReportMode() in app.js) rather than its own
          top-level nav destination. -->
     <button class="h-tab" id="tab-report" onclick="gotoReport()">Progress Report</button>
+    <!-- Round 53 (2026-09-10, David-approved mockup: _mockups/
+         newsletter_promo_calendar_mockup_2026-09-10.html — "All good. Let's
+         go!") — new Promo Calendar tab, per-title 6-email newsletter drip
+         schedule computed live off each title's own Street Date. Positioned
+         between Progress Report and Order Tracker per David's explicit
+         follow-up ask (2026-09-10), same "books in progress → books
+         finished" nav logic Round 50 established, with promo scheduling
+         reading as one more books-in-progress concern. -->
+    <button class="h-tab" id="tab-promocal" onclick="gotoPromoCalendar()">Promo Calendar</button>
     <!-- Round 49 (2026-09-07, David-approved mockup: _mockups/
          all_orders_page_sidebar_mockup_2026-09-07.html — "This mockup is
          spot-on. let's make it live.") — standalone Order Tracker, every
@@ -1811,12 +1924,48 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
        that: the header was already this simple on every other view because
        .h-search-wrap was display:none whenever view!=='titles' — this
        change just makes that the permanent, only state, for every view. -->
+  <!-- Round 53 (2026-09-10, David feedback on the Promo Calendar mockup) —
+       "move it to the far right of the toolbar, and increase the colour
+       contrast between signed-in vs not-signed-in states, it's currently
+       too subtle." margin-left:auto (see .h-actions rule below) pins this
+       block to the true right edge of the header regardless of how much
+       room the nav/Recently-Viewed take up — before, it just fell wherever
+       it landed after them, which could be well short of the edge on a wide
+       screen. #whoami's plain dim-grey text is replaced by a bordered/
+       filled pill (see .who-pill/.who-signed/.who-notsigned below) —
+       setWhoami() in app.js toggles the class alongside the text so the two
+       states are colour-distinct, not just textually different. -->
   <div class="h-actions">
     <button class="btn btn-primary btn-sm" id="btn-add-title" onclick="openAddTitle()">+ Add Title</button>
-    <span id="whoami" style="font-size:.78rem;color:var(--text3)"></span>
+    <span id="whoami" class="who-pill"></span>
     <span class="sync-dot none" id="sync-dot" title="Sync status"></span>
   </div>
 </header>
+
+<!-- Round 53 (2026-09-10) — one-time "who's posting?" identity picker.
+     BookHubAuth's OAuth scope (see google-auth.js/config.js) only ever
+     returns a bare access token — no id_token/openid/email scope is
+     requested, so the app has no way to know WHICH of the two authorised
+     accounts (David / Jen) is actually signed in at the token level.
+     Widening the OAuth scope to add email/profile would force BOTH of them
+     through a fresh consent screen on next sign-in (see the
+     GOOGLE_OAUTH_SCOPE comment in config.js re: GIS's single-consent-per-
+     scope-set behaviour) just to solve a two-person, two-machine problem —
+     David uses his own machine/browser, Jen hers. A simple per-browser
+     identity choice (localStorage, see ensureUserIdentity() in app.js) is
+     the lower-risk fix: asked once per device, remembered after, changeable
+     via the small link in the Quick Notes panel. Used to stamp `author` on
+     every Quick Note going forward (FAB and the in-tab compose box alike). -->
+<div id="identity-modal" class="modal-overlay hidden">
+  <div class="modal" style="max-width:340px">
+    <h3 style="font-family:var(--serif);font-weight:normal;margin-bottom:6px">Who's posting?</h3>
+    <p style="font-size:.82rem;color:var(--text3);margin-bottom:14px">Remembered on this device for Quick Notes — David and Jen use separate machines, so this only needs asking once here.</p>
+    <div style="display:flex;gap:10px">
+      <button class="btn btn-primary" style="flex:1" onclick="setUserIdentity('David')">I'm David</button>
+      <button class="btn btn-primary" style="flex:1" onclick="setUserIdentity('Jen')">I'm Jen</button>
+    </div>
+  </div>
+</div>
 
 <!-- Round 15 (2026-08-12) — new floating filter sidebar, replacing the old
      header search/filter row. #filter-panel-wrap groups the drawer-toggle
@@ -1935,6 +2084,10 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 <button id="quick-note-fab" title="Quick note on a title" onclick="toggleQuickNote()">&#128221;</button>
 <div id="quick-note-panel" class="qn-panel hidden">
   <h4>Quick Note</h4>
+  <!-- Round 53 (2026-09-10) — "posting as" line, see the identity-modal
+       comment above #app-header. renderIdentityLine()/setUserIdentity() in
+       app.js keep this in sync. -->
+  <div id="qn-identity-line" style="font-size:.76rem;color:var(--text3);margin-bottom:8px"></div>
   <select id="qn-title-select"></select>
   <textarea id="qn-text" placeholder="Jot it down — saved straight to that title's record…"></textarea>
   <div style="display:flex;gap:8px;justify-content:flex-end">

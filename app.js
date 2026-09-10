@@ -147,6 +147,10 @@ let qnOpen = false;
 // view. Session-only (not persisted) — always opens back on Active, same
 // pattern as isbnFilter above.
 let qnListMode = 'active';
+// Round 53 (2026-09-10) — currently-selected Release Block on the Promo
+// Calendar tab. null until first render, at which point renderPromoCalendar()
+// defaults it via promoDefaultBlockId() (see there).
+let promoBlockId = null;
 let assignCtx = null;
 let devMode = false; // true when previewing with sample data, no network writes
 // Round 47 (2026-09-07) — poLogRowsCache (lazy-loaded 'PO Log' tab rows) is
@@ -1198,7 +1202,7 @@ function doSignIn(){
       async () => {
         btn.disabled = false; btn.textContent = 'Sign in with Google';
         document.getElementById('auth-overlay').classList.add('hidden');
-        document.getElementById('whoami').textContent = 'Signed in';
+        setWhoami(true);
         await loadAllData();
       },
       (err) => {
@@ -1266,10 +1270,26 @@ function showReconnect(msg, authFailure){
   const btn = document.getElementById('reconnect-retry-btn');
   if(btn) btn.style.display = (authFailure===false) ? 'none' : '';
   document.getElementById('reconnect-banner').classList.remove('hidden');
+  // Round 53 (2026-09-10) — a genuine auth failure (token/session lost) is
+  // the one real "not signed in" state that can surface mid-session; flip
+  // the header pill to match rather than leaving it saying "Signed in"
+  // while the reconnect banner disagrees right below it. A non-auth error
+  // (network/403) isn't actually a sign-in problem, so it's left alone.
+  if(authFailure!==false) setWhoami(false);
 }
 function setSyncStatus(s){
   syncStatus = s;
   ['sync-dot','footer-sync-dot'].forEach(id=>{ const el=document.getElementById(id); if(el) el.className='sync-dot '+s; });
+}
+// Round 53 (2026-09-10, David feedback on the Promo Calendar mockup) —
+// higher-contrast signed-in/not-signed-in pill (see .who-pill/.who-signed/
+// .who-notsigned in index.html) replacing the old flat #whoami text, which
+// never actually changed colour between states.
+function setWhoami(signedIn){
+  const el=document.getElementById('whoami');if(!el)return;
+  el.textContent = signedIn ? 'Signed in' : 'Not signed in';
+  el.classList.toggle('who-signed', !!signedIn);
+  el.classList.toggle('who-notsigned', !signedIn);
 }
 
 // ─── SAVE (debounced full-row rewrite, mirrors headpress.html's debounced-save pattern) ───
@@ -1391,7 +1411,7 @@ function onReconnectClick(){
     async () => {
       if(btn){ btn.disabled = false; btn.textContent = 'Reconnect'; }
       document.getElementById('reconnect-banner').classList.add('hidden');
-      document.getElementById('whoami').textContent = 'Signed in';
+      setWhoami(true);
       if(!data.titles.length && !data.blocks.length){
         await loadAllData(); // initial load itself failed — retry it now we're reconnected
       } else {
@@ -1879,6 +1899,7 @@ function render(){
   document.getElementById('tab-isbns').classList.toggle('active',view==='isbns');
   const qnTab=document.getElementById('tab-quicknotes'); if(qnTab) qnTab.classList.toggle('active',view==='quicknotes');
   const rptTab=document.getElementById('tab-report'); if(rptTab) rptTab.classList.toggle('active',view==='report');
+  const pcTab=document.getElementById('tab-promocal'); if(pcTab) pcTab.classList.toggle('active',view==='promocal');
   const otTab=document.getElementById('tab-ordertracker'); if(otTab) otTab.classList.toggle('active',view==='ordertracker');
   // Round 15 (2026-08-12) — the old header search/filter row (#search-wrap)
   // moved into the new left-hand filter sidebar (see #filter-panel-wrap in
@@ -1908,8 +1929,10 @@ function render(){
   else if(view==='isbns')renderISBNs();
   else if(view==='quicknotes')renderQuickNotesList();
   else if(view==='report')renderReport();
+  else if(view==='promocal')renderPromoCalendar();
   else if(view==='ordertracker')renderOrderTracker();
   populateQuickNoteTitles();
+  updateQuickNotesBadge();
   // Round 20 (2026-08-19) — header dropdown lives outside #main (it's part
   // of the persistent #app-header, never touched by the innerHTML swaps
   // above), so it needs its own explicit refresh here rather than picking
@@ -1948,6 +1971,9 @@ function gotoCalendar(){flushPendingSave(selectedId);view='report';reportMode='c
 // every other top-level tab (flush any pending detail-page save first, then
 // swap view and re-render).
 function gotoOrderTracker(){flushPendingSave(selectedId);view='ordertracker';render();}
+// Round 53 (2026-09-10, David-approved mockup: _mockups/
+// newsletter_promo_calendar_mockup_2026-09-10.html) — same goto* pattern.
+function gotoPromoCalendar(){flushPendingSave(selectedId);view='promocal';render();}
 // Item 1 (Round 2) — see render()'s comment above for why this exists.
 // Measured on a rAF tick so it runs after the browser has actually laid
 // out the just-injected HTML (offsetHeight would still read the PREVIOUS
@@ -4853,22 +4879,36 @@ function renderISBNs(){
 // deleted — see archiveQuickNote()/restoreQuickNote() further down (near
 // saveQuickNote()).
 function setQnListMode(mode){ qnListMode=mode; renderQuickNotesList(); }
+// Round 53 (2026-09-10, David-approved mockup: _mockups/
+// quicknotes_david_jen_channel_mockup_2026-09-10.html — "approved as-is")
+// — repurposed from a near-duplicate of Progress Report into a per-book
+// David/Jen channel. Per-title grouping unchanged (mirrors Progress
+// Report, per the mockup's own design note); what's new per group is an
+// author avatar/tag on each note and an explicit "Mark Resolved" button
+// (archiveQuickNote()/restoreQuickNote() — unchanged functions, this round
+// just relabels Active/Archived as Open/Resolved and adds the author line).
+// Defensive throughout: a note with no `author` (or a genuinely malformed
+// entry from Jen's raw-Sheet Editor access — see jen_wallis_book_
+// production_hub_access memory) renders as "Unknown" rather than breaking.
 function renderQuickNotesList(){
   const main=document.getElementById('main');
   const mode=qnListMode;
   const groups = data.titles
-    .map(t=>({ t, notes:(t.quickNotes||[]).filter(n=> mode==='archived' ? n.archived : !n.archived) }))
+    .map(t=>({ t, notes:(t.quickNotes||[]).filter(n=> n && (mode==='archived' ? n.archived : !n.archived)) }))
     .filter(g=>g.notes.length);
   const toggleHtml = `<div class="qn-mode-toggle">
-    <button type="button" class="qn-mode-btn ${mode==='active'?'active':''}" onclick="setQnListMode('active')">Active</button>
-    <button type="button" class="qn-mode-btn ${mode==='archived'?'active':''}" onclick="setQnListMode('archived')">Archived</button>
+    <button type="button" class="qn-mode-btn ${mode==='active'?'active':''}" onclick="setQnListMode('active')">Open</button>
+    <button type="button" class="qn-mode-btn ${mode==='archived'?'active':''}" onclick="setQnListMode('archived')">Resolved</button>
   </div>`;
-  const headingHtml = `<h2 style="font-family:var(--serif);font-weight:600;font-size:1.3rem;color:var(--text-oncream);margin-bottom:14px">Quick Notes</h2>`;
+  const headingHtml = `<h2 style="font-family:var(--serif);font-weight:600;font-size:1.3rem;color:var(--text-oncream);margin-bottom:6px">Quick Notes</h2>
+    <p style="font-size:.85rem;color:var(--text-oncream-dim);margin-bottom:14px;max-width:640px;line-height:1.5">Per-book channel between David and Jen. A note stays Open until whoever it's addressed to clicks Mark Resolved — a reply on its own doesn't clear it.</p>`;
+  const composeHtml = renderQnComposeHtml();
   if(!groups.length){
     const emptyMsg = mode==='archived'
-      ? 'Nothing archived yet — checking off a note in the Active list moves it here.'
-      : 'Jot one against any title using the &#128221; button (bottom-right) — it\'ll show up here, grouped by title.';
-    main.innerHTML=headingHtml+toggleHtml+`<div class="empty-state"><h3>No ${esc(mode)} notes</h3><p>${emptyMsg}</p></div>`;
+      ? 'Nothing resolved yet — clicking Mark Resolved on an open note moves it here.'
+      : 'Jot one against any title using the &#128221; button (bottom-right), or the box below — it\'ll show up here, grouped by title.';
+    main.innerHTML=headingHtml+toggleHtml+`<div class="empty-state"><h3>No ${mode==='archived'?'resolved':'open'} notes</h3><p>${emptyMsg}</p></div>`+composeHtml;
+    updateQuickNotesBadge();
     return;
   }
   // Groups ordered by their most-recently-noted item first (same
@@ -4877,30 +4917,79 @@ function renderQuickNotesList(){
   // safe to compute.
   const latestTs = g => Math.max.apply(null, g.notes.map(n=>new Date(n.ts).getTime()||0));
   groups.sort((a,b)=> latestTs(b) - latestTs(a));
+  const authorClass = a => a==='David' ? 'david' : (a==='Jen' ? 'jen' : 'unknown');
+  const authorInitial = a => a==='David' ? 'D' : (a==='Jen' ? 'JW' : '?');
   const groupsHtml = groups.map(({t,notes})=>{
     const sortedNotes = notes.slice().sort((a,b)=>new Date(b.ts)-new Date(a.ts));
+    const allNotes = t.quickNotes||[];
+    const openCount = allNotes.filter(n=>n && !n.archived).length;
+    const resolvedCount = allNotes.filter(n=>n && n.archived).length;
+    const countLabel = `${openCount} open &middot; ${resolvedCount} resolved`;
     const noteRows = sortedNotes.map(n=>{
       const when = new Date(n.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-      if(mode==='active'){
-        return `<div class="qn-note-row">
-          <input type="checkbox" title="Mark addressed — archives this note" onclick="event.stopPropagation()" onchange="archiveQuickNote('${t.id}','${n.id}')">
-          <div class="qn-note-text-wrap"><span class="qn-note-text">${esc(n.text)}</span><span class="qn-note-date">Noted ${esc(when)}</span></div>
+      const author = n.author || '';
+      const aCls = authorClass(author);
+      const aLabel = author || 'Unknown';
+      const avatar = `<div class="qn2-avatar ${aCls}">${esc(authorInitial(author))}</div>`;
+      const statusPill = mode==='active'
+        ? `<span class="qn-note-status open">Open</span>`
+        : `<span class="qn-note-status resolved">Resolved</span>`;
+      const actionBtn = mode==='active'
+        ? `<button type="button" class="qn-resolve-btn" onclick="event.stopPropagation();archiveQuickNote('${t.id}','${n.id}')">Mark Resolved</button>`
+        : `<button type="button" class="qn-restore-btn" onclick="event.stopPropagation();restoreQuickNote('${t.id}','${n.id}')">&#8635; Reopen</button>`;
+      return `<div class="qn-note-row${mode==='archived'?' archived':''}">
+          ${avatar}
+          <div class="qn-note-text-wrap">
+            <div class="qn-note-top"><span class="qn-note-author ${aCls}">${esc(aLabel)}</span><span class="qn-note-date">${esc(when)}</span>${statusPill}</div>
+            <span class="qn-note-text">${esc(n.text)}</span>
+            <div style="margin-top:6px">${actionBtn}</div>
+          </div>
         </div>`;
-      }
-      return `<div class="qn-note-row archived">
-        <button type="button" class="qn-restore-btn" title="Restore to Active" onclick="event.stopPropagation();restoreQuickNote('${t.id}','${n.id}')">&#8635; Restore</button>
-        <div class="qn-note-text-wrap"><span class="qn-note-text">${esc(n.text)}</span><span class="qn-note-date">Noted ${esc(when)}</span></div>
-      </div>`;
     }).join('');
     return `<div class="qn-group">
       <div class="qn-group-header" onclick="gotoDetail('${t.id}')">
         <span class="qn-list-title">${esc(t.title)}</span>
-        <span class="qn-list-count">${notes.length} note${notes.length===1?'':'s'}</span>
+        <span class="qn-list-count${openCount>0?' has-open':''}">${countLabel}</span>
       </div>
       <div class="qn-group-notes">${noteRows}</div>
     </div>`;
   }).join('');
-  main.innerHTML=headingHtml+toggleHtml+groupsHtml;
+  main.innerHTML=headingHtml+toggleHtml+groupsHtml+composeHtml;
+  updateQuickNotesBadge();
+}
+// Round 53 (2026-09-10) — same title-select + textarea the FAB panel already
+// uses, just inline on the tab itself (per the approved mockup's compose
+// box). Reuses saveQuickNote()'s exact logic/identity-gating rather than a
+// second save path — the FAB and this box are two entry points into the
+// same function, not two systems.
+function renderQnComposeHtml(){
+  const titleOpts = data.titles.slice().sort((a,b)=>a.title.localeCompare(b.title)).map(t=>`<option value="${t.id}">${esc(t.title)}</option>`).join('');
+  const who=getUserIdentity();
+  const idLine = who
+    ? `Posting as <b style="color:var(--text)">${esc(who)}</b> <button type="button" class="qn-identity-link" onclick="showIdentityModal()">change</button>`
+    : `<button type="button" class="qn-identity-link" style="margin-left:0" onclick="showIdentityModal()">Set who's posting…</button>`;
+  return `<div class="qn-compose-inline">
+    <div style="font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);font-weight:700;margin-bottom:8px">New note</div>
+    <div class="qn-compose-inline-row">
+      <select id="qn-tab-title-select">${titleOpts}</select>
+      <span style="font-size:.76rem;color:var(--text3)">${idLine}</span>
+    </div>
+    <textarea id="qn-tab-text" placeholder="Write a note…" style="width:100%;min-height:60px;margin-bottom:8px"></textarea>
+    <div style="text-align:right"><button class="btn btn-primary btn-sm" onclick="saveQnTabNote()">Post Note</button></div>
+  </div>`;
+}
+function saveQnTabNote(){
+  if(!getUserIdentity()){ ensureUserIdentity(saveQnTabNote); return; }
+  const sel=document.getElementById('qn-tab-title-select');
+  const textEl=document.getElementById('qn-tab-text');
+  if(!sel||!textEl)return;
+  const text=textEl.value.trim();
+  if(!text)return;
+  const t=getTitle(sel.value);if(!t)return;
+  if(!t.quickNotes)t.quickNotes=[];
+  t.quickNotes.push({id:uid(),ts:new Date().toISOString(),text,author:getUserIdentity(),archived:false,archivedTs:''});
+  saveTitle(t.id);
+  renderQuickNotesList();
 }
 
 // ─── ISBN DUPLICATE-PREVENTION (Round 7, item 3a) ───
@@ -5530,7 +5619,52 @@ function toggleQuickNote(){
   const panel=document.getElementById('quick-note-panel');
   if(!panel)return;
   panel.classList.toggle('hidden',!qnOpen);
-  if(qnOpen){ populateQuickNoteTitles(); document.getElementById('qn-text').focus(); }
+  if(qnOpen){ populateQuickNoteTitles(); renderIdentityLine(); document.getElementById('qn-text').focus(); }
+}
+
+// ─── IDENTITY (Round 53, 2026-09-10) ───
+// BookHubAuth's OAuth token carries no email/profile info (see the
+// identity-modal comment in index.html) — the app has no way to derive
+// "David" vs "Jen" from the sign-in itself. Per-browser localStorage choice
+// instead: asked once per device via #identity-modal, remembered after.
+// Used to stamp `author` on every Quick Note (FAB + in-tab compose alike).
+const IDENTITY_KEY = 'bookhub_identity';
+let pendingIdentityCallback = null;
+function getUserIdentity(){ try{ return localStorage.getItem(IDENTITY_KEY) || null; }catch(e){ return null; } }
+// onReady is called once an identity is confirmed — immediately if one's
+// already stored, otherwise after the modal resolves. Callers pass a
+// zero-arg function that re-reads getUserIdentity() itself (simplest way to
+// make save flows idempotent whether or not the modal actually had to show).
+function ensureUserIdentity(onReady){
+  if(getUserIdentity()){ onReady(); return; }
+  pendingIdentityCallback = onReady;
+  const modal=document.getElementById('identity-modal');
+  if(modal) modal.classList.remove('hidden');
+}
+function showIdentityModal(){
+  const modal=document.getElementById('identity-modal');
+  if(modal) modal.classList.remove('hidden');
+}
+function setUserIdentity(name){
+  try{ localStorage.setItem(IDENTITY_KEY, name); }catch(e){}
+  const modal=document.getElementById('identity-modal');
+  if(modal) modal.classList.add('hidden');
+  renderIdentityLine();
+  // The Quick Notes tab's own inline compose box (renderQnComposeHtml())
+  // stamps the "posting as" line into a fresh string at render time rather
+  // than a live-updating element like the FAB panel's — re-render the whole
+  // list if that tab is open so it doesn't show a stale identity after a
+  // change made from there.
+  if(view==='quicknotes') renderQuickNotesList();
+  const cb=pendingIdentityCallback; pendingIdentityCallback=null;
+  if(cb) cb();
+}
+function renderIdentityLine(){
+  const el=document.getElementById('qn-identity-line');if(!el)return;
+  const who=getUserIdentity();
+  el.innerHTML = who
+    ? `Posting as <b style="color:var(--text2)">${esc(who)}</b> <button type="button" class="qn-identity-link" onclick="showIdentityModal()">change</button>`
+    : `<button type="button" class="qn-identity-link" style="margin-left:0" onclick="showIdentityModal()">Set who's posting…</button>`;
 }
 function renderQuickNoteRecent(){
   const sel=document.getElementById('qn-title-select');
@@ -5547,6 +5681,12 @@ function renderQuickNoteRecent(){
   box.innerHTML=active.slice().reverse().slice(0,5).map(n=>`<div class="qn-recent-item"><b>${esc(new Date(n.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}</b> — ${esc(n.text)}</div>`).join('');
 }
 function saveQuickNote(){
+  // Round 53 (2026-09-10) — every note now needs an author (David/Jen) to
+  // render in the per-book channel view. If this browser hasn't been told
+  // who's using it yet, gate on the identity modal and re-call ourselves
+  // once it's set — the textarea/select values are still sitting in the DOM
+  // untouched, so nothing typed is lost while the modal is up.
+  if(!getUserIdentity()){ ensureUserIdentity(saveQuickNote); return; }
   const sel=document.getElementById('qn-title-select');
   const textEl=document.getElementById('qn-text');
   if(!sel||!textEl)return;
@@ -5554,15 +5694,33 @@ function saveQuickNote(){
   if(!text)return;
   const t=getTitle(sel.value);if(!t)return;
   if(!t.quickNotes)t.quickNotes=[];
-  t.quickNotes.push({id:uid(),ts:new Date().toISOString(),text,archived:false,archivedTs:''});
+  t.quickNotes.push({id:uid(),ts:new Date().toISOString(),text,author:getUserIdentity(),archived:false,archivedTs:''});
   textEl.value='';
   saveTitle(t.id); // immediate, not debounced — a quick note should feel saved instantly
   renderQuickNoteRecent();
+  updateQuickNotesBadge();
   // If the note's title is the one currently open in detail view, refresh
   // it live too (quick notes aren't shown as their own accordion field
   // today, but this keeps behaviour honest if a future pass surfaces them
   // there — no stale state left behind).
   if(view==='detail'&&selectedId===t.id) renderDetail();
+  if(view==='quicknotes') renderQuickNotesList();
+}
+// Round 53 (2026-09-10) — count of OPEN (unresolved) notes across every
+// title, shown on the Quick Notes nav tab so David/Jen can see there's
+// something waiting without opening the tab. Defensive against a
+// hand-edited quickNotes_json cell (Jen has raw Sheet Editor access, see
+// jen_wallis_book_production_hub_access memory) — a malformed/missing
+// `archived` value is treated as still-open (unresolved) rather than
+// silently dropped or throwing.
+function updateQuickNotesBadge(){
+  const badge=document.getElementById('qn-tab-badge');if(!badge)return;
+  let count=0;
+  (data.titles||[]).forEach(t=>{
+    (t.quickNotes||[]).forEach(n=>{ if(!n || !n.archived) count++; });
+  });
+  badge.textContent=String(count);
+  badge.style.display = count>0 ? '' : 'none';
 }
 // Item 6 (Round 3) — David's live refinement: checking a note off in the
 // Quick Notes list is an ARCHIVE action, not an in-place strikethrough/done
@@ -5572,6 +5730,11 @@ function saveQuickNote(){
 // the same note object inside quickNotes_json (no new Sheet column needed —
 // this is all inside the existing JSON blob), so nothing about the Sheet
 // schema changes for this.
+// Round 53 (2026-09-10, David-locked-in decision) — this IS the "Mark
+// Resolved" action: explicit only, never triggered implicitly by a reply
+// from the other party. Underlying archived/archivedTs fields are unchanged
+// from the original Active/Archived design — "Resolved" is just the label
+// this round puts on the same mechanism, so no Sheet schema change.
 function archiveQuickNote(titleId,noteId){
   const t=getTitle(titleId);if(!t||!t.quickNotes)return;
   const n=t.quickNotes.find(x=>x.id===noteId);if(!n)return;
@@ -5579,6 +5742,7 @@ function archiveQuickNote(titleId,noteId){
   saveTitle(titleId); // immediate, same "feels instant" rule as saveQuickNote()
   renderQuickNotesList();
   renderQuickNoteRecent();
+  updateQuickNotesBadge();
 }
 function restoreQuickNote(titleId,noteId){
   const t=getTitle(titleId);if(!t||!t.quickNotes)return;
@@ -5587,6 +5751,7 @@ function restoreQuickNote(titleId,noteId){
   saveTitle(titleId);
   renderQuickNotesList();
   renderQuickNoteRecent();
+  updateQuickNotesBadge();
 }
 
 // ─── ROUND 6, ITEMS 2/3 — FULL-RECORD EXPORT (HTML + Word/RTF) ───
@@ -6215,9 +6380,12 @@ function scheduleRowHtml(r){
 }
 function scheduleBlockHtml(){
   const rows = scheduleRows();
+  // Round 53 (2026-09-10, David-approved mockup: _mockups/
+  // progress_report_section_labels_mockup_2026-09-10.html) — "Title" →
+  // "Book Title", to match the Pipeline table's own first column below.
   const body = rows.length
     ? `<div class="rpt-table-card schedule-card"><div class="rpt-table-scroll"><table class="schedule-table">
-        <thead><tr><th>Title</th><th>Release Block</th><th>Deadline (Street Date)</th><th>Margin</th></tr></thead>
+        <thead><tr><th>Book Title</th><th>Release Block</th><th>Deadline (Street Date)</th><th>Margin</th></tr></thead>
         <tbody>${rows.map(scheduleRowHtml).join('')}</tbody>
       </table></div></div>`
     : `<div class="rpt-table-card schedule-card"><div class="rpt-empty">No In Progress titles have a Release Block assigned right now.</div></div>`;
@@ -6261,6 +6429,14 @@ function renderReport(){
     </div>
     <div id="view-report" class="${reportMode==='report'?'':'hidden'}">
       ${scheduleBlockHtml()}
+      <!-- Round 53 (2026-09-10, David-approved mockup: _mockups/
+           progress_report_section_labels_mockup_2026-09-10.html) — "Pipeline
+           Notes" had no heading of its own before this; added here in the
+           same structural weight as Release Schedule's own heading just
+           above, but sage-toned (not the orange Release Schedule reuses) so
+           the two read as matched siblings, not identical blocks. -->
+      <div class="pipeline-block-head"><h3>Pipeline</h3></div>
+      <div class="pipeline-block-sub">Titles with open Pipeline Notes, filterable below</div>
       <div class="rpt-toolbar">
         <div class="filter-group" role="group" aria-label="Filter">
           <!-- Order per David's explicit confirmation (2026-08-20): All,
@@ -6342,6 +6518,186 @@ function renderReportTable(){
   }
   empty.style.display = 'none';
   tbody.innerHTML = bodyRows.join('');
+}
+
+// ─── PROMO CALENDAR (Round 53, 2026-09-10, David-approved mockup:
+// _mockups/newsletter_promo_calendar_mockup_2026-09-10.html — "loved it") ───
+// Per-title 6-email newsletter drip schedule (Announcement / Excerpt /
+// Trailer / Q&A / 30 Days Out / Street Date), replacing the old standalone,
+// hand-dated "Newsletter Promo Calendar" Google Sheet. Every date below is
+// COMPUTED from each title's own real Street Date at render time — never
+// hand-typed — so it can't drift the way the old Sheet did.
+//
+// Scope selector deliberately does NOT filter by the Titles sheet's
+// `blockId` field. Confirmed by hand while building the mockup: blockId
+// "2027-1-2-february-july" is currently tagged on 3 titles that don't
+// belong (Born To Lose, JACKsploitation!, No Diggin' Here — all already
+// published in 2026 or unscheduled, a stale/leftover assignment) while
+// several titles that DO have real Feb–Jul 2027 Street Dates aren't tagged
+// with it at all. Filtering by real Street Date falling inside the
+// selected block's own date RANGE (parsed from its block_name — e.g.
+// "2027 (1/2) February-July") sidesteps that data-quality gap entirely
+// rather than inheriting it. blockId itself is left exactly as-is in the
+// Sheet — flagged to Thomas/David separately as its own follow-up fix, not
+// silently patched here.
+//
+// Persistence: the Sent checkbox and Notes field are stored in this
+// browser's localStorage only (bookhub_promocal_v1), NOT written back to
+// the Titles sheet — there is no existing column for this, and adding one
+// is a real Sheet-schema change (same category as the one-time
+// GOOGLE_CLIENT_ID setup step documented in config.js), not something to
+// do silently as part of a code push. Flagged as a specific follow-up:
+// add a `promoCalendar_json` column to the Titles tab (mirroring
+// quickNotes_json's existing pattern — one JSON blob per title) so
+// Sent/Notes state is shared across whoever's signed in, not per-device.
+// Until then, this still delivers real value for a single day-to-day
+// owner (Evelyn, per Mia's recommendation in the approved mockup) working
+// from one browser.
+const PROMO_EMAIL_STEPS = [
+  {label:'Announcement', offsetDays:-150},
+  {label:'Excerpt', offsetDays:-100},
+  {label:'Trailer', offsetDays:-70},
+  {label:'Q&A', offsetDays:-45},
+  {label:'30 Days Out', offsetDays:-30},
+  {label:'Street Date', offsetDays:0},
+];
+const PROMO_MONTH_IDX = {jan:0,january:0,feb:1,february:1,mar:2,march:2,apr:3,april:3,may:4,jun:5,june:5,jul:6,july:6,aug:7,august:7,sep:8,sept:8,september:8,oct:9,october:9,nov:10,november:10,dec:11,december:11};
+// Parses a block_name like "2027 (1/2) February-July" or "2026 (2/2)
+// Aug-Jan" into an inclusive {start,end} Date range. Returns null for
+// anything that doesn't look like a real dated window (e.g. "Not Yet
+// Assigned", or a bare "2027" year-only placeholder) — callers skip those
+// from the block-scope selector rather than guessing.
+function parseBlockDateRange(blockName){
+  if(!blockName) return null;
+  const m = String(blockName).match(/(\d{4}).*?([A-Za-z]{3,})\s*-\s*([A-Za-z]{3,})/);
+  if(!m) return null;
+  const year = parseInt(m[1],10);
+  const startIdx = PROMO_MONTH_IDX[m[2].toLowerCase()];
+  const endIdx = PROMO_MONTH_IDX[m[3].toLowerCase()];
+  if(startIdx===undefined || endIdx===undefined || !year) return null;
+  const endYear = endIdx < startIdx ? year+1 : year; // e.g. Aug-Jan crosses a year boundary
+  const start = new Date(year, startIdx, 1);
+  const end = new Date(endYear, endIdx+1, 0); // last day of end month
+  return {start,end};
+}
+function promoScopeBlocks(){
+  return (data.blocks||[])
+    .filter(b=>b.block_id!=='not-yet-assigned')
+    .map(b=>({...b, range:parseBlockDateRange(b.block_name)}))
+    .filter(b=>b.range)
+    .sort((a,b)=>a.range.start-b.range.end);
+}
+function promoDefaultBlockId(){
+  const blocks = promoScopeBlocks();
+  if(!blocks.length) return null;
+  const now = new Date();
+  const current = blocks.find(b=>now>=b.range.start && now<=b.range.end);
+  if(current) return current.block_id;
+  const future = blocks.filter(b=>b.range.start>now).sort((a,b)=>a.range.start-b.range.start);
+  if(future.length) return future[0].block_id;
+  return blocks[blocks.length-1].block_id;
+}
+function promoLoadState(){
+  try{ return JSON.parse(localStorage.getItem('bookhub_promocal_v1')||'{}'); }catch(e){ return {}; }
+}
+function promoSaveState(s){ try{ localStorage.setItem('bookhub_promocal_v1', JSON.stringify(s)); }catch(e){} }
+function promoRowKey(titleId,i){ return titleId+'::'+i; }
+function setPromoBlockId(id){ promoBlockId=id; renderPromoCalendar(); }
+function promoToggleSent(titleId,i,checked){
+  const s=promoLoadState(); const k=promoRowKey(titleId,i);
+  s[k]=Object.assign({},s[k],{sent:checked});
+  promoSaveState(s);
+  renderPromoCalendar();
+}
+function promoNoteChange(titleId,i,value){
+  const s=promoLoadState(); const k=promoRowKey(titleId,i);
+  s[k]=Object.assign({},s[k],{notes:value});
+  promoSaveState(s);
+}
+function promoDateColorClass(days){
+  if(days<0) return 'overdue';
+  if(days<=30) return 'soon';
+  return 'future';
+}
+function renderPromoCalendar(){
+  const main=document.getElementById('main');
+  const blocks = promoScopeBlocks();
+  if(!promoBlockId) promoBlockId = promoDefaultBlockId();
+  if(!blocks.length || !promoBlockId){
+    main.innerHTML = `<h1 style="font-size:1.5rem;font-weight:700;color:var(--text-oncream);margin-bottom:10px">Promo Calendar</h1>
+      <div class="pc-empty">No dated Release Block found to scope this by (Blocks tab needs a name like "2027 (1/2) February-July" — see the Manage Release Blocks modal on All Titles).</div>`;
+    return;
+  }
+  const activeBlock = blocks.find(b=>b.block_id===promoBlockId) || blocks[0];
+  const scopeTitles = data.titles
+    .filter(t=>t.dates && t.dates.streetDate)
+    .map(t=>({t, street:new Date(t.dates.streetDate)}))
+    .filter(x=>!isNaN(x.street) && x.street>=activeBlock.range.start && x.street<=activeBlock.range.end)
+    .sort((a,b)=>a.street-b.street);
+  const state = promoLoadState();
+  const optionsHtml = blocks.map(b=>`<option value="${esc(b.block_id)}" ${b.block_id===activeBlock.block_id?'selected':''}>${esc(b.block_name)}</option>`).join('');
+  let overdueCount=0, soonCount=0, sentCount=0, totalCount=0;
+  const cardsHtml = scopeTitles.length ? scopeTitles.map(({t,street})=>{
+    const rowsHtml = PROMO_EMAIL_STEPS.map((step,i)=>{
+      const target = new Date(street); target.setDate(target.getDate()+step.offsetDays);
+      const days = daysUntil(target.toISOString().slice(0,10));
+      const k=promoRowKey(t.id,i); const rowState = state[k]||{};
+      totalCount++;
+      let statusCls, statusLabel, dateCls;
+      if(rowState.sent){ statusCls='st-sent'; statusLabel='Sent'; dateCls='future'; sentCount++; }
+      else{
+        dateCls = promoDateColorClass(days);
+        if(days<0){ statusCls='st-overdue'; statusLabel='Overdue'; overdueCount++; }
+        else if(days<=30){ statusCls='st-scheduled'; statusLabel='Scheduled'; soonCount++; }
+        else { statusCls='st-notstarted'; statusLabel='Not started'; }
+      }
+      const dateLabel = target.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
+      const noteVal = esc(rowState.notes||'');
+      return `<tr>
+        <td><input type="checkbox" class="pc-row-check" title="Check once this email has actually gone out" ${rowState.sent?'checked':''} onchange="promoToggleSent('${t.id}',${i},this.checked)"></td>
+        <td class="pc-email-label">${esc(step.label)} <span class="pc-email-num">#${i+1}</span></td>
+        <td class="pc-date ${dateCls}">${esc(dateLabel)}</td>
+        <td><span class="pc-status ${statusCls}">${esc(statusLabel)}</span></td>
+        <td><input type="text" class="pc-notes-field" placeholder="Add a note…" value="${noteVal}" onchange="promoNoteChange('${t.id}',${i},this.value)"></td>
+      </tr>`;
+    }).join('');
+    const author = (t.author && t.author.name) ? t.author.name : (typeof t.author==='string' ? t.author : '');
+    return `<div class="pc-title-card">
+      <div class="pc-title-head">
+        <div class="imp-bar" style="background:${t.imprint==='Oil On Water Press'?'var(--imprint-oowp)':'var(--imprint-headpress)'}"></div>
+        <div class="pc-title-main">
+          <button type="button" class="pc-title-link" onclick="gotoDetail('${t.id}')">${esc(t.title)}</button>
+          <span class="pc-title-author">${esc(author||'Author TBC')}</span>
+        </div>
+      </div>
+      <div class="rpt-table-scroll"><table class="pc-table">
+        <colgroup><col style="width:36px"><col style="width:15%"><col style="width:12%"><col style="width:13%"><col></colgroup>
+        <thead><tr><th>Sent?</th><th>Email</th><th>Target date</th><th>Status</th><th>Notes</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table></div>
+    </div>`;
+  }).join('') : `<div class="pc-empty">No titles with a Street Date fall inside "${esc(activeBlock.block_name)}" right now.</div>`;
+  main.innerHTML = `
+    <h1 style="font-size:1.5rem;font-weight:700;color:var(--text-oncream);margin-bottom:6px">Promo Calendar</h1>
+    <div class="pc-page-sub">Newsletter drip schedule per title — announcement through street date. Dates are computed live from each title's own Street Date, not hand-typed.</div>
+    <div class="pc-hint">Check the box once an email has actually gone out — it flips that row's Status to <b>Sent</b> (uncheck to revert). Notes are saved as you leave the field.</div>
+    <div class="pc-scope-row">
+      <select onchange="setPromoBlockId(this.value)">${optionsHtml}</select>
+      <span class="pc-page-sub" style="margin:0">Scoped by real Street Date falling in this block's window, not the blockId tag — see code comment for why.</span>
+    </div>
+    <div class="pc-summary-line">
+      <span class="pc-chip"><span class="pc-dot" style="background:var(--terra)"></span> <b>${overdueCount}</b> email${overdueCount===1?'':'s'} overdue</span>
+      <span class="pc-chip"><span class="pc-dot" style="background:var(--amber-border)"></span> <b>${soonCount}</b> due within 30 days</span>
+      <span class="pc-chip"><span class="pc-dot" style="background:var(--sage-border)"></span> <b>${sentCount}</b> sent</span>
+      <span class="pc-chip"><b>${totalCount}</b> emails tracked total (${scopeTitles.length} title${scopeTitles.length===1?'':'s'} &times; 6)</span>
+    </div>
+    ${cardsHtml}
+    <div class="pc-legend">
+      <span><span class="pc-dot" style="background:var(--terra)"></span> Overdue</span>
+      <span><span class="pc-dot" style="background:var(--amber-border)"></span> Due &le;30 days</span>
+      <span><span class="pc-dot" style="background:var(--neutral-dot)"></span> Not started</span>
+      <span><span class="pc-dot" style="background:var(--sage-border)"></span> Sent</span>
+    </div>`;
 }
 
 // ── Copy / Export ──
