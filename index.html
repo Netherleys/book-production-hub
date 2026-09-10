@@ -1385,7 +1385,14 @@ table.schedule-table tbody tr:hover{background:var(--surface2)}
 .pc-page-sub{font-size:.85rem;color:var(--text-oncream-dim);margin:6px 0 14px;max-width:760px;line-height:1.5}
 .pc-hint{font-size:.78rem;color:var(--amber-border);background:rgba(224,168,104,.1);border:1px solid rgba(224,168,104,.3);border-radius:var(--r4);padding:7px 12px;margin-bottom:16px;max-width:760px;line-height:1.5}
 .pc-scope-row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:0 0 20px}
-.pc-scope-row select{font-family:var(--sans);font-size:.85rem;padding:6px 10px;border-radius:var(--r4);border:1px solid var(--border2);background:var(--surface)}
+/* Round 55 (2026-09-10, David bug report) — the app-wide generic
+   input/select rule (~line 920, width:100%) was winning over this element
+   since it never declared its own `width`, sizing the dropdown to its flex
+   container instead of its text ("2026 (2/2) August-January" reading as
+   "almost full card width"). width:auto sizes it to the selected option's
+   content like a normal <select>; min-width keeps it from going
+   uncomfortably narrow on a short block name. */
+.pc-block-select{font-family:var(--sans);font-size:.85rem;padding:6px 10px;border-radius:var(--r4);border:1px solid var(--border2);background:var(--surface);width:auto;min-width:180px}
 .pc-title-card{background:var(--surface);border:1.5px solid var(--card-border);border-radius:var(--r12);box-shadow:var(--shadow-md);margin-bottom:20px;overflow:hidden}
 .pc-title-head{display:flex;align-items:center;gap:14px;padding:14px 18px;background:var(--surface2);border-bottom:1px solid var(--border)}
 .pc-title-head .imp-bar{width:5px;align-self:stretch;border-radius:3px;background:var(--imprint-headpress);flex-shrink:0}

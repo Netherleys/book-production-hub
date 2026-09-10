@@ -6629,10 +6629,22 @@ function renderPromoCalendar(){
     return;
   }
   const activeBlock = blocks.find(b=>b.block_id===promoBlockId) || blocks[0];
+  // Round 55 (2026-09-10, David bug report) — "Last Orgy By the Cemetery"
+  // was showing in the 2026 (2/2) Aug-Jan block. Checked directly against
+  // the live Sheet: its Street Date (2026-08-21) genuinely IS inside that
+  // block's range — not a filter bug — but the title is already published
+  // (Print Status override: In Print, per Round 52). A promo DRIP calendar
+  // for a book that's already out has nothing left to schedule (all 6 email
+  // slots, including this one's own Street Date row, would be historical),
+  // so it reads as noise rather than a real to-do. Fix: also require the
+  // title's own Street Date to not have passed yet — this is a judgment
+  // call (flagged as such), not the only defensible reading, but it directly
+  // matches what a "what do I still need to send" calendar should show.
+  const todayMidnight = new Date(); todayMidnight.setHours(0,0,0,0);
   const scopeTitles = data.titles
     .filter(t=>t.dates && t.dates.streetDate)
     .map(t=>({t, street:new Date(t.dates.streetDate)}))
-    .filter(x=>!isNaN(x.street) && x.street>=activeBlock.range.start && x.street<=activeBlock.range.end)
+    .filter(x=>!isNaN(x.street) && x.street>=activeBlock.range.start && x.street<=activeBlock.range.end && x.street>=todayMidnight)
     .sort((a,b)=>a.street-b.street);
   const state = promoLoadState();
   const optionsHtml = blocks.map(b=>`<option value="${esc(b.block_id)}" ${b.block_id===activeBlock.block_id?'selected':''}>${esc(b.block_name)}</option>`).join('');
@@ -6661,7 +6673,16 @@ function renderPromoCalendar(){
         <td><input type="text" class="pc-notes-field" placeholder="Add a note…" value="${noteVal}" onchange="promoNoteChange('${t.id}',${i},this.value)"></td>
       </tr>`;
     }).join('');
-    const author = (t.author && t.author.name) ? t.author.name : (typeof t.author==='string' ? t.author : '');
+    // Round 55 (2026-09-10, David bug report) — was reading t.author, a
+    // field that does not exist on the title object (every title record
+    // uses `authors`, plural — see rowToTitle()/contributorLabel() and
+    // every other real usage in this file). t.author was always undefined,
+    // so this fell through to the 'Author TBC' placeholder on EVERY title,
+    // not just genuinely author-less ones — confirmed a real code bug, not
+    // blank Sheet data. contributorLabel() reused here for the same
+    // "Edited by X" / "X (Author & Editor)" formatting every other author
+    // display in the app already uses, rather than raw t.authors.
+    const author = contributorLabel(t);
     return `<div class="pc-title-card">
       <div class="pc-title-head">
         <div class="imp-bar" style="background:${t.imprint==='Oil On Water Press'?'var(--imprint-oowp)':'var(--imprint-headpress)'}"></div>
@@ -6682,8 +6703,7 @@ function renderPromoCalendar(){
     <div class="pc-page-sub">Newsletter drip schedule per title — announcement through street date. Dates are computed live from each title's own Street Date, not hand-typed.</div>
     <div class="pc-hint">Check the box once an email has actually gone out — it flips that row's Status to <b>Sent</b> (uncheck to revert). Notes are saved as you leave the field.</div>
     <div class="pc-scope-row">
-      <select onchange="setPromoBlockId(this.value)">${optionsHtml}</select>
-      <span class="pc-page-sub" style="margin:0">Scoped by real Street Date falling in this block's window, not the blockId tag — see code comment for why.</span>
+      <select class="pc-block-select" onchange="setPromoBlockId(this.value)">${optionsHtml}</select>
     </div>
     <div class="pc-summary-line">
       <span class="pc-chip"><span class="pc-dot" style="background:var(--terra)"></span> <b>${overdueCount}</b> email${overdueCount===1?'':'s'} overdue</span>
