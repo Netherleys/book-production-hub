@@ -52,9 +52,17 @@ const TITLE_COLS = [
   // previous rounds used for imagesFolderLink etc.) so existing row
   // positions/columns are untouched. TRUE/FALSE string, see
   // applyStatusAutoRules() below for what it means.
-  'statusAuto'
+  'statusAuto',
+  // Round 57 (2026-09-10) — promoCalendar_json (col 44/AR), added to the
+  // live Sheet by Marcus for the Promo Calendar tab's Sent-checkbox/Notes
+  // state, verified clean (one bad row fixed to '{}' and re-read to
+  // confirm) before this was wired up. Same one-JSON-blob-per-title
+  // pattern as quickNotes_json: {"<emailIndex>":{"sent":bool,"notes":str}}.
+  // Empty-value convention matches quickNotes_json's own ('[]' for that
+  // array shape) — '{}' for this object shape, never blank.
+  'promoCalendar_json'
 ];
-const TITLE_RANGE_LAST_COL = 'AQ'; // keep in lockstep with TITLE_COLS.length (43)
+const TITLE_RANGE_LAST_COL = 'AR'; // keep in lockstep with TITLE_COLS.length (44)
 const ISBN_COLS = ['isbn','format','assignedToTitleId','assignedToTitleName','nielsenNotified','legacyArchived'];
 
 // Pipeline stages, grouped for the reworked chained/boxed layout (items
@@ -896,6 +904,19 @@ function rowToTitle(row){
   const quickNotes = (safeJson(c.quickNotes_json, []) || []).map(n=>({
     id: n.id || uid(), ts: n.ts, text: n.text, archived: !!n.archived, archivedTs: n.archivedTs||''
   }));
+  // Round 57 (2026-09-10) — promoCalendar_json: {"<emailIndex>":{"sent":bool,
+  // "notes":str}}, one blob per title (same pattern as quickNotes_json).
+  // safeJson's own fallback already treats a blank cell as {}, but the real
+  // Sheet convention (Marcus, verified) is an explicit '{}' string, never
+  // blank — defensive either way. Malformed entries are dropped rather than
+  // thrown on, same defensive stance as everywhere else touching data a
+  // second Editor (Jen) could hand-edit.
+  const promoCalendarRaw = safeJson(c.promoCalendar_json, {}) || {};
+  const promoCalendar = {};
+  Object.keys(promoCalendarRaw).forEach(k=>{
+    const v = promoCalendarRaw[k];
+    if(v && typeof v==='object') promoCalendar[k] = {sent: !!v.sent, notes: v.notes||''};
+  });
   let stagesRaw = safeJson(c.production_json, []);
   let stages = PIPELINE_STAGES.map(name=>{
     const found = (stagesRaw||[]).find(s=>s.stage===name || s.name===name);
@@ -961,6 +982,7 @@ function rowToTitle(row){
     futureEdition: { infoAndChanges: pn.futureEditionNotes, printReadyFilesStatus: pn.printReadyFiles },
     filesLinks: { links: filesLinks.links||[] },
     quickNotes,
+    promoCalendar,
     poManualNotes: pn.poManualNotes||'',
     imagesFolderLink: c.imagesFolderLink||'', workingFolderLink: c.workingFolderLink||'', coverThumbnailFile: c.coverThumbnailFile||'',
     authorBookkeepingLink: pn.authorBookkeepingLink||'',
@@ -1011,6 +1033,10 @@ function titleToRow(t){
   const printerContacts_json = JSON.stringify({ contacts: t.print.printerContacts||[] });
   const filesLinks_json = JSON.stringify({ links: t.filesLinks.links||[] });
   const quickNotes_json = JSON.stringify(t.quickNotes||[]);
+  // Round 57 (2026-09-10) — always a real '{}'/'{...}' string, matching
+  // Marcus's confirmed empty-value convention (never blank), the same way
+  // quickNotes_json always writes '[]' rather than an empty cell.
+  const promoCalendar_json = JSON.stringify(t.promoCalendar||{});
   const contractStage = t.pipeline.stages.find(s=>s.name==='Contract');
   const c = {
     title_id: t.id, title: t.title, subtitle: t.subtitle, author: t.authors, authorLiaison: t.authorLiaison,
@@ -1032,7 +1058,8 @@ function titleToRow(t){
     // stop having to guess from the status text (see rowToTitle above).
     statusAuto: fromBool(t.statusAuto),
     price_json, production_json, publicity_json, editorial_json, authorInfo_json,
-    productionNotes_json, printerContacts_json, filesLinks_json, quickNotes_json
+    productionNotes_json, printerContacts_json, filesLinks_json, quickNotes_json,
+    promoCalendar_json
   };
   return TITLE_COLS.map(k=>c[k]!==undefined?c[k]:'');
 }
@@ -1085,7 +1112,7 @@ function defTitle(o={}){
     productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),notes:'',proofingNotes:'',typesettingNotes:''},
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
-    quickNotes:[], poManualNotes:'',
+    quickNotes:[], promoCalendar:{}, poManualNotes:'',
     imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:DEFAULT_COVER_PLACEHOLDER, authorBookkeepingLink:'', poTrackerIsbnKey:'', poTrackerTitleOverride:'',
     _row: null
   };
@@ -6556,18 +6583,14 @@ function renderReportTable(){
 // commit — flagged to Thomas/Marcus as an actual data fix, not guessed at
 // or worked around in code a second time.
 //
-// Persistence: the Sent checkbox and Notes field are stored in this
-// browser's localStorage only (bookhub_promocal_v1), NOT written back to
-// the Titles sheet — there is no existing column for this, and adding one
-// is a real Sheet-schema change (same category as the one-time
-// GOOGLE_CLIENT_ID setup step documented in config.js), not something to
-// do silently as part of a code push. Flagged as a specific follow-up:
-// add a `promoCalendar_json` column to the Titles tab (mirroring
-// quickNotes_json's existing pattern — one JSON blob per title) so
-// Sent/Notes state is shared across whoever's signed in, not per-device.
-// Until then, this still delivers real value for a single day-to-day
-// owner (Evelyn, per Mia's recommendation in the approved mockup) working
-// from one browser.
+// Persistence: Round 57 (2026-09-10) — the Sent checkbox and Notes field
+// are now written to the real `promoCalendar_json` column (Titles!AR),
+// added by Marcus and verified clean before wiring this up. Same
+// one-JSON-blob-per-title pattern as quickNotes_json (see TITLE_COLS /
+// rowToTitle() / titleToRow()) — {"<emailIndex>":{"sent":bool,"notes":str}}
+// — read/written through the exact same saveTitle() path every other
+// per-title field already uses, not a separate mechanism. No longer
+// localStorage-only, no longer per-device.
 const PROMO_EMAIL_STEPS = [
   {label:'Announcement', offsetDays:-150},
   {label:'Excerpt', offsetDays:-100},
@@ -6592,22 +6615,31 @@ function promoDefaultBlockId(){
   const blocks = promoScopeBlocks();
   return blocks.length ? blocks[0].block_id : null; // newest first — see above
 }
-function promoLoadState(){
-  try{ return JSON.parse(localStorage.getItem('bookhub_promocal_v1')||'{}'); }catch(e){ return {}; }
-}
-function promoSaveState(s){ try{ localStorage.setItem('bookhub_promocal_v1', JSON.stringify(s)); }catch(e){} }
-function promoRowKey(titleId,i){ return titleId+'::'+i; }
+// Round 57 (2026-09-10) — wired to the real promoCalendar_json Sheet column
+// (Marcus's column, verified clean) instead of localStorage. Same per-title
+// JSON-blob pattern as quickNotes_json: t.promoCalendar is
+// {"<emailIndex>":{"sent":bool,"notes":str}}, parsed in rowToTitle() and
+// serialized back in titleToRow() — this file just needs to mutate that
+// in-memory object and call saveTitle(), the same write path every other
+// per-title edit already uses (immediate, not debounced, same "feels
+// instant" rule saveQuickNote() documents — a checkbox tick or leaving a
+// Notes field are both explicit, deliberate actions, not per-keystroke
+// typing).
 function setPromoBlockId(id){ promoBlockId=id; renderPromoCalendar(); }
 function promoToggleSent(titleId,i,checked){
-  const s=promoLoadState(); const k=promoRowKey(titleId,i);
-  s[k]=Object.assign({},s[k],{sent:checked});
-  promoSaveState(s);
+  const t=getTitle(titleId); if(!t) return;
+  if(!t.promoCalendar) t.promoCalendar={};
+  const key=String(i);
+  t.promoCalendar[key] = Object.assign({sent:false,notes:''}, t.promoCalendar[key], {sent:checked});
+  saveTitle(t.id);
   renderPromoCalendar();
 }
 function promoNoteChange(titleId,i,value){
-  const s=promoLoadState(); const k=promoRowKey(titleId,i);
-  s[k]=Object.assign({},s[k],{notes:value});
-  promoSaveState(s);
+  const t=getTitle(titleId); if(!t) return;
+  if(!t.promoCalendar) t.promoCalendar={};
+  const key=String(i);
+  t.promoCalendar[key] = Object.assign({sent:false,notes:''}, t.promoCalendar[key], {notes:value});
+  saveTitle(t.id);
 }
 function promoDateColorClass(days){
   if(days<0) return 'overdue';
@@ -6637,14 +6669,16 @@ function renderPromoCalendar(){
     .map(t=>({t, street:new Date(t.dates.streetDate)}))
     .filter(x=>!isNaN(x.street))
     .sort((a,b)=>a.street-b.street);
-  const state = promoLoadState();
   const optionsHtml = blocks.map(b=>`<option value="${esc(b.block_id)}" ${b.block_id===activeBlock.block_id?'selected':''}>${esc(b.block_name)}</option>`).join('');
   let overdueCount=0, soonCount=0, sentCount=0, totalCount=0;
   const cardsHtml = scopeTitles.length ? scopeTitles.map(({t,street})=>{
     const rowsHtml = PROMO_EMAIL_STEPS.map((step,i)=>{
       const target = new Date(street); target.setDate(target.getDate()+step.offsetDays);
       const days = daysUntil(target.toISOString().slice(0,10));
-      const k=promoRowKey(t.id,i); const rowState = state[k]||{};
+      // Round 57 — read straight off the title's own promoCalendar object
+      // (Sheet-backed), no separate global state lookup needed now that
+      // this isn't one shared localStorage blob keyed by titleId::i.
+      const rowState = (t.promoCalendar && t.promoCalendar[String(i)]) || {};
       totalCount++;
       let statusCls, statusLabel, dateCls;
       if(rowState.sent){ statusCls='st-sent'; statusLabel='Sent'; dateCls='future'; sentCount++; }
