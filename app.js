@@ -74,15 +74,41 @@ const ISBN_COLS = ['isbn','format','assignedToTitleId','assignedToTitleName','ni
 // here, not Pipeline), so the stage groups below start from its "Contract"
 // row onward. No gap within a group (reads as one connected chain); a
 // visible gap between groups, matching the blank spacer rows in that sheet.
+// Round 59 (2026-09-14) — new "Printer" group (David-approved mockup, see
+// _mockups/printer_pipeline_group_mockup_2026-09-14.html), inserted between
+// Production and Payment. Two of its five stages are relocated, not new:
+// "Cover Templates" (was in Production) and "Estimates" (was "Print
+// Estimate" in Formats, renamed — the simple pipeline-stage box only, NOT
+// the PO Tracker's separate Sheet-linked "Print Estimates" section, which is
+// untouched). Three are brand-new generic stages: "Barcode/ISBN Check",
+// "Upload To Printer", "Our Proof Approval". See STAGE_NAME_ALIASES below
+// for how the "Print Estimate"->"Estimates" rename preserves every existing
+// title's already-saved data for that stage.
 const PIPELINE_GROUPS = [
   { label:'Setup', stages:['Contract','Publicity Statement'] },
-  { label:'Production', stages:['Cover','Cover Templates','Manuscript','PerfectIt','Images','Proofing','Layout','Index'] },
+  { label:'Production', stages:['Cover','Manuscript','PerfectIt','Images','Proofing','Layout','Index'] },
+  { label:'Printer', stages:['Estimates','Cover Templates','Barcode/ISBN Check','Upload To Printer','Our Proof Approval'] },
   { label:'Payment', stages:['Author Payment','Author Copies'] },
   { label:'Marketing Detail', stages:['Info Turnaround','Info SCB','Product Page','Promo Film'] },
-  { label:'Formats', stages:['Print Estimate','eBook','Audiobook'] },
+  { label:'Formats', stages:['eBook','Audiobook'] },
   { label:'Extras', stages:['Amazon A+','PLS.ORG','Newsletter'] }
 ];
 const PIPELINE_STAGES = PIPELINE_GROUPS.reduce((a,g)=>a.concat(g.stages),[]);
+// Round 59 (2026-09-14) — read-side, additive-only migration for the
+// "Print Estimate" -> "Estimates" stage rename. Each title's saved stage
+// data (production_json) is matched by STAGE NAME (see the stages-loading
+// map below), not by group — so a bare rename would silently orphan every
+// existing title's already-recorded status/date/notes for that stage. This
+// map is checked as a fallback ONLY when no raw entry is found under the
+// current name, so nothing already under the new name can ever be
+// shadowed. Nothing is deleted or overwritten here — purely read-path
+// backward compatibility, zero risk of data loss, and no direct write
+// against the live Sheet was needed or made to migrate this. The very next
+// time a title is saved through the app's normal save flow, production_json
+// is regenerated from PIPELINE_STAGES (see production_json build below),
+// which now writes 'Estimates' — so the Sheet naturally self-heals to the
+// new name over time as titles get touched, same as any other field.
+const STAGE_NAME_ALIASES = { 'Estimates': ['Print Estimate'] };
 const PROD_CHECKLIST = [
   'Make copy of file before starting to edit','Change font to TNR or Arial',
   'Check headings (Navigation) with contents list','Remove empty spaces',
@@ -939,7 +965,13 @@ function rowToTitle(row){
   });
   let stagesRaw = safeJson(c.production_json, []);
   let stages = PIPELINE_STAGES.map(name=>{
-    const found = (stagesRaw||[]).find(s=>s.stage===name || s.name===name);
+    let found = (stagesRaw||[]).find(s=>s.stage===name || s.name===name);
+    // Round 59 (2026-09-14) — "Print Estimate"->"Estimates" migration
+    // fallback: only consulted when the current name has no data, so it can
+    // never shadow real data already saved under the new name.
+    if(!found && STAGE_NAME_ALIASES[name]){
+      found = (stagesRaw||[]).find(s=>STAGE_NAME_ALIASES[name].includes(s.stage) || STAGE_NAME_ALIASES[name].includes(s.name));
+    }
     return found ? {name, status: found.status||'Not Started', expectedDate: found.expectedDate||'', notes: found.notes||''} : {name, status:'Not Started', expectedDate:'', notes:''};
   });
   return {
