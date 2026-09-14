@@ -901,8 +901,28 @@ function rowToTitle(row){
   // means archiveQuickNote()/restoreQuickNote() can always reference a note
   // reliably by id, and `!n.archived` reads as "active" for legacy notes
   // with no flag at all, with no separate migration step required.
+  // Round 58 (2026-09-14) — David/Jen bug report: every Quick Note's
+  // sender showed "Unknown", including ones posted moments earlier under a
+  // set identity. ROOT CAUSE: saveQuickNote()/saveQnTabNote() (below) DO
+  // correctly stamp `author:getUserIdentity()` on every new note, and
+  // renderQuickNotesList() DOES correctly read `n.author` — but THIS
+  // normaliser, run every time a title loads/reloads from the Sheet, was
+  // rebuilding each note object from an explicit field list that never
+  // included `author`, silently discarding it on every reload. Confirmed
+  // against the live Sheet (Titles!quickNotes_json): the display bug is
+  // real, but reloading+re-saving (e.g. clicking Mark Resolved after a
+  // reload) then persists the now-author-less object right back to the
+  // Sheet — so this single missing field was actively erasing genuine
+  // author data on every read/write round-trip, not just hiding it.
+  // Fix: carry `author` through like every other field. Notes that already
+  // went through a load+save cycle before this fix have had their real
+  // author permanently overwritten in the Sheet with no way to recover it
+  // here without guessing who wrote what — left as "Unknown" per standing
+  // content-policy (never fabricate attribution). See build report for the
+  // full list of affected titles/notes and a possible Sheet version-history
+  // recovery route, which is beyond this fix's scope.
   const quickNotes = (safeJson(c.quickNotes_json, []) || []).map(n=>({
-    id: n.id || uid(), ts: n.ts, text: n.text, archived: !!n.archived, archivedTs: n.archivedTs||''
+    id: n.id || uid(), ts: n.ts, text: n.text, author: n.author||'', archived: !!n.archived, archivedTs: n.archivedTs||''
   }));
   // Round 57 (2026-09-10) — promoCalendar_json: {"<emailIndex>":{"sent":bool,
   // "notes":str}}, one blob per title (same pattern as quickNotes_json).
@@ -1479,9 +1499,27 @@ window.addEventListener('beforeunload', function(e){
 });
 
 // ─── SECTION STATUS / ATTENTION ───
+// Round 58 (2026-09-14) — David: "can we ensure that this info is only
+// based upon the Dates & Scheduling info?" flagging Conspiracy Cinema
+// showing "45 DAYS LATE" with Soft/Print/Street Date all not yet due.
+// ROOT CAUSE, confirmed against the live Sheet row: this function used to
+// return true (triggering the ribbon) the instant ANY production pipeline
+// stage (Proofing, Images, etc. — the internal work-tracking checklist,
+// completely separate from Dates & Scheduling) was marked "In Progress"
+// with its own expectedDate in the past. Conspiracy Cinema's Proofing
+// stage had expectedDate 2026-07-29 — nothing to do with its real dates
+// (streetDate 2027-06-03, softDate 2026-12-03, printDate blank/auto, none
+// yet due) — so the "DAYS LATE" banner was reporting pipeline-checklist
+// drift, mislabelled as release-date lateness. Fix: the pipeline-stage
+// branch is removed outright. Attention/lateness is now driven exclusively
+// by printStatusOverride and the effective print date (autoPrintDate ?
+// calcAutoPrint(streetDate) : printDate) — the same Dates & Scheduling
+// source computeDayInfo() already uses, so a title only ever shows late
+// once one of those dates has actually passed. Pipeline-stage delay is
+// still visible where it always was — the Pipeline section's own
+// 'overdue' status dot (getSectionStatus('pipeline')) — just no longer
+// conflated with this banner.
 function hasAttention(t){
-  const now=new Date();now.setHours(0,0,0,0);
-  if(t.pipeline.stages.some(s=>s.status==='In Progress'&&s.expectedDate&&new Date(s.expectedDate)<now))return true;
   // 2026-08-11 (item 3 follow-up) — same override-consistency fix as
   // getSectionStatus's 'dates' case just above: a card's red "needs
   // attention" dot is driven by this function, which used to compute the
@@ -1505,13 +1543,13 @@ function hasAttention(t){
 // Round 38 (2026-08-28) — David: the red ribbon is a flat alarm colour with
 // no urgency level shown, floated a "-60 days"-style countdown. Genuinely
 // low-effort per the investigation: hasAttention() above already computes
-// exactly the signal that decides whether the ribbon shows at all (overdue
-// in-progress pipeline stage / Delayed-On-Hold override / print date within
-// 60 days) — this just turns that same signal into a short display string,
-// reusing computeDayInfo() (below) for the print-date branch instead of
-// re-deriving day-math a third time. Mirrors hasAttention()'s exact
-// precedence (stage-overdue checked first, then override, then print date)
-// so the label can never disagree with whether the ribbon is showing.
+// exactly the signal that decides whether the ribbon shows at all
+// (Delayed-On-Hold override / print date within 60 days) — this just turns
+// that same signal into a short display string, reusing computeDayInfo()
+// (below) for the print-date branch instead of re-deriving day-math a
+// third time. Mirrors hasAttention()'s exact precedence (override checked
+// first, then print date) so the label can never disagree with whether the
+// ribbon is showing.
 // Format: literal negative-number countdown ("-60d") rejected in favour of
 // "N DAYS" while approaching — reads as "how long you have", which is what
 // a heads-up ribbon is for, vs. a negative number reading as "how far past
@@ -1519,16 +1557,12 @@ function hasAttention(t){
 // to "N DAYS LATE" (singular "1 DAY LATE") — keeps the approaching/overdue
 // distinction David raised last round visible at a glance, not just implied
 // by the ribbon already being red either way.
+// Round 58 (2026-09-14) — the pipeline-stage-overdue branch that used to
+// run first here is removed (see the long comment above hasAttention()).
+// This function is now purely Dates & Scheduling: override label, or
+// computeDayInfo()'s overdue/counting state (effective print date, i.e.
+// streetDate-derived or manual printDate — the same fields David named).
 function attentionLabel(t){
-  const now=new Date();now.setHours(0,0,0,0);
-  const overdueDays = t.pipeline.stages
-    .filter(s=>s.status==='In Progress'&&s.expectedDate&&new Date(s.expectedDate)<now)
-    .map(s=>daysUntil(s.expectedDate))
-    .filter(d=>d!==null);
-  if(overdueDays.length){
-    const n=Math.abs(Math.min(...overdueDays));
-    return n+(n===1?' DAY LATE':' DAYS LATE');
-  }
   // Round 44 — this branch only runs once hasAttention(t) is already true
   // (renderCard's only caller), and Delayed/On Hold is the sole override
   // value with attention:true, so the literal check is still correct — but
