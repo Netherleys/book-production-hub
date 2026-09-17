@@ -2846,7 +2846,7 @@ function renderLinksStrip(t){
           <button class="btn btn-export ${ghUrl?'':'is-empty'}" type="button" onclick="openCoverGithubPage('${id}')">${ghUrl?'View on GitHub':'No Cover Set Yet'} &#8599;</button>
         </div>
         <div class="link-lock-row">
-          <input type="text" class="link-value-edit" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" ${coverLocked?'readonly':''} placeholder="Not set — paste covers/title-id.jpg or a direct image URL" oninput="onCoverUrlChange('${id}',this.value)">
+          <input type="text" class="link-value-edit" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" ${coverLocked?'readonly':''} placeholder="Not set — paste the filename (e.g. title-id.jpg) or a direct image URL" oninput="onCoverUrlChange('${id}',this.value)">
           ${lockBtn('coverThumbnailFile',coverLocked)}
         </div>
         <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
@@ -2917,6 +2917,13 @@ function looksLikeLocalFilePath(url){
   if(!u) return false;
   return /^[A-Za-z]:[\\/]/.test(u) || /^\\\\/.test(u) || /^file:\/\//i.test(u);
 }
+function normalizeCoverPath(value){
+  const v=String(value||'').trim();
+  if(!v) return v;
+  if(/^([a-z][a-z0-9+.-]*:)?\/\//i.test(v)) return v;
+  if(/^covers\//i.test(v)) return v;
+  return 'covers/'+v.replace(/^\/+/, '');
+}
 function onCoverImgError(titleId,imgEl){
   const t=getTitle(titleId);
   const placeholder=t?`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`:'';
@@ -2941,7 +2948,9 @@ function onCoverImgLoad(titleId){
 // onCoverImgError/onCoverImgLoad above populating it for real as the browser
 // actually tries (and fails or succeeds) to load the new URL.
 function onCoverUrlChange(titleId,value){
-  fc(titleId,'coverThumbnailFile',value);
+  const isLocalPath=looksLikeLocalFilePath(value);
+  const toSave=isLocalPath?value:normalizeCoverPath(value);
+  fc(titleId,'coverThumbnailFile',toSave);
   const t=getTitle(titleId);if(!t)return;
   const msgEl=document.getElementById('cover-url-msg-'+titleId);
   const coverEl=document.querySelector('.detail-cover');
@@ -2957,8 +2966,8 @@ function onCoverUrlChange(titleId,value){
   }
   if(msgEl) msgEl.innerHTML='';
   if(!coverEl)return;
-  coverEl.innerHTML = value
-    ? `<img src="${esc(value)}" alt="${esc(t.title)} cover" onerror="onCoverImgError('${titleId}',this)" onload="onCoverImgLoad('${titleId}')">`
+  coverEl.innerHTML = toSave
+    ? `<img src="${esc(toSave)}" alt="${esc(t.title)} cover" onerror="onCoverImgError('${titleId}',this)" onload="onCoverImgLoad('${titleId}')">`
     : placeholder;
 }
 function openImagesFolder(titleId){
