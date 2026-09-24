@@ -2959,23 +2959,11 @@ function looksLikeLocalFilePath(url){
   if(!u) return false;
   return /^[A-Za-z]:[\\/]/.test(u) || /^\\\\/.test(u) || /^file:\/\//i.test(u);
 }
-// Round 60 (2026-09-17, David request via Mia Chen) — David kept forgetting
-// to type the "covers/" prefix by hand when pasting a filename he'd just
-// uploaded to this repo's own /covers/ folder, and flagged he'd "undoubtedly
-// forget this" again. Rather than just adding reminder text (fallback plan),
-// this normalizes what he actually typed so the prefix is never his problem:
-// a bare filename gets "covers/" stuck on the front automatically; a value
-// that's already a full URL (external image host) or already starts with
-// "covers/" (editing an existing entry) is left exactly as-is so it never
-// gets double-prefixed or wrongly rewritten. Deliberately does NOT get run
-// on a recognised local file path (see looksLikeLocalFilePath below) — that
-// case is a dead end regardless of any prefix and keeps its own dedicated
-// warning in onCoverUrlChange() unchanged.
 function normalizeCoverPath(value){
   const v=String(value||'').trim();
   if(!v) return v;
-  if(/^([a-z][a-z0-9+.-]*:)?\/\//i.test(v)) return v; // http(s):// or protocol-relative //
-  if(/^covers\//i.test(v)) return v; // already has the prefix — don't double it up
+  if(/^([a-z][a-z0-9+.-]*:)?\/\//i.test(v)) return v;
+  if(/^covers\//i.test(v)) return v;
   return 'covers/'+v.replace(/^\/+/, '');
 }
 function onCoverImgError(titleId,imgEl){
@@ -3002,13 +2990,6 @@ function onCoverImgLoad(titleId){
 // onCoverImgError/onCoverImgLoad above populating it for real as the browser
 // actually tries (and fails or succeeds) to load the new URL.
 function onCoverUrlChange(titleId,value){
-  // Round 60 (2026-09-17) — a recognised local file path is checked
-  // against the RAW typed value and saved as-is (unchanged from before):
-  // running normalizeCoverPath() on it would just glue a nonsense
-  // "covers/" prefix onto a path that was never going to work anyway. Any
-  // other value gets normalized before it's saved/used, so a bare filename
-  // becomes the real "covers/<filename>" path David needs without him
-  // having to type it.
   const isLocalPath=looksLikeLocalFilePath(value);
   const toSave=isLocalPath?value:normalizeCoverPath(value);
   fc(titleId,'coverThumbnailFile',toSave);
