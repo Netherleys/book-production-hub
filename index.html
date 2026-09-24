@@ -1439,6 +1439,35 @@ table.pc-table tr:last-child td{border-bottom:none}
 .printer-row{display:flex;gap:8px;align-items:center}
 .printer-row input{flex:1}
 .printer-row input.pname{max-width:180px;flex:0 0 180px}
+/* Round 61 (2026-09-24, David-approved mockup) — 3 in-regular-use printers
+   (LSI POD / Biddles UK / IBI USA) get featured cards pinned above the
+   plain contact-row list, each with a Price Requested date + a Notes box;
+   everything else collapses into "More Contacts" below (see
+   ensureFeaturedContacts()/PRINTER_DEF in app.js).
+   Card-alignment fix, same round: David flagged Printer/Email/Price
+   Requested not lining up card-to-card. Root cause (his corrected
+   diagnosis, not the first guess) — "★ Featured" sat directly above the
+   Printer field only, pushing that ONE field's input down a row relative
+   to Email/Price Requested (nothing sits above them). Fix: "★ Featured" is
+   its own full-width row (.printer-featured-top) ABOVE
+   .printer-featured-row, so Printer/Email/Price Requested/the Featured
+   button all start on an identical label+input stack with nothing
+   individually pushing one field down. */
+.printer-featured-wrap{display:flex;flex-direction:column;gap:10px}
+.printer-featured-card{background:var(--surface);border:1px solid var(--border2);border-left:4px solid var(--sage-border);border-radius:var(--r4);padding:10px 12px;display:flex;flex-direction:column;gap:8px}
+.printer-featured-top{display:flex;align-items:center}
+.printer-star{color:var(--amber-border);font-size:.7rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;display:block}
+.printer-featured-row{display:grid;grid-template-columns:170px 1fr 150px auto;gap:10px;align-items:start}
+.printer-featured-row .field-group{gap:3px}
+.printer-featured-row label.field-label{font-size:.66rem}
+.printer-featured-notes{margin-top:2px}
+.printer-featured-notes textarea{min-height:52px;font-size:.85rem}
+.more-contacts-toggle{display:flex;align-items:center;gap:6px;background:none;border:none;color:var(--text3);font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em;cursor:pointer;padding:8px 2px;font-family:var(--sans)}
+.more-contacts-toggle .arrow{transition:transform .15s;display:inline-block}
+.more-contacts-toggle.open .arrow{transform:rotate(90deg)}
+.more-contacts-body{display:none;padding-top:6px}
+.more-contacts-body.open{display:block}
+@media (max-width:760px){.printer-featured-row{grid-template-columns:1fr}}
 /* ── PO TRACKER SECTION ── */
 .po-table{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:10px}
 .po-table th{font-size:.7rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;padding:0 8px 6px;text-align:left;border-bottom:1px solid var(--border);font-weight:600}

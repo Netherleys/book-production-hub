@@ -119,12 +119,50 @@ const PROD_CHECKLIST = [
   'Affinity: Create character style for italics > find and replace',
   'Affinity: Create character style for bold > find and replace',
   'Apply paragraph styles after the above'];
+// Round 61 (2026-09-24, David-approved mockup) — the 3 printers David
+// actually uses regularly (LSI POD / Biddles UK / IBI USA) are now
+// "featured": pinned as their own cards above the plain contact-row list,
+// each carrying a priceRequested date + a per-contact notes box. Contact
+// object shape grew from {name,email} to {name,email,priceRequested,notes,
+// featured} — old saved contacts on existing titles load fine with the
+// new fields simply blank (see ensureFeaturedContacts() below, which also
+// back-fills the 3 featured cards onto any title that doesn't already
+// carry them, so this isn't a "new titles only" migration).
+const LSI_STANDING_NOTE = 'Please note: Our logo on the bottom of the spine intentionally bleeds off the edges.\nBranding at top left of front cover is ok as is in the caution area for text.';
 const PRINTER_DEF = [
-  {name:'LSI POD', email:''},
-  {name:'Biddles UK', email:'estimating@biddles.co.uk'},
-  {name:'Lakeside US', email:'nicholas.barrett@lakesidebook.com'},
-  {name:'Sheridan US', email:'jameson.gibson@sheridan.com'},
-  {name:'Frank Gaynor US', email:'fwgaynor@bookprinterswest.com'}];
+  {name:'LSI POD', email:'', priceRequested:'', notes:LSI_STANDING_NOTE, featured:true},
+  {name:'Biddles UK', email:'estimating@biddles.co.uk', priceRequested:'', notes:'', featured:true},
+  {name:'IBI USA — Cecilia Rodas', email:'c.rodas@booksintl.com', priceRequested:'', notes:'', featured:true},
+  {name:'Lakeside US', email:'nicholas.barrett@lakesidebook.com', priceRequested:'', notes:'', featured:false},
+  {name:'Sheridan US', email:'jameson.gibson@sheridan.com', priceRequested:'', notes:'', featured:false},
+  {name:'Frank Gaynor US', email:'fwgaynor@bookprinterswest.com', priceRequested:'', notes:'', featured:false}];
+// Matches an existing contact to one of the 3 featured printers by name
+// (case-insensitive substring) rather than an id, since these contacts
+// have always been plain name/email rows with no stable id of their own —
+// this is also why the Printer field on a featured card is rendered
+// readonly (see renderPrint()): renaming it would break the match on next
+// load.
+const PRINTER_FEATURED_DEFS = [
+  {match:/lsi/i, name:'LSI POD', email:'', notes:LSI_STANDING_NOTE},
+  {match:/biddles/i, name:'Biddles UK', email:'estimating@biddles.co.uk', notes:''},
+  {match:/\bibi\b/i, name:'IBI USA — Cecilia Rodas', email:'c.rodas@booksintl.com', notes:''}];
+function ensureFeaturedContacts(contacts){
+  contacts = (contacts||[]).map(c=>Object.assign({priceRequested:'',notes:'',featured:false},c));
+  PRINTER_FEATURED_DEFS.forEach(def=>{
+    const existing = contacts.find(c=>def.match.test(c.name||''));
+    if(existing){
+      existing.featured = true;
+      if(!existing.notes && def.notes) existing.notes = def.notes;
+    } else {
+      contacts.unshift({name:def.name, email:def.email, priceRequested:'', notes:def.notes, featured:true});
+    }
+  });
+  // Featured trio always renders in this fixed LSI/Biddles/IBI order at
+  // the top, regardless of where they sit in the saved array.
+  const featured = PRINTER_FEATURED_DEFS.map(def=>contacts.find(c=>def.match.test(c.name||''))).filter(Boolean);
+  const rest = contacts.filter(c=>featured.indexOf(c)===-1);
+  return featured.concat(rest);
+}
 
 // ─── STATE ───
 // `blocks` added Round 4 — the live "Blocks" tab (sheetId 1400180106, same
@@ -132,6 +170,10 @@ const PRINTER_DEF = [
 // loadAllData()/loadDevSampleData()) and read synchronously off this cache
 // from here on, same pattern as `isbns`.
 let data = { titles: [], isbns: [], blocks: [] };
+// Round 61 (2026-09-24) — which titles have their Printer Contacts "More
+// Contacts" disclosure expanded, this browser session only. See
+// toggleMoreContacts()/renderPrint().
+const moreContactsOpenIds = new Set();
 // 2026-08-11: saveTimer (singular) removed — see saveTimers map + the
 // debouncedSave()/flushPendingSave() comment block further down for why a
 // single shared timer was the root cause of a real data-loss bug.
@@ -918,7 +960,7 @@ function rowToTitle(row){
   if(!illustrationsText && pn.illustrations && pn.illustrationCount) illustrationsText = String(pn.illustrationCount)+' illustrations';
   let checklist = pn.checklist && pn.checklist.length ? pn.checklist.map(x=>({text:x.item||x.text||'',checked:!!x.checked})) : PROD_CHECKLIST.map(t=>({text:t,checked:false}));
   const pc = safeJson(c.printerContacts_json, {});
-  let contacts = (pc.contacts && pc.contacts.length) ? pc.contacts.slice() : PRINTER_DEF.map(p=>Object.assign({},p));
+  let contacts = ensureFeaturedContacts((pc.contacts && pc.contacts.length) ? pc.contacts.slice() : PRINTER_DEF.map(p=>Object.assign({},p)));
   const filesLinks = Object.assign({links:[]}, safeJson(c.filesLinks_json, {}));
   // Item 6 (Round 3) — every note is normalised to always carry a stable
   // `id` and an `archived` flag the moment data loads, regardless of
@@ -3847,11 +3889,49 @@ function renderDates(t){const id=t.id;const d=t.dates;
   </div>`;}
 
 function renderPrint(t){const id=t.id;const p=t.print;
-  const contactRows=(p.printerContacts||[]).map((pc,i)=>`<div class="printer-row">
+  const allContacts=p.printerContacts||[];
+  // Round 61 (2026-09-24, David-approved mockup) — 3 featured cards (LSI
+  // POD / Biddles UK / IBI USA) pinned above a collapsed "More Contacts"
+  // disclosure holding everything else. Card layout note: "★ Featured"
+  // is deliberately its own full-width row ABOVE the Printer/Email/Price
+  // Requested row (.printer-featured-row) — David's corrected diagnosis
+  // was that having it sit only above the Printer field (inside that one
+  // field-group) pushed just that field's input down a row relative to
+  // Email/Price Requested, which is what actually threw card alignment
+  // off card-to-card. See the matching CSS comment in index.html.
+  const featuredCards=allContacts.map((pc,i)=>({pc,i})).filter(o=>o.pc.featured).map(({pc,i})=>`<div class="printer-featured-card">
+      <div class="printer-featured-top"><span class="printer-star">★ Featured</span></div>
+      <div class="printer-featured-row">
+        <div class="field-group">
+          <label class="field-label">Printer</label>
+          <input type="text" value="${esc(pc.name)}" readonly>
+        </div>
+        <div class="field-group">
+          <label class="field-label">Email</label>
+          <input type="email" value="${esc(pc.email)}" placeholder="email" oninput="printerContactChange('${id}',${i},'email',this.value)">
+        </div>
+        <div class="field-group">
+          <label class="field-label">Price Requested</label>
+          <input type="date" value="${esc(pc.priceRequested||'')}" onchange="printerContactChange('${id}',${i},'priceRequested',this.value)">
+        </div>
+        <div class="field-group">
+          <label class="field-label">&nbsp;</label>
+          <button class="btn btn-sm" disabled title="Featured contacts aren't removed here — see More Contacts">Featured</button>
+        </div>
+      </div>
+      <div class="field-group full printer-featured-notes">
+        <label class="field-label">Notes</label>
+        <textarea placeholder="Anything to flag with this printer for every title…" oninput="printerContactChange('${id}',${i},'notes',this.value)">${esc(pc.notes||'')}</textarea>
+      </div>
+    </div>`).join('');
+  const nonFeatured=allContacts.map((pc,i)=>({pc,i})).filter(o=>!o.pc.featured);
+  const moreNamesLabel=nonFeatured.map(o=>o.pc.name).filter(Boolean).join(', ');
+  const contactRows=nonFeatured.map(({pc,i})=>`<div class="printer-row">
       <input class="pname" type="text" value="${esc(pc.name)}" placeholder="Printer name" oninput="printerContactChange('${id}',${i},'name',this.value)">
       <input type="email" value="${esc(pc.email)}" placeholder="email" oninput="printerContactChange('${id}',${i},'email',this.value)">
       <button class="btn-danger btn-sm" onclick="removePrinterContact('${id}',${i})">Remove</button>
     </div>`).join('');
+  const moreOpen=moreContactsOpenIds.has(id);
   return `<div class="field-grid">
     ${frow('Notes',richTa(id,'printEstimate','print.printEstimate',p.printEstimate,'Record printer quotes here…'),'full')}
     <!-- Round 42 (2026-09-03) — David: drop these two from Print & Distribution.
@@ -3863,8 +3943,16 @@ function renderPrint(t){const id=t.id;const p=t.print;
       ${frow('For LSI Notes',richTa(id,'forLsi','print.forLsiNotes',p.forLsiNotes,''),'full')}
     </div>
     <div class="field-group full"><label class="field-label">Printer Contacts</label>
-      <div class="printer-contacts">${contactRows}</div>
-      <button class="btn btn-sm" style="margin-top:8px" onclick="addPrinterContact('${id}')">+ Add Printer Contact</button>
+      <div class="printer-featured-wrap">
+        ${featuredCards}
+        <button class="more-contacts-toggle${moreOpen?' open':''}" id="f-${id}-moreContactsToggle" onclick="toggleMoreContacts('${id}')">
+          <span class="arrow">▸</span> More Contacts (${nonFeatured.length})${moreNamesLabel?' — '+esc(moreNamesLabel):''}
+        </button>
+        <div class="more-contacts-body${moreOpen?' open':''}" id="f-${id}-moreContactsBody">
+          <div class="printer-contacts">${contactRows}</div>
+        </div>
+        <button class="btn btn-sm" style="margin-top:4px;align-self:flex-start" onclick="addPrinterContact('${id}')">+ Add Printer Contact</button>
+      </div>
     </div>
     <div class="field-group full"><label class="field-label">Printer Estimate Request — copy to email</label>
       <div style="font-size:.72rem;color:var(--text3);margin-bottom:6px">Title/ISBN auto-filled below (and Trim/Page count too, where already set in Commercial). Everything else is a *** placeholder — type straight over any of it, this whole block is plain editable text, then hit Copy and paste into your email to the printer.</div>
@@ -3914,6 +4002,14 @@ function renderPrint(t){const id=t.id;const p=t.print;
 // (cleared browser storage, different device), reopening the section just
 // regenerates a fresh default from Title/ISBN/Trim/Pages again.
 const PRINTER_REQ_LS_PREFIX = 'bookHub_printerReqText_v1_';
+// Round 61 (2026-09-24, David-approved mockup) — no blank line between
+// fields any more, per David: "no empty lines in the spec (see British
+// Horror Films entry for prefered method)." Same fields, same order, same
+// *** placeholders as before — just single line breaks throughout, plus
+// the incidental double-space after "Bleeds:"/"Page count:"/"Insides:"
+// tidied to a single space to match. Only changes the DEFAULT template —
+// any title with an already-saved draft in browser storage keeps its own
+// saved text untouched (see getPrinterRequestText() below).
 function buildDefaultPrinterRequestText(t){
   const isbn=((t.commercial&&t.commercial.isbnPbk)||'').trim();
   const titleLine=(t.title||'')+(isbn?' — ISBN '+isbn:'');
@@ -3921,27 +4017,16 @@ function buildDefaultPrinterRequestText(t){
   const pagesRaw=t.commercial&&t.commercial.pages;
   const pages=(pagesRaw!==undefined&&pagesRaw!==null&&String(pagesRaw).trim()!=='')?String(pagesRaw).trim():'';
   return `Title: ${titleLine}
-
 Trim: ${trim||'***'}
-
-Bleeds:  ***
-
-Page count:  ${pages||'***'}
-
-Insides:  ***
-
+Bleeds: ***
+Page count: ${pages||'***'}
+Insides: ***
 Images: Colour *** / b&w ***
-
 Binding: Paperback
-
 Cover: Matte
-
 Qty: please offer prices for the following:
-
 Qty (1) 50, (2) 200 (3) 300 (4) 700
-
 Delivery: ***
-
 Spine thickness: *** PLEASE ADVISE`;
 }
 function getPrinterRequestText(t){
@@ -5420,11 +5505,29 @@ function printerContactChange(titleId,idx,field,value){
 }
 function addPrinterContact(titleId){
   const t=getTitle(titleId);if(!t)return;
-  t.print.printerContacts.push({name:'',email:''});debouncedSave(titleId);renderDetail();
+  // Round 61 — a brand-new contact always goes into the plain/"More
+  // Contacts" list, never auto-featured (matches David's brief: "+ Add
+  // Printer Contact" stays exactly where it is, adding into the More
+  // Contacts list).
+  t.print.printerContacts.push({name:'',email:'',priceRequested:'',notes:'',featured:false});debouncedSave(titleId);renderDetail();
 }
 function removePrinterContact(titleId,idx){
   const t=getTitle(titleId);if(!t)return;
   t.print.printerContacts.splice(idx,1);debouncedSave(titleId);renderDetail();
+}
+// Round 61 — More Contacts starts collapsed per title (moreContactsOpenIds
+// itself declared up near other module state, top of file); this Set just
+// tracks which titles have been expanded in this browser session (not
+// persisted — reopening the app defaults back to collapsed, matching
+// David's brief). Toggled directly via classList rather than a full
+// renderDetail() so an open textarea/input mid-edit elsewhere in the box
+// doesn't lose focus.
+function toggleMoreContacts(titleId){
+  if(moreContactsOpenIds.has(titleId)) moreContactsOpenIds.delete(titleId); else moreContactsOpenIds.add(titleId);
+  const btn=document.getElementById('f-'+titleId+'-moreContactsToggle');
+  const body=document.getElementById('f-'+titleId+'-moreContactsBody');
+  if(btn) btn.classList.toggle('open');
+  if(body) body.classList.toggle('open');
 }
 
 // ─── FILES & LINKS ACTIONS ───
