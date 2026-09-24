@@ -2846,7 +2846,7 @@ function renderLinksStrip(t){
           <button class="btn btn-export ${ghUrl?'':'is-empty'}" type="button" onclick="openCoverGithubPage('${id}')">${ghUrl?'View on GitHub':'No Cover Set Yet'} &#8599;</button>
         </div>
         <div class="link-lock-row">
-          <input type="text" class="link-value-edit" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" ${coverLocked?'readonly':''} placeholder="Not set — paste covers/title-id.jpg or a direct image URL" oninput="onCoverUrlChange('${id}',this.value)">
+          <input type="text" class="link-value-edit" id="f-${id}-coverThumbnailFile" value="${esc(t.coverThumbnailFile)}" ${coverLocked?'readonly':''} placeholder="Not set — paste the filename (e.g. title-id.jpg) or a direct image URL" oninput="onCoverUrlChange('${id}',this.value)">
           ${lockBtn('coverThumbnailFile',coverLocked)}
         </div>
         <div class="cover-url-msg" id="cover-url-msg-${id}"></div>
@@ -2917,6 +2917,25 @@ function looksLikeLocalFilePath(url){
   if(!u) return false;
   return /^[A-Za-z]:[\\/]/.test(u) || /^\\\\/.test(u) || /^file:\/\//i.test(u);
 }
+// Round 60 (2026-09-17, David request via Mia Chen) — David kept forgetting
+// to type the "covers/" prefix by hand when pasting a filename he'd just
+// uploaded to this repo's own /covers/ folder, and flagged he'd "undoubtedly
+// forget this" again. Rather than just adding reminder text (fallback plan),
+// this normalizes what he actually typed so the prefix is never his problem:
+// a bare filename gets "covers/" stuck on the front automatically; a value
+// that's already a full URL (external image host) or already starts with
+// "covers/" (editing an existing entry) is left exactly as-is so it never
+// gets double-prefixed or wrongly rewritten. Deliberately does NOT get run
+// on a recognised local file path (see looksLikeLocalFilePath below) — that
+// case is a dead end regardless of any prefix and keeps its own dedicated
+// warning in onCoverUrlChange() unchanged.
+function normalizeCoverPath(value){
+  const v=String(value||'').trim();
+  if(!v) return v;
+  if(/^([a-z][a-z0-9+.-]*:)?\/\//i.test(v)) return v; // http(s):// or protocol-relative //
+  if(/^covers\//i.test(v)) return v; // already has the prefix — don't double it up
+  return 'covers/'+v.replace(/^\/+/, '');
+}
 function onCoverImgError(titleId,imgEl){
   const t=getTitle(titleId);
   const placeholder=t?`<div class="cover-ph"><div class="cover-ph-h">B</div><div class="cover-ph-title">${esc(t.title)}</div></div>`:'';
@@ -2941,7 +2960,16 @@ function onCoverImgLoad(titleId){
 // onCoverImgError/onCoverImgLoad above populating it for real as the browser
 // actually tries (and fails or succeeds) to load the new URL.
 function onCoverUrlChange(titleId,value){
-  fc(titleId,'coverThumbnailFile',value);
+  // Round 60 (2026-09-17) — a recognised local file path is checked
+  // against the RAW typed value and saved as-is (unchanged from before):
+  // running normalizeCoverPath() on it would just glue a nonsense
+  // "covers/" prefix onto a path that was never going to work anyway. Any
+  // other value gets normalized before it's saved/used, so a bare filename
+  // becomes the real "covers/<filename>" path David needs without him
+  // having to type it.
+  const isLocalPath=looksLikeLocalFilePath(value);
+  const toSave=isLocalPath?value:normalizeCoverPath(value);
+  fc(titleId,'coverThumbnailFile',toSave);
   const t=getTitle(titleId);if(!t)return;
   const msgEl=document.getElementById('cover-url-msg-'+titleId);
   const coverEl=document.querySelector('.detail-cover');
@@ -2950,15 +2978,15 @@ function onCoverUrlChange(titleId,value){
   // looksLikeLocalFilePath()), so there's no point even attempting the
   // <img> load and waiting on its onerror to fire — show the specific
   // warning immediately and skip straight to the placeholder.
-  if(looksLikeLocalFilePath(value)){
+  if(isLocalPath){
     if(msgEl) msgEl.innerHTML='<span class="cover-url-warn">&#9888; This looks like a file path on your own computer, not a web address — browsers can\'t load images this way, on any device (not even this one). Upload the file somewhere with a real web link first (a direct-image host, or this repo\'s /covers/ folder), then paste that URL here instead.</span>';
     if(coverEl) coverEl.innerHTML=placeholder;
     return;
   }
   if(msgEl) msgEl.innerHTML='';
   if(!coverEl)return;
-  coverEl.innerHTML = value
-    ? `<img src="${esc(value)}" alt="${esc(t.title)} cover" onerror="onCoverImgError('${titleId}',this)" onload="onCoverImgLoad('${titleId}')">`
+  coverEl.innerHTML = toSave
+    ? `<img src="${esc(toSave)}" alt="${esc(t.title)} cover" onerror="onCoverImgError('${titleId}',this)" onload="onCoverImgLoad('${titleId}')">`
     : placeholder;
 }
 function openImagesFolder(titleId){
