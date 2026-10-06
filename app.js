@@ -913,11 +913,149 @@ async function sheetsDeleteRow(spreadsheetId, sheetName, rowNumber1Based){
 //    status field for the same thing would just invite drift. Use the
 //    stage's own `notes` field for anything that needs a note against
 //    Promo Film etc.
+// ─── Round 62 (2026-10-06) — Competing Titles: legacy-string parser ───
+// David-approved mockup (_mockups/competing-titles-autoexpand-mockup-2026-10-06.html).
+// Hardened against Marcus Webb's real-data dump (40 titles, see
+// _mockups/competingTitles_parse_results_2026-10-06.md). ISBN-anchored: the
+// ISBN is found anywhere in the line and the title is the cleaned text around
+// it, so "/" and "," inside titles (Corman/Poe) are never split on.
+const CT_SLOTS=5;
+const CT_ISBN_RE=/(?<![\dXx])(?:97[89][-\s]?)?(?:\d[-\s]?){9}[\dXx](?![\dXx])/;
+const CT_YEAR=String.raw`(?:c\.\s*)?(?:(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Sept|Oct|Nov|Dec)[a-z]*\.?\s+)?(?:19|20)\d{2}`;
+function ctIsbnDigits(s){return String(s||'').replace(/[^\dXx]/g,'').toUpperCase();}
+function ctFindIsbn(line){
+  const re=new RegExp(CT_ISBN_RE.source,'g');let m;
+  while((m=re.exec(line))){const n=ctIsbnDigits(m[0]).length; if(n===10||n===13) return {index:m.index,text:m[0].trim(),len:m[0].length};}
+  return null;
+}
+// HTML → plain lines, invisible chars out, entities decoded.
+function ctNormalise(str){
+  let s=String(str||'');
+  // <i>…</i> titles inside citation-style lines: mark them so the italic
+  // text can be used as the title (Beyond Bone Tomahawk's format).
+  s=s.replace(/<\s*(i|em)\b[^>]*>/gi,'\u0001').replace(/<\s*\/\s*(i|em)\s*>/gi,'\u0002');
+  s=s.replace(/<\s*br\s*\/?>|<\s*\/?\s*(p|div|li|ul|ol|tr)\b[^>]*>/gi,'\n').replace(/<[^>]+>/g,'');
+  s=s.replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
+  s=s.replace(/[​-‏‪-‮⁠-⁤﻿­]/g,'').replace(/ /g,' ');
+  s=s.replace(/^\s*\[NEEDS REVIEW\]\s*/i,'');
+  return s;
+}
+// Split on newlines, and on ';' only outside brackets (Sweet and Savage
+// has "(Creation, 1994; Headpress, 2015)" inside one entry).
+function ctSplit(s){
+  const out=[];let cur='',depth=0;
+  for(const ch of s){
+    if(ch==='('||ch==='[') depth++;
+    else if((ch===')'||ch===']')&&depth>0) depth--;
+    if(ch==='\n'||(ch===';'&&depth===0)){out.push(cur);cur='';continue;}
+    cur+=ch;
+  }
+  out.push(cur);return out;
+}
+function ctStripMarker(line){
+  return line.replace(/\t/g,' ').replace(/^\s*(?:[a-z]\)|\(?[a-z]\)|\d{1,2}[.)]|[•·▪◦‣∙*\-–—])\s+/i,'').replace(/^\s*[•·▪◦‣∙]\s*/,'').replace(/\s{2,}/g,' ').trim();
+}
+function ctBalance(s){
+  const o=(s.match(/\(/g)||[]).length,c=(s.match(/\)/g)||[]).length;
+  if(o>c) s+=')'.repeat(o-c);
+  return s;
+}
+// Trim separators, years, placeholders and citation parens from a title.
+function ctCleanTitle(s){
+  let t=String(s||'').replace(/[\u0001\u0002]/g,'');
+  const yearSeg=new RegExp(String.raw`(?:\s*(?:[\/,|]|\s[-–—])\s*|\s+)\(?(?:${CT_YEAR}|\d{3})\)?\.?$`,'i');
+  const isbnLabel=/(?:\s*(?:[\/,|]|\s[-–—]))?\s*\(?\s*ISBN(?:-1[03])?\s*[:\-]?\s*\)?$/i;
+  let prev;
+  do{
+    prev=t;
+    t=t.replace(/\s*(?:[\/,;:|]|[-–—])\s*$/,'').trim();
+    t=t.replace(isbnLabel,'').trim();
+    t=t.replace(/\s*\(\s*\)$/,'').trim();
+    // trailing "(Publisher, 2020)" / "(updated edition, Princeton UP, 2015)"
+    t=t.replace(new RegExp(String.raw`\s*\([^()]*\b(?:19|20)\d{2}\b[^()]*\)\.?$`),'').trim();
+    if(/[A-Za-z]/.test(t.replace(yearSeg,''))) t=t.replace(yearSeg,'').trim();
+  }while(t!==prev);
+  return ctBalance(t.replace(/\s{2,}/g,' ').trim());
+}
+// Lines that are notes/prose rather than a title.
+function ctIsNote(line){
+  const l=line.trim();
+  if(/^\[.*\]$/.test(l)) return true;                       // [bracketed editorial note]
+  if(/^(note|nb|n\.b\.)\b/i.test(l)) return true;
+  if(l.length>220) return true;
+  return false;
+}
+function ctIsHeading(line){ return /:$/.test(line.trim()) && !ctFindIsbn(line) && line.trim().split(/\s+/).length<=8; }
+function ctIsFiller(line){ return !line.trim() || /^[\s*_=~.\-–—#]+$/.test(line); }
+/* Returns { rows:[{title,isbn}] (all parsed, may exceed 5), dropped:[string] (notes / unparseable) } */
+function parseLegacyCompetingTitles(str){
+  const res={rows:[],dropped:[]};
+  if(!str||!String(str).trim()) return res;
+  const lines=ctSplit(ctNormalise(str)).map(ctStripMarker);
+  for(const raw of lines){
+    if(ctIsFiller(raw)) continue;
+    if(ctIsHeading(raw)){ res.dropped.push(raw); continue; }
+    let line=raw, note='';
+    // trailing " -- commentary" and bracketed/lower-case parenthetical notes
+    const dd=line.match(/\s+--\s+(.+)$/); if(dd){note=dd[1].trim();line=line.slice(0,dd.index);}
+    line=line.replace(/\s*\[([^\]]+)\]/g,(m,inner)=>{note=(note?note+'; ':'')+inner.trim();return '';});
+    line=line.replace(/\s*\(([a-z][^()]*)\)/g,(m,inner)=>{ if(inner.trim().split(/\s+/).length>=3 && !/\b(19|20)\d{2}\b/.test(inner)){note=(note?note+'; ':'')+inner.trim();return '';} return m; });
+    if(!line.replace(/[\u0001\u0002]/g,'').trim()||ctIsNote(line)){ res.dropped.push(raw.replace(/[\u0001\u0002]/g,'')); continue; }
+    const hit=ctFindIsbn(line);
+    let title='',isbn='';
+    if(hit){
+      isbn=hit.text.replace(/\s+/g,'-').replace(/-+/g,'-');
+      const before=line.slice(0,hit.index), after=line.slice(hit.index+hit.len).replace(/^\s*\)/,'');
+      const b=ctCleanTitle(before);
+      title=/[A-Za-z]{2}/.test(b)?b:ctCleanTitle(after.replace(/^[\s\/,\-–—|]+/,''));
+      // ISBN on its own line (broken off the line above): attach upward
+      if(!/[A-Za-z]{2}/.test(title)){
+        const last=res.rows[res.rows.length-1];
+        if(last&&!last.isbn){ last.isbn=isbn; continue; }
+        res.dropped.push(raw); continue;
+      }
+    }else{
+      const it=line.match(/\u0001([^\u0002]+)\u0002/);
+      if(it) title=ctCleanTitle(it[1]);
+      else {
+        // No ISBN: only now treat spaced " - " / " / " as field separators,
+        // and drop placeholder/year-only trailing fields.
+        const parts=line.replace(/[\u0001\u0002]/g,'').split(/\s+[-–—\/|]\s+/).map(s=>s.trim()).filter(Boolean);
+        while(parts.length>1 && /^(ISBN[:\s]*|\(?\s*(?:c\.\s*)?(?:19|20)?\d{2,3}\d?\)?\.?|n\/?a|tbc|\?+)$/i.test(parts[parts.length-1])) parts.pop();
+        title=ctCleanTitle(parts.join(' / '));
+      }
+      if(!/[A-Za-z]{2}/.test(title)){ res.dropped.push(raw.replace(/[\u0001\u0002]/g,'')); continue; }
+    }
+    if(note) res.dropped.push('Note on “'+title+'”: '+note);
+    res.rows.push({title,isbn});
+  }
+  return res;
+}
+// Builds the title's Competing Titles model from editorial_json.
+// - Array (saved by Round 62+): used as-is; legacy string kept alongside.
+// - String (pre-Round 62 rich-text box / Marcus's 2026-10-05 data): parsed
+//   client-side for display only. Nothing is written back until David edits
+//   the title, and the original string always rides along in
+//   competingTitlesLegacy so nothing can be lost.
+// `notMigrated` is display-only (never saved): entries over the 5-row cap,
+// plus notes/unparseable lines, shown in the collapsed "From old list" note.
+function competingTitlesFromEditorial(editorial){
+  const raw=editorial.competingTitles;
+  const legacy=typeof editorial.competingTitlesLegacy==='string' ? editorial.competingTitlesLegacy : (typeof raw==='string'?raw:'');
+  const parsed=parseLegacyCompetingTitles(legacy);
+  const overflow=parsed.rows.slice(CT_SLOTS).map(x=>x.title+(x.isbn?' — '+x.isbn:''));
+  const notMigrated=overflow.concat(parsed.dropped);
+  let rows;
+  if(Array.isArray(raw)) rows=raw.map(r=>({title:String((r&&r.title)||''),isbn:String((r&&r.isbn)||'')}));
+  else rows=parsed.rows.slice(0,CT_SLOTS).map(r=>({title:r.title,isbn:r.isbn}));
+  return { rows: rows.slice(0,CT_SLOTS), legacy, notMigrated };
+}
 function rowToTitle(row){
   const c = {}; TITLE_COLS.forEach((k,i)=>c[k]=row[i]!==undefined?row[i]:'');
   const price = Object.assign({pbkGBP:'',pbkUSD:'',ebkUSD:'',hbkGBP:''}, safeJson(c.price_json, {}));
   const editorial = Object.assign({fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',toc:'',excerpt:'',authorInsight:'',competingTitles:''}, safeJson(c.editorial_json, {}));
-  const publicity = Object.assign({publicityStatement:'',prContact:'',marketing:'',targetAudience:'',quotes:[],sellingPoints:[]}, safeJson(c.publicity_json, {}));
+  const ct = competingTitlesFromEditorial(editorial);
+  const publicity =Object.assign({publicityStatement:'',prContact:'',marketing:'',targetAudience:'',quotes:[],sellingPoints:[]}, safeJson(c.publicity_json, {}));
   // Round 5, item 2 — contributorRole added to the existing authorInfo_json
   // blob (no new Sheet column — same "add a key to an existing JSON blob"
   // approach already used for illustrationsText/poManualNotes etc.). Default
@@ -1055,12 +1193,15 @@ function rowToTitle(row){
       pagesBreakdown: pn.pagesBreakdown||''
     },
     price,
-    content: { keywords: c.keywords||'', fullDescription: editorial.fullDescription, jacketBlurb: editorial.jacketBlurb, briefDescription: editorial.briefDescription, salesHandle: editorial.salesHandle, sellingPoints: (publicity.sellingPoints||[]).join('\n'), quotes: (publicity.quotes||[]).join('\n'), targetAudience: publicity.targetAudience },
+    content: { keywords: c.keywords||'', fullDescription: editorial.fullDescription, jacketBlurb: editorial.jacketBlurb, briefDescription: editorial.briefDescription, salesHandle: editorial.salesHandle, sellingPoints: (publicity.sellingPoints||[]).join('\n'), quotes: (publicity.quotes||[]).join('\n'), targetAudience: publicity.targetAudience,
+      // Round 62 — Competing Titles moved here from box 6 as Title + ISBN rows
+      // (see competingTitlesFromEditorial()). _ctNotMigrated is display-only.
+      competingTitles: ct.rows, competingTitlesLegacy: ct.legacy, _ctNotMigrated: ct.notMigrated },
     authorInfo: Object.assign({}, authorInfo),
     pipeline: { stages },
     print: { printEstimate: pn.printerEstimates, scbEbookCoverSpec: pn.scbEbookCover, forLsiNotes: pn.lsiNotes, printerContacts: contacts },
     publicity: { publicityStatement: publicity.publicityStatement, prContact: publicity.prContact, marketing: publicity.marketing },
-    toc: { tableOfContents: editorial.toc, howICameToWriteThis: editorial.authorInsight, excerpt: editorial.excerpt, competingTitles: editorial.competingTitles },
+    toc: { tableOfContents: editorial.toc, howICameToWriteThis: editorial.authorInsight, excerpt: editorial.excerpt },
     // Round 42 (2026-09-03) — Proofing Notes + Typesetting Notes collapsed
     // into one field (David: "PRODUCTION NOTES... just a single text
     // block"). `notes` is the new single field the UI now reads/writes;
@@ -1107,7 +1248,11 @@ function titleToRow(t){
   const editorial_json = JSON.stringify({
     fullDescription: t.content.fullDescription||'', jacketBlurb: t.content.jacketBlurb||'', briefDescription: t.content.briefDescription||'',
     salesHandle: t.content.salesHandle||'', toc: t.toc.tableOfContents||'', excerpt: t.toc.excerpt||'',
-    authorInsight: t.toc.howICameToWriteThis||'', competingTitles: t.toc.competingTitles||''
+    authorInsight: t.toc.howICameToWriteThis||'',
+    // Round 62 — saved as [{title,isbn}] (filled rows only); the original
+    // pre-Round 62 string is always carried forward unchanged.
+    competingTitles: (t.content.competingTitles||[]).map(r=>({title:(r.title||'').trim(),isbn:(r.isbn||'').trim()})).filter(r=>r.title||r.isbn),
+    competingTitlesLegacy: t.content.competingTitlesLegacy||''
   });
   const authorInfo_json = JSON.stringify(t.authorInfo||{});
   const productionNotes_json = JSON.stringify({
@@ -1197,12 +1342,12 @@ function defTitle(o={}){
     // preserved rather than dropped, same non-destructive precedent as
     // _backupIsbnPbkRaw/_backupIsbnEbkRaw just above.
     price:{pbkGBP:'',pbkUSD:'',ebkUSD:'',hbkGBP:''},
-    content:{keywords:'',fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',sellingPoints:'',quotes:'',targetAudience:''},
+    content:{keywords:'',fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',sellingPoints:'',quotes:'',targetAudience:'',competingTitles:[],competingTitlesLegacy:'',_ctNotMigrated:[]},
     authorInfo:{bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:'',contributorRole:'Author(s)'},
     pipeline:{stages:PIPELINE_STAGES.map(n=>({name:n,status:'Not Started',expectedDate:'',notes:''}))},
     print:{printEstimate:'',scbEbookCoverSpec:'1400px on shortest side / RGB',forLsiNotes:'',printerContacts:PRINTER_DEF.map(p=>Object.assign({},p))},
     publicity:{publicityStatement:'',prContact:'',marketing:''},
-    toc:{tableOfContents:'',howICameToWriteThis:'',excerpt:'',competingTitles:''},
+    toc:{tableOfContents:'',howICameToWriteThis:'',excerpt:''},
     productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),notes:'',proofingNotes:'',typesettingNotes:''},
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
@@ -3738,12 +3883,106 @@ function renderContent(t){const id=t.id;const c=t.content;
     ${frow('Full Description',richTa(id,'fullDesc','content.fullDescription',c.fullDescription,'Full marketing description…'),'full')}
     ${frow('Jacket Blurb',richTa(id,'jacketBlurb','content.jacketBlurb',c.jacketBlurb,'Back cover blurb…'),'full')}
     ${frow('Brief Description',richTa(id,'briefDesc','content.briefDescription',c.briefDescription,'Short description…'),'full')}
-    ${frow('Sales Handle',inp(`f-${id}-salesHandle`,c.salesHandle,'One-line sales handle…',`fc('${id}','content.salesHandle',this.value)`),'full')}
+    ${frow('Sales Handle',taLine(`f-${id}-salesHandle`,c.salesHandle,'One-line sales handle…',`fc('${id}','content.salesHandle',this.value)`,true),'full')}
     ${frow('Selling Points (one per line)',taAuto(`f-${id}-sellingPoints`,c.sellingPoints,'One selling point per line…',`fc('${id}','content.sellingPoints',this.value)`),'full')}
     ${frow('Quotes (one per line)',taAuto(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`),'full')}
-    ${frow('Target Audience',inp(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`))}
-    ${frow('Keywords / Metadata',inp(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`))}
+    ${frow('Target Audience',taLine(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`,false))}
+    ${frow('Keywords / Metadata',taLine(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`,true)+`<div class="field-help">Enter doesn't add a line break. Keywords stay one semicolon-separated line.</div>`)}
+    ${renderCompetingTitles(t)}
   </div>`;}
+
+// ─── Round 62 (2026-10-06) — Competing Titles table + one-line auto-expand ───
+// Sales Handle / Target Audience / Keywords were <input>s that clipped long
+// text; now auto-expanding textareas that start one line tall. singleLine
+// fields block Enter and flatten pasted newlines (see the keydown/paste
+// listeners below) so the stored value stays one line, as the Sheet and
+// feeds expect.
+function taLine(id,val,ph,handler,singleLine){
+  return `<textarea id="${id}" class="autoexpand autoexpand-line" rows="1" ${singleLine?'data-single-line="1"':''} placeholder="${esc(ph)}" oninput="${handler};autoGrow(this)">${esc(val)}</textarea>`;
+}
+document.addEventListener('keydown',e=>{ if(e.key==='Enter' && e.target && e.target.matches && e.target.matches('textarea[data-single-line]')) e.preventDefault(); });
+document.addEventListener('paste',e=>{
+  const t=e.target; if(!t||!t.matches||!t.matches('textarea[data-single-line]')) return;
+  const txt=(e.clipboardData&&e.clipboardData.getData('text'))||''; if(!/[\r\n]/.test(txt)) return;
+  e.preventDefault();
+  t.setRangeText(txt.replace(/\s*\r?\n\s*/g,' ').trim(),t.selectionStart,t.selectionEnd,'end');
+  t.dispatchEvent(new Event('input',{bubbles:true}));
+});
+let ctCopyFmt='dash';
+function ctRows(t){ const r=(t.content.competingTitles||[]).slice(0,CT_SLOTS).map(x=>({title:x.title||'',isbn:x.isbn||''})); while(r.length<CT_SLOTS) r.push({title:'',isbn:''}); return r; }
+function ctIsbnStatus(v){
+  const d=String(v||'').replace(/[^\dXx]/g,'').toUpperCase();
+  if(!d) return '';
+  if(/^\d{13}$/.test(d)){ let s=0; for(let i=0;i<12;i++) s+=(+d[i])*(i%2?3:1); return (10-s%10)%10===+d[12]?'ok13':'bad'; }
+  if(/^\d{9}[\dX]$/.test(d)){ let s=0; for(let i=0;i<10;i++) s+=(d[i]==='X'?10:+d[i])*(10-i); return s%11===0?'ok10':'bad'; }
+  return 'bad';
+}
+function ctIsbnNoteHtml(v){
+  const s=ctIsbnStatus(v);
+  if(s==='ok13') return '<div class="ct-isbn-note ok">✓ valid ISBN-13</div>';
+  if(s==='ok10') return '<div class="ct-isbn-note ok">✓ valid ISBN-10</div>';
+  if(s==='bad') return '<div class="ct-isbn-note warn">⚠ not a valid ISBN. Check it.</div>';
+  return '<div class="ct-isbn-note"></div>';
+}
+function renderCompetingTitles(t){
+  const id=t.id, rows=ctRows(t), nm=t.content._ctNotMigrated||[];
+  const body=rows.map((r,i)=>`<tr>
+      <td class="ct-num">${i+1}.</td>
+      <td>${taLine(`f-${id}-ct-title-${i}`,r.title,'Book title',`ctEdit('${id}',${i},'title',this.value)`,true)}</td>
+      <td class="ct-isbn"><input type="text" id="f-${id}-ct-isbn-${i}" value="${esc(r.isbn)}" placeholder="${r.title&&!r.isbn?'ISBN missing':'978-…'}" oninput="ctEdit('${id}',${i},'isbn',this.value);this.nextElementSibling.outerHTML=ctIsbnNoteHtml(this.value)">${ctIsbnNoteHtml(r.isbn)}</td>
+      <td class="ct-act"><button type="button" class="btn btn-sm btn-copy" title="Copy this row" onclick="ctCopyRow('${id}',${i},this)">Copy</button></td>
+    </tr>`).join('');
+  const notMigrated = nm.length ? `<details class="ct-legacy">
+      <summary>From old list — not migrated (${nm.length})</summary>
+      <ul>${nm.map(x=>`<li>${esc(x)}</li>`).join('')}</ul>
+      <div class="ct-legacy-orig-label">Original text, as it was before Round 62:</div>
+      <pre class="ct-legacy-orig">${esc(t.content.competingTitlesLegacy||'')}</pre>
+    </details>` : '';
+  return `<div class="field-group full">
+    <div class="ct-toolbar">
+      <label class="field-label">Competing Titles</label>
+      <div class="ct-toolbar-right">
+        <span class="ct-format-label">Copy as</span>
+        <span class="ct-format" role="group" aria-label="Copy format">
+          <button type="button" class="${ctCopyFmt==='dash'?'on':''}" data-fmt="dash" onclick="ctSetFmt('dash')">Title — ISBN</button>
+          <button type="button" class="${ctCopyFmt==='tab'?'on':''}" data-fmt="tab" onclick="ctSetFmt('tab')">Tab-separated</button>
+        </span>
+        <button type="button" class="btn btn-primary btn-sm" onclick="ctCopyAll('${id}',this)">Copy all</button>
+      </div>
+    </div>
+    <table class="ct-table" aria-label="Competing titles">
+      <thead><tr><th></th><th>Title</th><th>ISBN</th><th></th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+    <div class="field-help">Up to five similar or related titles, from the author publicity form. Sales reps and the Nielsen "Related Titles" grid use these.</div>
+    ${notMigrated}
+  </div>`;
+}
+function ctEdit(titleId,i,field,value){
+  const t=getTitle(titleId); if(!t) return;
+  const rows=ctRows(t); rows[i][field]=value;
+  t.content.competingTitles=rows;
+  debouncedSave(titleId); updateSectionHeaders(titleId);
+}
+function ctLine(r){ return ctCopyFmt==='tab' ? `${r.title}\t${r.isbn}` : (r.isbn ? `${r.title} — ${r.isbn}` : r.title); }
+function ctSetFmt(f){ ctCopyFmt=f; document.querySelectorAll('.ct-format button').forEach(b=>b.classList.toggle('on',b.dataset.fmt===f)); }
+function ctCopyRow(titleId,i,btn){
+  const t=getTitle(titleId); if(!t) return; const r=ctRows(t)[i];
+  if(!r.title&&!r.isbn){ ctToast('Row '+(i+1)+' is empty'); return; }
+  ctCopyText(ctLine(r),btn,'Row '+(i+1)+' copied');
+}
+function ctCopyAll(titleId,btn){
+  const t=getTitle(titleId); if(!t) return; const filled=ctRows(t).filter(r=>r.title||r.isbn);
+  if(!filled.length){ ctToast('Nothing to copy'); return; }
+  ctCopyText(filled.map(ctLine).join('\n'),btn,filled.length+' titles copied');
+}
+let ctToastT;
+function ctToast(m){ let el=document.getElementById("ct-toast"); if(!el){ el=document.createElement("div"); el.id="ct-toast"; el.className="ct-toast"; el.setAttribute("role","status"); document.body.appendChild(el); } el.textContent=m; el.classList.add("show"); clearTimeout(ctToastT); ctToastT=setTimeout(()=>el.classList.remove("show"),1500); }
+function ctCopyText(text,btn,msg){
+  const done=()=>{ ctToast(msg); if(btn){ const o=btn.textContent; btn.classList.add('copied'); btn.textContent='Copied'; setTimeout(()=>{btn.classList.remove('copied');btn.textContent=o;},1200); } };
+  const fallback=()=>{ const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0'; document.body.appendChild(ta); ta.select(); try{ document.execCommand('copy'); done(); }catch(e){ ctToast('Copy failed'); } ta.remove(); };
+  if(navigator.clipboard&&window.isSecureContext) navigator.clipboard.writeText(text).then(done,fallback); else fallback();
+}
   // Round 6, item 3 — the "View HTML Output"/"View Word File" buttons that
   // used to live in this box (item 11, Round 2) moved up to
   // renderExportButtons(), next to Key Contacts — see that function's
@@ -4916,7 +5155,7 @@ function renderTOC(t){const id=t.id;const c=t.toc;
     ${frow('Table of Contents',richTa(id,'toc','toc.tableOfContents',c.tableOfContents,''),'full')}
     ${frow('How I Came to Write This Book',richTa(id,'howIWrote','toc.howICameToWriteThis',c.howICameToWriteThis,''),'full')}
     ${frow('Excerpt',richTa(id,'excerpt','toc.excerpt',c.excerpt,''),'full')}
-    ${frow('Competing Titles',richTa(id,'competing','toc.competingTitles',c.competingTitles,''),'full')}
+    ${/* Round 62 — Competing Titles moved to box 4 as a Title + ISBN table. */''}
   </div>`;}
 
 function renderProductionNotes(t){const id=t.id;
@@ -6025,7 +6264,10 @@ function getSectionExportFields(t,key,blockNameById){
         ['Selling Points','list', c.sellingPoints],
         ['Quotes','quote', c.quotes],
         ['Target Audience','text', c.targetAudience],
-        ['Keywords / Metadata','text', c.keywords]
+        ['Keywords / Metadata','text', c.keywords],
+        // Round 62 — moved here from 'toc'; 'table' kind = real <table> in the
+        // HTML export, Title<tab>ISBN lines in the Word export.
+        ['Competing Titles','table', c.competingTitles]
       ];
     }
     case 'author':{
@@ -6085,8 +6327,7 @@ function getSectionExportFields(t,key,blockNameById){
     case 'toc': return [
       ['Table of Contents','html', t.toc.tableOfContents],
       ['How I Came to Write This Book','html', t.toc.howICameToWriteThis],
-      ['Excerpt','html', t.toc.excerpt],
-      ['Competing Titles','html', t.toc.competingTitles]
+      ['Excerpt','html', t.toc.excerpt]
     ];
     case 'productionNotes':{
       const checklistText=(t.productionNotes.checklist||[]).map(c=>'['+(c.checked?'x':' ')+'] '+c.text).join('\n');
@@ -6108,6 +6349,10 @@ function getSectionExportFields(t,key,blockNameById){
 function exportFieldToHtmlFragment(kind,value){
   const esc2=s=>esc(s||'');
   if(kind==='html') return value||'';
+  if(kind==='table'){
+    const rows=(Array.isArray(value)?value:[]).filter(r=>r&&(r.title||r.isbn));
+    return rows.length ? `<table>\n<thead><tr><th>Title</th><th>ISBN</th></tr></thead>\n<tbody>\n${rows.map(r=>`<tr><td>${esc2(r.title)}</td><td>${esc2(r.isbn)}</td></tr>`).join('\n')}\n</tbody>\n</table>` : '';
+  }
   if(kind==='list'){
     const items=(value||'').split('\n').map(s=>s.trim()).filter(Boolean);
     return items.length ? `<ul>${items.map(s=>`<li>${esc2(s)}</li>`).join('')}</ul>` : ''; // empty → falls through to fieldBlock's "—" placeholder, not a bare <ul></ul>
@@ -6271,6 +6516,7 @@ function exportFieldToRtfParagraphs(kind,value){
   // "already has real tags → left untouched" guard, just applied here too
   // so the Word export can't silently regress on legacy data.
   if(kind==='html') return htmlFragmentToRtfParagraphs(plainToRichHtml(value));
+  if(kind==='table') return (Array.isArray(value)?value:[]).filter(r=>r&&(r.title||r.isbn)).map(r=>rtfEscapeText(r.title||'')+'\\tab '+rtfEscapeText(r.isbn||''));
   if(kind==='list') return (value||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>'\u2022  '+rtfEscapeText(s));
   if(kind==='quote') return (value||'').split('\n').map(s=>s.trim()).filter(Boolean).map(s=>'\u201c'+rtfEscapeText(s)+'\u201d');
   return plainTextToRtfParagraphs(value);

@@ -969,6 +969,38 @@ textarea.tall{min-height:130px}
    everywhere else via a scrollHeight-driven inline height, so this degrades
    gracefully rather than depending on one browser feature. */
 textarea.autoexpand{resize:none;overflow:hidden;field-sizing:content;min-height:60px}
+/* Round 62 (2026-10-06) — one-line auto-expand (Sales Handle / Target
+   Audience / Keywords / Competing Titles title cells) + Competing Titles
+   table, per David-approved mockup competing-titles-autoexpand-mockup-2026-10-06. */
+textarea.autoexpand.autoexpand-line{min-height:0;line-height:1.5}
+.field-help{font-size:.7rem;color:var(--text3);line-height:1.4;margin-top:1px}
+.ct-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+.ct-toolbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.ct-format{display:inline-flex;border:1px solid var(--border2);border-radius:var(--r4);overflow:hidden;background:var(--surface)}
+.ct-format button{border:none;background:none;padding:3px 9px;font-size:.76rem;font-family:var(--sans);color:var(--text2);cursor:pointer}
+.ct-format button+button{border-left:1px solid var(--border2)}
+.ct-format button.on{background:var(--sage-bg);color:var(--sage-border);font-weight:600}
+.ct-format-label{font-size:.72rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;font-weight:600}
+.ct-table{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface);border:1px solid var(--border);border-radius:var(--r4);overflow:hidden}
+.ct-table th{font-size:.72rem;color:var(--text3);font-weight:600;text-transform:uppercase;letter-spacing:.04em;text-align:left;padding:7px 8px;background:var(--surface2);border-bottom:1px solid var(--border)}
+.ct-table td{padding:6px 8px;border-bottom:1px solid var(--border);vertical-align:top}
+.ct-table tr:last-child td{border-bottom:none}
+.ct-table td.ct-num{width:34px;color:var(--text3);font-weight:600;font-size:.85rem;padding-top:13px;text-align:right}
+.ct-table td.ct-isbn{width:220px}
+.ct-table td.ct-act{width:74px;text-align:right;padding-top:9px}
+.ct-table textarea,.ct-table input[type=text]{font-size:.98rem}
+.ct-isbn-note{font-size:.7rem;margin-top:3px;line-height:1.3;min-height:0}
+.ct-isbn-note.ok{color:var(--sage)}
+.ct-isbn-note.warn{color:var(--amber-border)}
+.btn-copy.copied{background:var(--sage-bg);border-color:var(--sage-border);color:var(--sage-border)}
+.ct-legacy{margin-top:8px;border:1px dashed var(--border2);border-radius:var(--r4);background:var(--surface);padding:6px 10px;font-size:.8rem;color:var(--text2)}
+.ct-legacy summary{cursor:pointer;color:var(--text3);font-weight:600;font-size:.76rem;text-transform:uppercase;letter-spacing:.04em}
+.ct-legacy ul{margin:8px 0 6px 18px;line-height:1.45}
+.ct-legacy-orig-label{font-size:.72rem;color:var(--text3);margin-top:6px}
+.ct-legacy-orig{white-space:pre-wrap;word-break:break-word;font-family:Consolas,"Courier New",monospace;font-size:.76rem;background:var(--surface2);border:1px solid var(--border);border-radius:var(--r4);padding:6px 8px;margin-top:3px;max-height:220px;overflow:auto}
+.ct-toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--bg-page);color:var(--text-oncream);border:1px solid var(--sage);border-radius:var(--r4);padding:8px 14px;font-size:.85rem;opacity:0;transition:opacity .2s,transform .2s;pointer-events:none;z-index:9999}
+.ct-toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+@media (max-width:700px){.ct-table td.ct-isbn{width:150px}.ct-table td.ct-num{width:24px}}
 /* Rich-text surface (item 21 — real formatting restore for Content &
    Marketing's 3 main fields, see richTa() in app.js) */
 .richtext-wrap{display:flex;flex-direction:column;gap:4px}
@@ -2273,7 +2305,7 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js"></script>
+<script src="app.js?v=r62"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
