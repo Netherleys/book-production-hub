@@ -3967,6 +3967,10 @@ function bphSerialiseRuns(runs){
     let w=core; if(r.i) w='<i>'+w+'</i>'; if(r.b) w='<b>'+w+'</b>'; if(r.href) w='<a href="'+esc(r.href)+'">'+w+'</a>';
     s+=lead+w+trail;
   });
+  // Round 66 — join same-format runs split only by a space, e.g.
+  // "<b>a</b> <b><i>b</i></b>" → "<b>a <i>b</i></b>" (renders the same,
+  // fewer tags for SCB's counter).
+  let prev; do{ prev=s; s=s.replace(/<\/(b|i)>(\s*)<\1>/g,'$2'); }while(s!==prev);
   return s.replace(/ {2,}/g,' ');
 }
 function bphTrimInline(s){ return s.replace(/^(?:\s|<br>)+/,'').replace(/(?:\s|<br>)+$/,''); }
