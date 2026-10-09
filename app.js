@@ -4276,6 +4276,19 @@ function richTa(titleId,fieldKey,path,val,ph){
   </div>`;
 }
 
+// Round 67 — gentle check on the split price fields: one price, right currency.
+function priceWarn(v,which){
+  v=String(v||'').trim(); if(!v || /^\[NEEDS REVIEW\]/.test(v)) return '';
+  const hasGBP=/£/.test(v), hasUSD=/\$/.test(v), prices=(v.match(/\d+(?:\.\d{1,2})?/g)||[]).length;
+  if(prices>1) return '&#9888; Holds more than one price. Keep one price here.';
+  if(which==='uk' && hasUSD) return '&#9888; Looks like a US price ($). The US price has its own field.';
+  if(which==='us' && hasGBP) return '&#9888; Looks like a UK price (£). The UK price has its own field.';
+  return '';
+}
+function priceWarnUpdate(id){
+  const t=getTitle(id); if(!t) return;
+  [['pbkGBP','uk'],['pbkUSD','us']].forEach(([k,w])=>{ const el=document.getElementById('pw-'+id+'-'+k); if(el) el.innerHTML=priceWarn(t.price[k],w); });
+}
 function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
   // Item 18 design decision (see build report for full reasoning): Backup
   // ISBN fields removed entirely from the UI (data preserved untouched on
@@ -4322,7 +4335,13 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
         (item 18, an earlier round). Flagged to David in the build report:
         that USD PBK figure is now archived/inaccessible in the UI, not
         merged anywhere — his call whether it needs to resurface. */''}
-    ${frow('Cover Price PBK',inp(`f-${id}-pbkGBP`,p.pbkGBP,'e.g. 14.99','fc(\''+id+'\',\'price.pbkGBP\',this.value)'))}
+    ${/* Round 67 (2026-10-09, David-approved) — paperback price split into
+        separate UK and US fields. US uses the existing price.pbkUSD key
+        (kept in the data since Round 11, hidden until now). Combined
+        "£ / $" values were split in the Sheet; anything that didn't parse
+        cleanly was left as it was and is flagged here. */''}
+    ${frow('Cover Price PBK (UK £)',inp(`f-${id}-pbkGBP`,p.pbkGBP,'e.g. £14.99','fc(\''+id+'\',\'price.pbkGBP\',this.value);priceWarnUpdate(\''+id+'\')')+`<div class="price-warn" id="pw-${id}-pbkGBP">${priceWarn(p.pbkGBP,'uk')}</div>`)}
+    ${frow('Cover Price PBK (US $)',inp(`f-${id}-pbkUSD`,p.pbkUSD,'e.g. $19.95','fc(\''+id+'\',\'price.pbkUSD\',this.value);priceWarnUpdate(\''+id+'\')')+`<div class="price-warn" id="pw-${id}-pbkUSD">${priceWarn(p.pbkUSD,'us')}</div>`)}
     ${frow('Cover Price EBK',inp(`f-${id}-ebkUSD`,p.ebkUSD,'','fc(\''+id+'\',\'price.ebkUSD\',this.value)'))}
     ${frow('Cover Price HBK',inp(`f-${id}-hbkGBP`,p.hbkGBP,'','fc(\''+id+'\',\'price.hbkGBP\',this.value)'))}
     ${frow('Trim Size',inp(`f-${id}-trimSize`,c.trimSize,'e.g. 198x129mm','fc(\''+id+'\',\'commercial.trimSize\',this.value)'))}
@@ -6734,7 +6753,7 @@ function getSectionExportFields(t,key,blockNameById){
       const c=t.commercial,p=t.price;
       return [
         ['ISBN (PBK)','text', c.isbnPbk],['ISBN (HBK)','text', c.isbnHbk],['ISBN (EBK)','text', c.isbnEbk],
-        ['Cover Price PBK','text', p.pbkGBP],['Cover Price EBK','text', p.ebkUSD],['Cover Price HBK','text', p.hbkGBP],
+        ['Cover Price PBK (UK)','text', p.pbkGBP],['Cover Price PBK (US)','text', p.pbkUSD],['Cover Price EBK','text', p.ebkUSD],['Cover Price HBK','text', p.hbkGBP],
         ['Trim Size','text', c.trimSize],['Pages','text', c.pages],['Pages Breakdown','text', c.pagesBreakdown],
         ['Category UK','text', c.categoryUK],['Category USA','text', c.categoryUSA],
         ['Nielsen Notified','text', c.nielsenNotified?'Yes':'No'],
