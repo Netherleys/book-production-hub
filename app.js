@@ -5491,11 +5491,30 @@ function pickISBN(isbn){
   if(!assignCtx)return;
   fc(assignCtx.titleId,assignCtx.field,isbn);
   const rec=data.isbns.find(r=>r.isbn===isbn);
-  if(rec){const t=getTitle(assignCtx.titleId);rec.assignedToTitleId=assignCtx.titleId;rec.assignedToTitleName=t?t.title:assignCtx.titleId;saveIsbn(rec);}
+  // Round 63 (2026-10-09, David-approved): the ISBN takes the format of the
+  // field it was assigned into (PBK/HBK/EBK). Only fills a BLANK format —
+  // an existing, different format is never overwritten, just warned about.
+  let fmtWarn='';
+  if(rec){
+    const t=getTitle(assignCtx.titleId);rec.assignedToTitleId=assignCtx.titleId;rec.assignedToTitleName=t?t.title:assignCtx.titleId;
+    const fieldFmt=isbnFieldFormat(assignCtx.field);
+    if(fieldFmt){
+      const cur=(rec.format||'').trim().toUpperCase();
+      if(!cur) rec.format=fieldFmt;
+      else if(cur!==fieldFmt) fmtWarn='Heads up: '+isbn+' is listed as '+cur+' in the ISBN pool, but you assigned it to the '+fieldFmt+' field.\n\nThe assignment has been made; the pool format was left as '+cur+'. Check which is right.';
+    }
+    saveIsbn(rec);
+  }
   const inputId=`f-${assignCtx.titleId}-${assignCtx.field.replace(/\./g,'-').replace('commercial-','')}`;
   const inp2=document.getElementById(inputId);if(inp2)inp2.value=isbn;
   document.getElementById('isbn-pool-modal').classList.add('hidden');
   debouncedSave(assignCtx.titleId);
+  if(fmtWarn) alert(fmtWarn);
+}
+// Round 63 — maps a title ISBN field ('commercial.isbnPbk' or 'isbnPbk') to its pool format.
+function isbnFieldFormat(field){
+  const f=String(field||'').replace(/^commercial\./,'');
+  return {isbnPbk:'PBK',isbnHbk:'HBK',isbnEbk:'EBK'}[f]||'';
 }
 
 // ─── ISBN MANAGER ACTIONS ───
