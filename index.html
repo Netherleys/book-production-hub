@@ -1055,6 +1055,37 @@ textarea.autoexpand.autoexpand-line{min-height:0;line-height:1.5}
 .richtext ol:last-child{margin-bottom:0}
 .richtext li{margin-bottom:.4em;padding-left:.2em}
 .richtext li:last-child{margin-bottom:0}
+/* Round 64 (2026-10-09) — auto-clean + Tidy. New toolbar items (H, bullet
+   list, link) need their own styles; Tidy preview panel; status line. */
+.richtext-toolbar{flex-wrap:wrap;align-items:center}
+.richtext ul{margin:0 0 .9em 1.4em;padding:0}
+.richtext ul:last-child{margin-bottom:0}
+.richtext h3{font-size:1.05rem;font-weight:700;margin:0 0 .5em}
+.richtext a,.tidy-rendered a{color:#2B5AA8;text-decoration:underline}
+.rt-sep{width:1px;align-self:stretch;background:var(--border2);margin:0 3px}
+.rt-btn.rt-tidy{background:var(--text);color:var(--text-oncream);border-color:var(--text);font-weight:600}
+.rt-btn.rt-tidy:hover{background:var(--text2)}
+.rt-status{font-size:.74rem;color:var(--sage-border);margin-left:6px;opacity:0;transition:opacity .2s}
+.rt-status.show{opacity:1}
+.rt-undo{border:none;background:none;color:#2B5AA8;text-decoration:underline;cursor:pointer;font-size:.74rem;padding:0}
+.tidy-plain-bar{display:flex;align-items:center;gap:4px;margin-top:4px}
+.tidy-panel{border:2px solid var(--text);border-radius:var(--r8);background:var(--surface);padding:10px 12px;display:flex;flex-direction:column;gap:8px;margin-top:6px;color:var(--text)}
+.tidy-h{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.tidy-h b{font-size:.9rem;color:var(--text)}
+.tidy-chips{display:flex;gap:5px;flex-wrap:wrap}
+.tidy-chip{font-size:.72rem;border-radius:999px;padding:1px 8px;background:var(--sage-bg);border:1px solid var(--sage-border);color:var(--sage-border);font-weight:600}
+.tidy-ba{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-width:0}
+.tidy-pane-h{font-size:.66rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:3px}
+.tidy-rendered{border:1px solid var(--border);border-radius:var(--r4);padding:8px 10px;font-size:.9rem;line-height:1.55;background:#FBFAF6;overflow-wrap:anywhere;color:var(--text);max-height:420px;overflow:auto}
+.tidy-rendered p{margin-bottom:.75em}.tidy-rendered p:last-child{margin-bottom:0}
+.tidy-rendered ul,.tidy-rendered ol{margin:0 0 .6em 22px}
+.tidy-rendered h3{font-size:.95rem;margin:.2em 0 .4em}
+.tidy-line{min-height:1.4em}
+.tidy-panel mark.d{background:#F7D9D3;color:#7A2414;border-radius:2px;text-decoration:line-through;text-decoration-thickness:1px}
+.tidy-panel mark.a{background:#D8EBD3;color:#24502A;border-radius:2px;font-weight:600}
+.tidy-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.tidy-key{font-size:.74rem;color:var(--text3)}
+@media (max-width:700px){.tidy-ba{grid-template-columns:1fr}}
 /* Round 12, item 2c — this is a contenteditable field's placeholder,
    rendered via ::before rather than a real ::placeholder pseudo-element (no
    <input>/<textarea> underneath it), so the global input/textarea rule
@@ -2305,7 +2336,7 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r63"></script>
+<script src="app.js?v=r64"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>

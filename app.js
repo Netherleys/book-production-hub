@@ -936,7 +936,7 @@ function ctNormalise(str){
   s=s.replace(/<\s*(i|em)\b[^>]*>/gi,'\u0001').replace(/<\s*\/\s*(i|em)\s*>/gi,'\u0002');
   s=s.replace(/<\s*br\s*\/?>|<\s*\/?\s*(p|div|li|ul|ol|tr)\b[^>]*>/gi,'\n').replace(/<[^>]+>/g,'');
   s=s.replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&');
-  s=s.replace(/[​-‏‪-‮⁠-⁤﻿­]/g,'').replace(/ /g,' ');
+  s=s.replace(/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\u00ad]/g,'').replace(/\u00a0/g,' ');
   s=s.replace(/^\s*\[NEEDS REVIEW\]\s*/i,'');
   return s;
 }
@@ -3786,33 +3786,338 @@ function emDashAutocorrect(el){
   sel.removeAllRanges();
   sel.addRange(newRange);
 }
+// ─── Round 64 (2026-10-09, David-approved) — auto-clean + Tidy ───
+// Every rich field (richTa) is cleaned automatically on paste and on save.
+// KEPT: bold, italic, ONE header level (<h3>), paragraphs, bullet + numbered
+// lists, web/email links, curly quotes, en/em dashes (the text itself).
+// STRIPPED: fonts, colours, sizes, spans, classes, styles, Word/Docs junk,
+// comments, images, &nbsp;, hidden marks — and mid-line breaks (a single
+// <br> becomes a space; two or more in a row become a paragraph break),
+// per David 09-10: "only para breaks required".
+// The stored value is always the cleaned HTML (cleaned on every keystroke
+// for the save, without touching what's on screen); the on-screen field is
+// re-cleaned on paste and when you leave the field after editing.
+// Merely clicking into an old, never-cleaned field changes nothing.
+// Tidy (toolbar button) is separate and never automatic: house style for
+// quotes/dashes/spaces, with a before/after preview and Apply/Cancel.
+const BPH_ZW_RE=/[\u200b-\u200f\u202a-\u202e\u2060-\u2064\ufeff\u00ad]/g;
+const BPH_CARET='\ue000'; // private-use char: marks the caret through a clean, then removed
+const BPH_BLOCK=new Set(['P','DIV','BLOCKQUOTE','PRE','SECTION','ARTICLE','HEADER','FOOTER','ASIDE','ADDRESS','FIGURE','FIGCAPTION','TABLE','TBODY','THEAD','TFOOT','TR','TD','TH','DL','DT','DD','CENTER','MAIN','NAV','FORM','FIELDSET','HR','CAPTION']);
+const BPH_SKIP=new Set(['STYLE','SCRIPT','HEAD','META','LINK','TITLE','XML','TEMPLATE','NOSCRIPT','IMG','SVG','IFRAME','OBJECT','EMBED','BUTTON','INPUT','SELECT','TEXTAREA','VIDEO','AUDIO','CANVAS','PICTURE','SOURCE','V:SHAPE','V:IMAGEDATA','W:SDT']);
+function bphEscText(t){ return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function bphTextOnly(h){ return String(h||'').replace(/<[^>]*>/g,' ').replace(/&nbsp;/g,' ').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"').replace(/&#39;/g,"'").replace(/&amp;/g,'&').replace(/\s+/g,' ').trim(); }
+function bphSerialiseRuns(runs){
+  const m=[];
+  runs.forEach(r=>{ const last=m[m.length-1];
+    if(!r.br && last && !last.br && last.b===r.b && last.i===r.i && (last.href||'')===(r.href||'')) last.text+=r.text; else m.push(Object.assign({},r)); });
+  let s='';
+  m.forEach(r=>{
+    if(r.br){ s+='<br>'; return; }
+    const t=bphEscText(r.text);
+    if(!r.b && !r.i && !r.href){ s+=t; return; }
+    const lead=(t.match(/^\s+/)||[''])[0], trail=(t.match(/\s+$/)||[''])[0], core=t.trim();
+    if(!core){ s+=t; return; }
+    let w=core; if(r.i) w='<i>'+w+'</i>'; if(r.b) w='<b>'+w+'</b>'; if(r.href) w='<a href="'+esc(r.href)+'">'+w+'</a>';
+    s+=lead+w+trail;
+  });
+  return s.replace(/ {2,}/g,' ');
+}
+function bphTrimInline(s){ return s.replace(/^(?:\s|<br>)+/,'').replace(/(?:\s|<br>)+$/,''); }
+// Returns {html, stats}. html is always block-wrapped (<p>/<h3>/<ul>/<ol>).
+function bphCleanHtml(src){
+  const st={spans:0,styles:0,classes:0,fonts:0,linksOut:0,comments:0,dropped:0,nbsp:0,zw:0,brJoined:0,wordBullets:0,headings:0};
+  src=String(src||'');
+  if(!src.trim()) return {html:'',stats:st};
+  st.nbsp=(src.match(/&nbsp;|&#160;|&#xa0;|\u00a0/gi)||[]).length;
+  const doc=new DOMParser().parseFromString('<!doctype html><body>'+src+'</body>','text/html');
+  const blocks=[]; let cur=[]; let curType='p'; let curList='ul'; const lists=[];
+  const joinBr=s=>{ const n=(s.match(/<br>/g)||[]).length; st.brJoined+=n; return s.replace(/\s*<br>\s*/g,' '); };
+  function flush(){
+    if(!cur.length) return;
+    const s=bphSerialiseRuns(cur); cur=[];
+    if(curType==='li'){ const t=bphTrimInline(joinBr(bphTrimInline(s))).trim(); if(bphTextOnly(t)) blocks.push({t:'li',list:curList,h:t}); return; }
+    if(curType==='h'){ const t=bphTrimInline(joinBr(bphTrimInline(s))).replace(/<\/?b>/g,'').trim(); if(bphTextOnly(t)) blocks.push({t:'h',h:t}); return; }
+    s.split(/(?:\s*<br>\s*){2,}/).forEach(part=>{ const t=joinBr(bphTrimInline(part)).replace(/ {2,}/g,' ').trim(); if(bphTextOnly(t)) blocks.push({t:'p',h:t}); });
+  }
+  function walk(node,fmt,inLi){
+    for(const ch of Array.from(node.childNodes)){
+      if(ch.nodeType===8){ st.comments++; continue; }
+      if(ch.nodeType===3){
+        let t=ch.nodeValue; const z=t.match(BPH_ZW_RE); if(z) st.zw+=z.length;
+        t=t.replace(BPH_ZW_RE,'').replace(/\u00a0/g,' ').replace(/[\t\n\r\f ]+/g,' ');
+        if(t) cur.push({text:t,b:fmt.b,i:fmt.i,href:fmt.href}); continue;
+      }
+      if(ch.nodeType!==1) continue;
+      const tag=ch.tagName.toUpperCase();
+      if(BPH_SKIP.has(tag)){ st.dropped++; continue; }
+      const style=(ch.getAttribute('style')||'').toLowerCase().replace(/\s+/g,'');
+      if(/mso-list:ignore/.test(style)){ st.wordBullets++; continue; }
+      if(style) st.styles++;
+      if(ch.getAttribute('class')) st.classes++;
+      const f={b:fmt.b,i:fmt.i,href:fmt.href};
+      const fw=style.match(/(?:^|;)font-weight:(bold|bolder|normal|lighter|\d00)/), fs=style.match(/(?:^|;)font-style:(italic|oblique|normal)/);
+      if(tag==='B'||tag==='STRONG'){ f.b=!(fw&&/normal|lighter|[1-4]00/.test(fw[1])); }
+      else if(tag==='I'||tag==='EM'||tag==='CITE'||tag==='DFN'||tag==='VAR'){ f.i=!(fs&&fs[1]==='normal'); }
+      else { if(fw) f.b=/bold|bolder|[5-9]00/.test(fw[1]); if(fs) f.i=fs[1]!=='normal'; }
+      if(tag==='SPAN') st.spans++; if(tag==='FONT') st.fonts++;
+      if(tag==='A'){ const h=(ch.getAttribute('href')||'').trim(); if(/^(https?:|mailto:)/i.test(h)) f.href=h; else if(h) st.linksOut++; }
+      if(tag==='BR'){ cur.push({br:true}); continue; }
+      if(/^H[1-6]$/.test(tag)){
+        if(inLi){ walk(ch,f,true); continue; }
+        flush(); st.headings++; const p=curType; curType='h'; walk(ch,f,false); flush(); curType=p; continue;
+      }
+      if(tag==='UL'||tag==='OL'){ if(!inLi) flush(); lists.push(tag==='OL'?'ol':'ul'); walk(ch,f,inLi); lists.pop(); continue; }
+      if(tag==='LI'){ flush(); const p=curType, pl=curList; curType='li'; curList=lists[lists.length-1]||'ul'; walk(ch,f,true); flush(); curType=p; curList=pl; continue; }
+      const wordLi = tag==='P' && (/^msolistparagraph/i.test(ch.getAttribute('class')||'') || /mso-list:l\d/.test(style));
+      if(wordLi){ flush(); curType='li'; curList='ul'; walk(ch,f,true); flush(); curType='p'; continue; }
+      if(BPH_BLOCK.has(tag)){
+        if(inLi){ cur.push({text:' ',b:false,i:false}); walk(ch,f,true); continue; }
+        flush(); walk(ch,f,false); flush(); continue;
+      }
+      walk(ch,f,inLi);
+    }
+  }
+  walk(doc.body,{b:false,i:false,href:''},false); flush();
+  let out='', open='';
+  blocks.forEach(bk=>{
+    if(bk.t==='li'){ if(open!==bk.list){ if(open) out+='</'+open+'>'; out+='<'+bk.list+'>'; open=bk.list; } out+='<li>'+bk.h+'</li>'; }
+    else { if(open){ out+='</'+open+'>'; open=''; } out+= bk.t==='h' ? '<h3>'+bk.h+'</h3>' : '<p>'+bk.h+'</p>'; }
+  });
+  if(open) out+='</'+open+'>';
+  return {html:out,stats:st};
+}
+// Plain-text paste (no HTML on the clipboard). Blank lines = paragraph
+// breaks. If the text HAS blank lines, single line breaks inside a paragraph
+// are mid-line wraps (e.g. a hard-wrapped email) and become spaces. If it has
+// NO blank lines at all, each line is treated as its own paragraph (one-per-
+// line sources: a list of socials, an old BPH field). Lines that all start
+// with •/-/* become a bullet list; 1. / 1) a numbered list.
+function bphPlainToHtml(text){
+  text=String(text||'').replace(/\r\n?/g,'\n').replace(BPH_ZW_RE,'').replace(/\u00a0/g,' ');
+  const e=s=>bphEscText(s).replace(/[ \t]+/g,' ').trim();
+  const hasBlank=/\n[ \t]*\n/.test(text);
+  const paras=text.split(/\n[ \t]*\n/).map(p=>p.split('\n').filter(l=>l.trim()));
+  let out=''; const bul=/^\s*[•·▪◦‣\-\*–]\s+/, num=/^\s*\d+[.)]\s+/;
+  paras.forEach(lines=>{ if(!lines.length) return;
+    if(lines.length>1 && lines.every(l=>bul.test(l))) out+='<ul>'+lines.map(l=>'<li>'+e(l.replace(bul,''))+'</li>').join('')+'</ul>';
+    else if(lines.length>1 && lines.every(l=>num.test(l))) out+='<ol>'+lines.map(l=>'<li>'+e(l.replace(num,''))+'</li>').join('')+'</ol>';
+    else if(hasBlank) out+='<p>'+lines.map(e).join(' ')+'</p>';
+    else out+=lines.map(l=>'<p>'+e(l)+'</p>').join('');
+  });
+  return out;
+}
+function bphStatsLine(st){
+  const p=[]; const add=(n,l)=>{ if(n) p.push(n+' '+l); };
+  add(st.spans,'span'+(st.spans>1?'s':'')); add(st.styles,'style'+(st.styles>1?'s':'')); add(st.classes,'class'+(st.classes>1?'es':'')); add(st.fonts,'font tag'+(st.fonts>1?'s':'')); add(st.comments,'Word comment'+(st.comments>1?'s':'')); add(st.dropped,'other tag'+(st.dropped>1?'s':'')); add(st.nbsp,'non-breaking space'+(st.nbsp>1?'s':'')); add(st.zw,'hidden mark'+(st.zw>1?'s':'')); add(st.linksOut,'non-web link'+(st.linksOut>1?'s':''));
+  const c=[]; if(st.brJoined) c.push(st.brJoined+' line break'+(st.brJoined>1?'s':'')+' joined'); if(st.wordBullets) c.push('Word bullets → list'); if(st.headings) c.push(st.headings+' heading'+(st.headings>1?'s':'')+' → H');
+  return (p.length?'stripped '+p.join(', '):'nothing to strip')+(c.length?'; '+c.join(', '):'');
+}
+const bphNorm=s=>String(s||'').replace(/\s+/g,' ').trim();
+// Re-clean a field on screen, keeping the caret where it was.
+function richTaNormalise(el){
+  const sel=window.getSelection(); let marked=false;
+  if(sel && sel.rangeCount && el.contains(sel.anchorNode)){
+    const r=sel.getRangeAt(0).cloneRange(); r.collapse(false);
+    r.insertNode(document.createTextNode(BPH_CARET)); marked=true;
+  }
+  const res=bphCleanHtml(el.innerHTML);
+  el.innerHTML=res.html;
+  if(marked){
+    const tw=document.createTreeWalker(el,NodeFilter.SHOW_TEXT); let n;
+    while((n=tw.nextNode())){ const i=n.nodeValue.indexOf(BPH_CARET); if(i<0) continue;
+      n.nodeValue=n.nodeValue.replace(BPH_CARET,'');
+      const r=document.createRange(); r.setStart(n,i); r.collapse(true); sel.removeAllRanges(); sel.addRange(r); break; }
+    el.innerHTML.indexOf(BPH_CARET)>=0 && (el.innerHTML=el.innerHTML.split(BPH_CARET).join(''));
+  }
+  return res;
+}
+function richTaStoredValue(el){ return bphCleanHtml(el.innerHTML.split(BPH_CARET).join('')).html; }
+function richTaStatus(editId,msg){
+  const s=document.getElementById('rts-'+editId); if(!s) return;
+  s.textContent=msg; s.classList.add('show'); clearTimeout(s._t); s._t=setTimeout(()=>s.classList.remove('show'),6000);
+}
 function richTaOnInput(el,titleId,path){
   emDashAutocorrect(el);
-  fc(titleId,path,el.innerHTML);
+  el.dataset.dirty='1';
+  fc(titleId,path,richTaStoredValue(el));
   el.dataset.empty = el.innerText.trim()?'0':'1';
+}
+function richTaPaste(e,el,titleId,path){
+  const cd=e.clipboardData; if(!cd) return;
+  e.preventDefault();
+  const h=cd.getData('text/html'), t=cd.getData('text/plain');
+  const r = h ? bphCleanHtml(h) : {html:bphPlainToHtml(t),stats:null};
+  if(!r.html){ richTaStatus(el.id,'Nothing to paste after cleaning.'); return; }
+  if(!h && !/[\r\n]/.test(t)){ // one line of plain text: insert as typed, spaces and all
+    document.execCommand('insertText',false,t.replace(BPH_ZW_RE,'').replace(/\u00a0/g,' '));
+  } else {
+    const one=/^<p>((?:(?!<\/?p>)[\s\S])*)<\/p>$/.exec(r.html); // a single paragraph pastes inline, mid-sentence
+    if(!document.execCommand('insertHTML',false, one?one[1]:r.html)) el.innerHTML+=r.html;
+  }
+  richTaNormalise(el);
+  el.dataset.dirty='1';
+  fc(titleId,path,richTaStoredValue(el));
+  el.dataset.empty = el.innerText.trim()?'0':'1';
+  richTaStatus(el.id,'✓ Pasted and auto-cleaned: '+(r.stats?bphStatsLine(r.stats):'plain text')+'.');
+}
+function richTaBlur(el,titleId,path){
+  el.dataset.empty=el.innerText.trim()?'0':'1';
+  if(el.dataset.dirty!=='1') return; // just clicked in and out: leave old data exactly as it is
+  el.dataset.dirty='0';
+  const before=el.innerHTML, res=bphCleanHtml(before);
+  if(bphNorm(res.html)!==bphNorm(before)) el.innerHTML=res.html;
+  fc(titleId,path,res.html);
+}
+function richCmd(editId,c){
+  const el=document.getElementById(editId); if(!el) return; el.focus();
+  if(c==='h'){ const b=String(document.queryCommandValue('formatBlock')||''); document.execCommand('formatBlock',false,/h\d/i.test(b)?'p':'h3'); }
+  else if(c==='link'){
+    const u=prompt('Link address (https://… or mailto:…)','https://');
+    if(u && /^(https?:\/\/\S+|mailto:\S+)$/i.test(u.trim())) document.execCommand('createLink',false,u.trim());
+    else if(u && u!=='https://') ctToast('Only web (https://) and email (mailto:) links are kept.');
+  }
+  else document.execCommand(c,false,null);
+}
+
+// ── Tidy (house style) ──
+// Closed em dash (word—word), per David 09-10. Ranges 7-9 → 7–9 (en dash).
+const TIDY_RULES=[['dq','“ ” quotes'],['sq','‘ ’ apostrophes/quotes'],['dash','hyphen → em dash'],['range','7-9 → 7–9'],['ell','… ellipsis'],['sp','double space'],['spp','space before punctuation']];
+const tidyZero=()=>Object.fromEntries(TIDY_RULES.map(r=>[r[0],0]));
+function tidyText(s,prev,c,next){
+  s=s.replace(/\.{3}/g,()=>{c.ell++;return '…';});
+  s=s.replace(/ ?-{2,3} ?/g,()=>{c.dash++;return '—';});
+  s=s.replace(/(\S) - (?=\S)/g,(m,a)=>{c.dash++;return a+'—';});
+  // a spaced hyphen split across formatting, e.g. 'said - <b>then</b>'
+  if(next && /\S/.test(next)) s=s.replace(/(\S) [-–] $/,(m,a)=>{c.dash++;return a+'—';});
+  if(prev && /\S/.test(prev)) s=s.replace(/^ [-–] (?=\S)/,()=>{c.dash++;return '—';});
+  s=s.replace(/(\D) – (?=\D)/g,(m,a)=>{c.dash++;return a+'—';}); // spaced en dash used as a dash → closed em (ranges like 7–9 untouched)
+  s=s.replace(/(^|[^\d\-–\/.])(\d{1,4})-(\d{1,4})(?![\d\-\/.])/g,(m,a,x,y)=>{c.range++;return a+x+'–'+y;});
+  let o='';
+  for(let i=0;i<s.length;i++){
+    const ch=s[i], p=i?s[i-1]:prev, nx=s[i+1]||'';
+    if(ch==='"'){ c.dq++; o+=(!p||/[\s(\[{—–\/-]/.test(p))?'“':'”'; }
+    else if(ch==="'"){ c.sq++;
+      const elision=/^'(em|tis|twas|cause|til|round|n'|n )/i.test(s.slice(i,i+6));
+      o+=((!p||/[\s(\[{—–“]/.test(p)) && /[A-Za-z]/.test(nx) && !elision)?'‘':'’'; }
+    else o+=ch;
+  }
+  s=o;
+  s=s.replace(/ {2,}/g,()=>{c.sp++;return ' ';});
+  s=s.replace(/(\S) +([,.;:!?])(?=\s|$)/g,(m,a,b)=>{c.spp++;return a+b;});
+  return s;
+}
+function tidyTok(s){ return s.match(/\s+|[\p{L}\p{N}]+|[^\s\p{L}\p{N}]/gu)||[]; }
+function tidyDiff(a,b){
+  const n=a.length,m=b.length; if(n*m>600000) return null;
+  const dp=[]; for(let i=0;i<=n;i++) dp.push(new Uint16Array(m+1));
+  for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--) dp[i][j]=a[i]===b[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  const A=[],B=[]; let i=0,j=0;
+  while(i<n&&j<m){ if(a[i]===b[j]){A.push([a[i],0]);B.push([b[j],0]);i++;j++;} else if(dp[i+1][j]>=dp[i][j+1]){A.push([a[i],1]);i++;} else {B.push([b[j],1]);j++;} }
+  while(i<n) A.push([a[i++],1]); while(j<m) B.push([b[j++],1]);
+  return {A,B};
+}
+function tidyMarked(list,cls){
+  const f=document.createDocumentFragment(); let buf='', on=false;
+  const put=()=>{ if(!buf) return; if(on){ const mk=document.createElement('mark'); mk.className=cls; mk.textContent=buf; f.appendChild(mk);} else f.appendChild(document.createTextNode(buf)); buf=''; };
+  list.forEach(([t,ch])=>{ if(!!ch!==on){ put(); on=!!ch; } buf+=t; }); put(); return f;
+}
+function tidyBlockOf(n){ let e=n.parentNode; while(e && !/^(P|LI|H3|DIV)$/.test(e.tagName)) e=e.parentNode; return e; }
+function tidyTextPass(root,c,side){
+  const tw=document.createTreeWalker(root,NodeFilter.SHOW_TEXT); const nodes=[]; while(tw.nextNode()) nodes.push(tw.currentNode);
+  let lastBlock=null, prev='';
+  const blocks=nodes.map(tidyBlockOf);
+  nodes.forEach((nd,ix)=>{
+    const bl=blocks[ix]; if(bl!==lastBlock){ prev=''; lastBlock=bl; }
+    const next=(ix+1<nodes.length && blocks[ix+1]===bl) ? nodes[ix+1].nodeValue.charAt(0) : '';
+    const before=nd.nodeValue, after=tidyText(before,prev,c,next);
+    prev=after.slice(-1)||prev;
+    if(!side){ nd.nodeValue=after; return; }
+    if(before===after) return;
+    const d=tidyDiff(tidyTok(before),tidyTok(after)); if(!d) return;
+    nd.parentNode.replaceChild(tidyMarked(side==='before'?d.A:d.B, side==='before'?'d':'a'), nd);
+  });
+}
+// Rich HTML → {html, beforeView, afterView, counts, total}
+function tidyHtml(html){
+  const c=tidyZero(), dummy=tidyZero();
+  const base=bphCleanHtml(html).html;
+  const mk=()=>{ const d=document.createElement('div'); d.innerHTML=base; return d; };
+  const A=mk(), Bv=mk(), Av=mk();
+  tidyTextPass(A,c,false); tidyTextPass(Bv,dummy,'before'); tidyTextPass(Av,dummy,'after');
+  const out=bphCleanHtml(A.innerHTML).html;
+  return {html:out,beforeView:Bv.innerHTML,afterView:Av.innerHTML,counts:c,total:Object.values(c).reduce((a,b)=>a+b,0)};
+}
+// Plain textarea (one item per line) → same shape; newlines kept as they are.
+function tidyPlain(text){
+  const c=tidyZero(), dummy=tidyZero();
+  const lines=String(text||'').split('\n');
+  const outLines=lines.map(l=>tidyText(l,'',c));
+  const view=(side)=>lines.map((l,i)=>{ const d=document.createElement('div'); d.className='tidy-line';
+      if(l===outLines[i]){ d.textContent=l||'\u00a0'; return d.outerHTML; }
+      const df=tidyDiff(tidyTok(l),tidyTok(outLines[i])); if(!df){ d.textContent=side==='before'?l:outLines[i]; return d.outerHTML; }
+      d.appendChild(tidyMarked(side==='before'?df.A:df.B, side==='before'?'d':'a')); return d.outerHTML; }).join('');
+  return {text:outLines.join('\n'),beforeView:view('before'),afterView:view('after'),counts:c,total:Object.values(c).reduce((a,b)=>a+b,0)};
+}
+const tidyUndo={}; // editId -> {prev, titleId, path, kind}
+function openTidy(editId,titleId,path,kind){
+  const box=document.getElementById('tp-'+editId); if(!box) return;
+  if(box.innerHTML){ box.innerHTML=''; return; } // second click closes
+  const el=document.getElementById(editId); if(!el) return;
+  const r = kind==='plain' ? tidyPlain(el.value) : tidyHtml(el.innerHTML);
+  if(!r.total){ ctToast('Already in house style: nothing for Tidy to change.'); return; }
+  const chips=TIDY_RULES.filter(x=>r.counts[x[0]]).map(x=>`<span class="tidy-chip">${r.counts[x[0]]} × ${esc(x[1])}</span>`).join('');
+  box.innerHTML=`<div class="tidy-panel" role="region" aria-label="Tidy preview">
+    <div class="tidy-h"><b>Tidy: ${r.total} change${r.total>1?'s':''}</b><div class="tidy-chips">${chips}</div></div>
+    <div class="tidy-ba"><div><div class="tidy-pane-h">Before</div><div class="tidy-rendered">${r.beforeView}</div></div><div><div class="tidy-pane-h">After</div><div class="tidy-rendered">${r.afterView}</div></div></div>
+    <div class="tidy-actions"><button type="button" class="btn btn-primary btn-sm" onclick="applyTidy('${editId}','${titleId}','${path}','${kind}')">Apply</button><button type="button" class="btn btn-sm" onclick="document.getElementById('tp-${editId}').innerHTML=''">Cancel</button><span class="tidy-key"><mark class="d">red</mark> goes, <mark class="a">green</mark> comes in. Nothing changes until you press Apply.</span></div>
+  </div>`;
+}
+function applyTidy(editId,titleId,path,kind){
+  const el=document.getElementById(editId); if(!el) return;
+  if(kind==='plain'){
+    const r=tidyPlain(el.value); tidyUndo[editId]={prev:el.value,titleId,path,kind};
+    el.value=r.text; fc(titleId,path,r.text); if(typeof autoGrow==='function') autoGrow(el);
+    richTaStatus(editId,'✓ Tidied: '+r.total+' change'+(r.total>1?'s':'')+'.');
+  } else {
+    const r=tidyHtml(el.innerHTML); tidyUndo[editId]={prev:el.innerHTML,titleId,path,kind};
+    el.innerHTML=r.html; fc(titleId,path,r.html); el.dataset.empty=el.innerText.trim()?'0':'1';
+    richTaStatus(editId,'✓ Tidied: '+r.total+' change'+(r.total>1?'s':'')+'.');
+  }
+  document.getElementById('tp-'+editId).innerHTML='';
+  const s=document.getElementById('rts-'+editId);
+  if(s){ const u=document.createElement('button'); u.type='button'; u.className='rt-undo'; u.textContent='Undo'; u.onclick=()=>undoTidy(editId); s.appendChild(document.createTextNode(' ')); s.appendChild(u); clearTimeout(s._t); s._t=setTimeout(()=>s.classList.remove('show'),15000); }
+}
+function undoTidy(editId){
+  const u=tidyUndo[editId]; const el=document.getElementById(editId); if(!u||!el) return;
+  if(u.kind==='plain'){ el.value=u.prev; if(typeof autoGrow==='function') autoGrow(el); fc(u.titleId,u.path,u.prev); }
+  else { el.innerHTML=u.prev; fc(u.titleId,u.path,bphCleanHtml(u.prev).html); el.dataset.empty=el.innerText.trim()?'0':'1'; }
+  delete tidyUndo[editId]; richTaStatus(editId,'Tidy undone.');
+}
+// Tidy button + preview slot for a plain textarea (Sales Handle, Selling
+// Points, Quotes, Target Audience). Line breaks there are kept: one item per line.
+function tidyBar(editId,titleId,path){
+  return `<div class="tidy-plain-bar"><button type="button" class="rt-btn rt-tidy" title="House style: curly quotes, dashes, spaces. Shows a before/after first." onclick="openTidy('${editId}','${titleId}','${path}','plain')">Tidy</button><span class="rt-status" id="rts-${editId}" role="status"></span></div><div id="tp-${editId}"></div>`;
 }
 function richTa(titleId,fieldKey,path,val,ph){
   const editId=`f-${titleId}-${fieldKey}`;
   const isEmpty = !val || !val.replace(/<[^>]+>/g,'').trim();
   const displayHtml = plainToRichHtml(val);
+  const B=(c,label,title)=>`<button type="button" class="rt-btn" title="${title}" onmousedown="event.preventDefault()" onclick="richCmd('${editId}','${c}')">${label}</button>`;
   return `<div class="richtext-wrap">
     <div class="richtext-toolbar">
-      <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('bold')"><b>B</b></button>
-      <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('italic')"><i>I</i></button>
-      <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('formatBlock',false,'p')">¶</button>
-      <!-- Item 8 (2026-08-11) — numbered list, asked for specifically on the
-           TOC field but wired into the shared toolbar (every richTa field
-           gets it) rather than a TOC-only special case, per item 5's "extend
-           consistently" steer. insertOrderedList produces a real <ol><li>
-           structure; see htmlFragmentToRtfParagraphs()'s <ol> handling below
-           for why the Word export needed a matching update to not silently
-           drop list content. -->
-      <button type="button" class="rt-btn" onmousedown="event.preventDefault()" onclick="document.execCommand('insertOrderedList')" title="Numbered list">1.</button>
+      ${B('bold','<b>B</b>','Bold')}${B('italic','<i>I</i>','Italic')}${B('h','H','Header (one level). Click again to make it a paragraph')}
+      <button type="button" class="rt-btn" title="Paragraph" onmousedown="event.preventDefault()" onclick="document.getElementById('${editId}').focus();document.execCommand('formatBlock',false,'p')">¶</button>
+      ${B('insertUnorderedList','• List','Bullet list')}${B('insertOrderedList','1. List','Numbered list')}${B('link','Link','Link (web or email address)')}
+      <span class="rt-sep"></span>
+      <button type="button" class="rt-btn rt-tidy" title="House style: curly quotes, closed em dashes, spaces. Shows a before/after first." onclick="openTidy('${editId}','${titleId}','${path}','rich')">Tidy</button>
+      <span class="rt-status" id="rts-${editId}" role="status"></span>
     </div>
-    <div id="${editId}" class="richtext" contenteditable="true" data-placeholder="${esc(ph)}" data-empty="${isEmpty?'1':'0'}"
+    <div id="${editId}" class="richtext" contenteditable="true" data-placeholder="${esc(ph)}" data-empty="${isEmpty?'1':'0'}" data-dirty="0"
       oninput="richTaOnInput(this,'${titleId}','${path}')"
-      onfocus="this.dataset.wasEmpty=this.dataset.empty;try{document.execCommand('defaultParagraphSeparator',false,'p')}catch(e){}" onblur="this.dataset.empty=this.innerText.trim()?'0':'1'"
+      onpaste="richTaPaste(event,this,'${titleId}','${path}')"
+      onfocus="this.dataset.wasEmpty=this.dataset.empty;try{document.execCommand('defaultParagraphSeparator',false,'p')}catch(e){}" onblur="richTaBlur(this,'${titleId}','${path}')"
       >${displayHtml}</div>
+    <div id="tp-${editId}"></div>
   </div>`;
 }
 
@@ -3883,10 +4188,10 @@ function renderContent(t){const id=t.id;const c=t.content;
     ${frow('Full Description',richTa(id,'fullDesc','content.fullDescription',c.fullDescription,'Full marketing description…'),'full')}
     ${frow('Jacket Blurb',richTa(id,'jacketBlurb','content.jacketBlurb',c.jacketBlurb,'Back cover blurb…'),'full')}
     ${frow('Brief Description',richTa(id,'briefDesc','content.briefDescription',c.briefDescription,'Short description…'),'full')}
-    ${frow('Sales Handle',taLine(`f-${id}-salesHandle`,c.salesHandle,'One-line sales handle…',`fc('${id}','content.salesHandle',this.value)`,true),'full')}
-    ${frow('Selling Points (one per line)',taAuto(`f-${id}-sellingPoints`,c.sellingPoints,'One selling point per line…',`fc('${id}','content.sellingPoints',this.value)`),'full')}
-    ${frow('Quotes (one per line)',taAuto(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`),'full')}
-    ${frow('Target Audience',taLine(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`,false))}
+    ${frow('Sales Handle',taLine(`f-${id}-salesHandle`,c.salesHandle,'One-line sales handle…',`fc('${id}','content.salesHandle',this.value)`,true)+tidyBar(`f-${id}-salesHandle`,id,'content.salesHandle'),'full')}
+    ${frow('Selling Points (one per line)',taAuto(`f-${id}-sellingPoints`,c.sellingPoints,'One selling point per line…',`fc('${id}','content.sellingPoints',this.value)`)+tidyBar(`f-${id}-sellingPoints`,id,'content.sellingPoints'),'full')}
+    ${frow('Quotes (one per line)',taAuto(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`)+tidyBar(`f-${id}-quotes`,id,'content.quotes'),'full')}
+    ${frow('Target Audience',taLine(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`,false)+tidyBar(`f-${id}-targetAud`,id,'content.targetAudience'))}
     ${frow('Keywords / Metadata',taLine(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`,true)+`<div class="field-help">Enter doesn't add a line break. Keywords stay one semicolon-separated line.</div>`)}
     ${renderCompetingTitles(t)}
   </div>`;}
@@ -3902,10 +4207,16 @@ function taLine(id,val,ph,handler,singleLine){
 }
 document.addEventListener('keydown',e=>{ if(e.key==='Enter' && e.target && e.target.matches && e.target.matches('textarea[data-single-line]')) e.preventDefault(); });
 document.addEventListener('paste',e=>{
-  const t=e.target; if(!t||!t.matches||!t.matches('textarea[data-single-line]')) return;
-  const txt=(e.clipboardData&&e.clipboardData.getData('text'))||''; if(!/[\r\n]/.test(txt)) return;
+  // Round 64 — every plain textarea: hidden marks (zero-width, soft hyphen,
+  // direction marks) dropped and non-breaking spaces made normal on paste.
+  // Single-line ones still flatten line breaks to spaces (Round 62).
+  const t=e.target; if(!t||!t.matches||!t.matches('textarea')) return;
+  const raw=(e.clipboardData&&e.clipboardData.getData('text'))||'';
+  let txt=raw.replace(BPH_ZW_RE,'').replace(/\u00a0/g,' ');
+  if(t.matches('textarea[data-single-line]') && /[\r\n]/.test(txt)) txt=txt.replace(/\s*\r?\n\s*/g,' ').trim();
+  if(txt===raw) return;
   e.preventDefault();
-  t.setRangeText(txt.replace(/\s*\r?\n\s*/g,' ').trim(),t.selectionStart,t.selectionEnd,'end');
+  t.setRangeText(txt,t.selectionStart,t.selectionEnd,'end');
   t.dispatchEvent(new Event('input',{bubbles:true}));
 });
 let ctCopyFmt='dash';
@@ -6487,36 +6798,26 @@ function inlineHtmlToRtf(raw){
   s=s.split(L).join('\\line ').split(BO).join('{\\b ').split(BC).join('}').split(IO).join('{\\i ').split(IC).join('}');
   return s;
 }
+// Round 64 — rewritten as an in-order block walk so the new toolbar's
+// header (<h3> → a bold paragraph) and bullet lists (<ul> → "• " lines) reach
+// the Word export, and lists now sit where they are in the text instead of
+// being appended after all the prose (the old documented simplification).
 function htmlFragmentToRtfParagraphs(html){
   if(!html || !String(html).replace(/<[^>]+>/g,'').trim()) return [];
-  let s=String(html).replace(/<div[^>]*>/gi,'<p>').replace(/<\/div>/gi,'</p>');
-  // Item 8 (2026-08-11) — numbered lists. execCommand('insertOrderedList')
-  // produces a top-level <ol><li>…</li></ol> block sitting OUTSIDE any <p>
-  // tag — the <p>-matching pass just below only ever extracts what's inside
-  // <p>…</p>, so without this an <ol> block's content would silently vanish
-  // from the Word export entirely (dropped, not just unformatted). Pulled
-  // out into its own hand-numbered pseudo-paragraphs before the <p> pass
-  // runs (and removed from `s` so it isn't double-counted); each <li>'s own
-  // inline bold/italic still goes through inlineHtmlToRtf like anything
-  // else. RTF's native \pn auto-numbering is real overhead for a converter
-  // this deliberately small (see the function-group comment above
-  // inlineHtmlToRtf) — a hand-numbered "N. " prefix is the same pragmatic
-  // choice already used for bullet lists (exportFieldToRtfParagraphs'
-  // 'list' kind, • prefix). Order note: list paragraphs are appended
-  // AFTER any surrounding prose rather than interleaved at their original
-  // position — a documented simplification, not a precision loss this
-  // export has ever promised (see getSectionExportFields's own "everything
-  // present, not position-perfect" framing).
-  const listParas=[];
-  s=s.replace(/<ol[^>]*>([\s\S]*?)<\/ol>/gi,(_,inner)=>{
-    let n=0; const liRe=/<li[^>]*>([\s\S]*?)<\/li>/gi; let lm;
-    while((lm=liRe.exec(inner))){ n++; listParas.push(n+'.  '+inlineHtmlToRtf(lm[1])); }
-    return '';
+  const doc=new DOMParser().parseFromString('<!doctype html><body>'+String(html)+'</body>','text/html');
+  const out=[]; let loose='';
+  const pushLoose=()=>{ if(loose.replace(/<[^>]+>/g,'').trim()) out.push(inlineHtmlToRtf(loose)); loose=''; };
+  Array.from(doc.body.childNodes).forEach(n=>{
+    if(n.nodeType===3){ loose+=bphEscText(n.nodeValue); return; }
+    if(n.nodeType!==1) return;
+    const tag=n.tagName.toUpperCase();
+    if(tag==='P'||tag==='DIV'||tag==='BLOCKQUOTE'){ pushLoose(); out.push(inlineHtmlToRtf(n.innerHTML)); return; }
+    if(/^H[1-6]$/.test(tag)){ pushLoose(); out.push(inlineHtmlToRtf('<b>'+n.innerHTML.replace(/<\/?(?:b|strong)\b[^>]*>/gi,'')+'</b>')); return; }
+    if(tag==='UL'||tag==='OL'){ pushLoose(); let i=0; Array.from(n.children).filter(li=>li.tagName==='LI').forEach(li=>{ i++; out.push((tag==='OL'?i+'.  ':'•  ')+inlineHtmlToRtf(li.innerHTML)); }); return; }
+    loose+=n.outerHTML;
   });
-  const paras=[]; const re=/<p[^>]*>([\s\S]*?)<\/p>/gi; let m,any=false;
-  while((m=re.exec(s))){ any=true; paras.push(m[1]); }
-  if(!any && s.replace(/<[^>]+>/g,'').trim()) paras.push(s);
-  return paras.map(inlineHtmlToRtf).filter(p=>p.trim()!=='').concat(listParas.filter(p=>p.trim()!==''));
+  pushLoose();
+  return out.filter(p=>p.trim()!=='');
 }
 function plainTextToRtfParagraphs(text){
   return String(text||'').split(/\n+/).map(l=>l.trim()).filter(Boolean).map(l=>rtfEscapeText(l));
