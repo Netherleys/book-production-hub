@@ -131,7 +131,7 @@ body{font-family:var(--sans);font-size:14px;color:var(--text-oncream);background
    chrome, deliberately unaffected — David didn't ask for those to change,
    see build report). ISBN Manager and Quick Notes views are untouched,
    still dark chrome. */
-body[data-view="detail"],body[data-view="titles"]{background:var(--bg-detail-green)}
+body[data-view="detail"],body[data-view="titles"],body[data-view="dist"]{background:var(--bg-detail-green)}
 a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* ── HEADER (dark chrome, item 5 — page/chrome goes dark, cards stay light) ── */
 /* Items 1/2 (Round 2) — the header used to be a HARD-fixed height
@@ -264,6 +264,7 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
    for the new sidebar. */
 #main.main-detail{max-width:calc(var(--detail-width) + 190px);margin:0 auto}
 #main.main-isbns{max-width:1100px;margin:0 auto}
+#main.main-dist{max-width:1100px;margin:0 auto}
 #main.main-quicknotes{max-width:900px;margin:0 auto}
 /* Round 24 (2026-08-20) — Progress Report, same width treatment as ISBN
    Manager (a report/table view, not a card grid). */
@@ -1964,6 +1965,67 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
   .cal-year-print-head{color:#000}
   .cal-pl-label,.cal-pl-daynum,.cal-pl-headcell{color:#000}
 }
+
+/* Round 69 (2026-10-09) — Distributor page (SCB on top, Turnaround below) */
+.btn-export.btn-dist{background:var(--text);color:var(--text-oncream);border-color:var(--text)}
+.btn-export.btn-dist:hover{background:var(--text2);color:#fff}
+.dp-page{display:flex;flex-direction:column;gap:14px;padding-bottom:60px}
+.dp-top{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+.dp-title-main{font-size:1.35rem;font-weight:700;color:var(--text-oncream)}
+.dp-title-sub{font-size:.85rem;color:var(--text-oncream-dim)}
+.dp-jump{position:sticky;top:calc(var(--hh) + 4px);z-index:20;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg-page);border:1px solid var(--card-border);border-radius:var(--r8);padding:8px 10px;box-shadow:var(--shadow-md)}
+.dp-jump>button{border:1px solid var(--border2);background:var(--surface);color:var(--text);border-radius:var(--r4);padding:5px 12px;font-weight:700;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.dp-jump>button:hover{background:var(--surface-hover)}
+.dp-legend{font-size:.74rem;color:var(--text-oncream-dim);margin-left:auto;display:inline-flex;align-items:center;gap:6px}
+.dp-key-dist{display:inline-block;width:14px;height:12px;border-radius:3px;background:#E6EEF8;border:1.5px solid #2B5AA8}
+.dp-sec{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r12);padding:14px 16px;color:var(--text);scroll-margin-top:120px}
+.dp-sechead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+.dp-sechead h2{font-size:1.2rem;margin:0}
+.dp-secnote{font-size:.78rem;color:var(--text3)}
+.dp-sechead-status{display:flex;flex-direction:column;gap:6px;margin-bottom:10px}
+.dp-badge{display:inline-block;font-size:.72rem;font-weight:700;border-radius:999px;padding:1px 8px;border:1px solid}
+.dp-badge.red{color:#8a1d0e;background:var(--terra-bg);border-color:var(--terra-border)}
+.dp-badge.amber{color:#7a4a12;background:var(--amber-bg);border-color:var(--amber-border)}
+.dp-badge.ok{color:var(--sage-border);background:var(--sage-bg);border-color:var(--sage-border)}
+.dp-sechead-status>.dp-badge{align-self:flex-start;font-size:.8rem}
+.dp-keytotal{font-size:.82rem}.dp-keytotal.red{color:#8a1d0e}.dp-keytotal.ok{color:var(--sage-border)}
+.dp-issues summary{cursor:pointer;font-size:.82rem;font-weight:600}
+.dp-issues ul{margin:6px 0 0 18px;font-size:.8rem;columns:2;column-gap:24px}
+.dp-issues li{margin-bottom:3px;break-inside:avoid}
+.dp-issues li.red a{color:#8a1d0e}.dp-issues li.amber a{color:#7a4a12}
+.dp-h{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);margin:14px 0 4px;padding-bottom:3px;border-bottom:1px solid var(--border)}
+.dp-row{display:grid;grid-template-columns:40px minmax(0,1fr) auto;gap:10px;align-items:start;padding:8px 8px;border-left:4px solid transparent;border-bottom:1px solid var(--border);scroll-margin-top:130px}
+.dp-row.lvl-red{border-left-color:#c0392b}
+.dp-row.lvl-amber{border-left-color:var(--amber-border)}
+.dp-row.lvl-ok{border-left-color:var(--sage)}
+.dp-row.is-dist{background:#F3F7FC}
+.dp-n{font-size:.78rem;font-weight:700;color:var(--text3);padding-top:2px}
+.dp-label{font-size:.82rem;font-weight:700;display:flex;flex-wrap:wrap;gap:6px;align-items:baseline}
+.dp-req{color:#c0392b}
+.dp-src{font-weight:500;font-size:.72rem;color:var(--text3)}
+.dp-go{border:none;background:none;padding:0;font-size:.72rem;color:#2B5AA8;text-decoration:underline;cursor:pointer}
+.dp-val{margin-top:4px;font-size:.92rem;line-height:1.5;overflow-wrap:anywhere;min-width:0}
+.dp-rich p{margin-bottom:.6em}.dp-rich p:last-child{margin-bottom:0}
+.dp-rich ul,.dp-rich ol{margin:0 0 .5em 20px}
+.dp-pre{white-space:pre-wrap;max-height:260px;overflow:auto}
+.dp-rich{max-height:320px;overflow:auto}
+.dp-empty{color:var(--text-muted);font-style:italic}
+.dp-sub{font-size:.76rem;color:var(--text3);margin-top:3px}
+.dp-msgs{display:flex;flex-direction:column;gap:2px;margin-top:4px}
+.dp-msg{font-size:.76rem}.dp-msg.red{color:#8a1d0e}.dp-msg.amber{color:#7a4a12}
+.dp-act{display:flex;flex-direction:column;align-items:flex-end;gap:4px;min-width:120px}
+.dp-act .btn{white-space:nowrap}
+.dist-edit{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.dist-edit input,.dist-edit textarea{flex:1 1 220px;min-width:0;border:1.5px solid #2B5AA8;background:#fff;border-radius:var(--r4);padding:5px 8px;font:inherit;font-size:.9rem}
+.dist-edit textarea{resize:vertical;min-height:2.6em}
+.dp-inline input{flex:0 1 140px}
+.dp-chip{font-size:.68rem;font-weight:700;color:#2B5AA8;background:#E6EEF8;border:1px solid #2B5AA8;border-radius:999px;padding:0 7px;white-space:nowrap}
+.dp-size{display:flex;gap:14px;flex-wrap:wrap;align-items:baseline}
+.dp-unit,.dp-conv{font-size:.78rem;color:var(--text3)}
+.dp-rel{margin:0 0 0 20px}.dp-isbn{font-family:Consolas,monospace;font-size:.82rem;color:var(--text3)}.dp-miss{font-size:.74rem;color:#8a1d0e}
+.dp-flash{animation:dpflash 1.4s ease}
+@keyframes dpflash{0%,40%{box-shadow:0 0 0 3px #2B5AA8}100%{box-shadow:none}}
+@media (max-width:700px){.dp-row{grid-template-columns:28px minmax(0,1fr)}.dp-act{grid-column:2;flex-direction:row;flex-wrap:wrap;align-items:center;min-width:0}.dp-issues ul{columns:1}.dp-legend{margin-left:0}}
 </style>
 </head>
 <body>
@@ -2357,7 +2419,7 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r68"></script>
+<script src="app.js?v=r69"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>

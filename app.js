@@ -1232,6 +1232,8 @@ function rowToTitle(row){
     quickNotes,
     promoCalendar,
     poManualNotes: pn.poManualNotes||'',
+    // Round 69 — distributor-only fields (SCB / Turnaround), edited on the distributor page.
+    dist: Object.assign({}, DIST_DEFAULTS, (pn.distributor && typeof pn.distributor==='object') ? pn.distributor : {}),
     imagesFolderLink: c.imagesFolderLink||'', workingFolderLink: c.workingFolderLink||'', coverThumbnailFile: c.coverThumbnailFile||'',
     authorBookkeepingLink: pn.authorBookkeepingLink||'',
     poTrackerIsbnKey: c.poTrackerIsbnKey||'', poTrackerTitleOverride: c.poTrackerTitleOverride||''
@@ -1281,7 +1283,8 @@ function titleToRow(t){
     futureEditionNotes: t.futureEdition.infoAndChanges||'', printReadyFiles: t.futureEdition.printReadyFilesStatus||'Not Ready',
     illustrationsText: t.commercial.illustrationsText||'', poManualNotes: t.poManualNotes||'',
     pagesBreakdown: t.commercial.pagesBreakdown||'', printStatusOverride: t.dates.printStatusOverride||'',
-    releaseNote: t.dates.releaseNote||'', authorBookkeepingLink: t.authorBookkeepingLink||''
+    releaseNote: t.dates.releaseNote||'', authorBookkeepingLink: t.authorBookkeepingLink||'',
+    distributor: t.dist||{}
   });
   const printerContacts_json = JSON.stringify({ contacts: t.print.printerContacts||[] });
   const filesLinks_json = JSON.stringify({ links: t.filesLinks.links||[] });
@@ -1365,7 +1368,7 @@ function defTitle(o={}){
     productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),notes:'',proofingNotes:'',typesettingNotes:''},
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
-    quickNotes:[], promoCalendar:{}, poManualNotes:'', originals:{},
+    quickNotes:[], promoCalendar:{}, poManualNotes:'', originals:{}, dist:Object.assign({},DIST_DEFAULTS),
     imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:DEFAULT_COVER_PLACEHOLDER, authorBookkeepingLink:'', poTrackerIsbnKey:'', poTrackerTitleOverride:'',
     _row: null
   };
@@ -2225,6 +2228,7 @@ function render(){
   else if(view==='report')renderReport();
   else if(view==='promocal')renderPromoCalendar();
   else if(view==='ordertracker')renderOrderTracker();
+  else if(view==='dist')distRender(); // Round 69
   populateQuickNoteTitles();
   updateQuickNotesBadge();
   // Round 20 (2026-08-19) — header dropdown lives outside #main (it's part
@@ -3349,6 +3353,7 @@ function renderExportButtons(t){
   return `<div class="export-actions-row">
     <button class="btn btn-export" onclick="openHtmlOutput('${t.id}')">View HTML Output &#8599;</button>
     <button class="btn btn-export" onclick="downloadWordFile('${t.id}')">View Word File &#8681;</button>
+    <button class="btn btn-export btn-dist" onclick="gotoDist('${t.id}')">Distributor Page: SCB · Turnaround &#8594;</button>
   </div>`;
 }
 
@@ -3800,6 +3805,314 @@ function emDashAutocorrect(el){
   sel.removeAllRanges();
   sel.addRange(newRange);
 }
+// ─── Round 69 (2026-10-09, David-approved) — Distributor page: SCB section ───
+// One page per title: SCB on top, Turnaround below (Round 70), sticky jump
+// buttons. Everything that exists on the title page is shown READ-ONLY here
+// (edit it on the title page; one click takes you there), with only two
+// buttons per rich field: Copy formatted, Copy as basic HTML (SCB flavour).
+// Fields that exist only for distributors are editable here, highlighted,
+// and saved in productionNotes_json.distributor (no new Sheet column).
+// Units: weight stored in grams, spine in mm (printer's units); SCB gets
+// ounces (1 decimal) and inches as fractions to the nearest 1/8".
+const DIST_DEFAULTS={
+  // SCB only
+  prevIsbn:'',edNum:'',edType:'',edDetail:'',series:'',seriesNum:'',
+  a2pre:'',a2first:'',a2last:'',a2bio:'',a2home:'',a3pre:'',a3first:'',a3last:'',a3bio:'',a3home:'',contrib:'',
+  contentInfo:'',media:'',printRun:'',ship:'',pieces:'',carton:'',ic1:'',ic2:'',ic3:'',audCode:'',bisac2:'',bisac3:'',scbComments:'',
+  // shared by SCB + Turnaround (one value)
+  bisac1:'',weightG:'',spineMm:'',
+  // Turnaround only (Round 70)
+  thema:'',rights:'',origin:'',productUrl:'',taCover:false,taAi:false,taImages:false,taSpreads:false,taSent:''
+};
+const DIST_INCH_STEP=8; // nearest 1/8 inch
+let distOpenId=null;
+function gotoDist(id){ if(selectedId&&selectedId!==id) flushPendingSave(selectedId); if(selectedId) flushPendingSave(selectedId); view='dist'; selectedId=id; render(); window.scrollTo(0,0); }
+function distGet(t){ if(!t.dist) t.dist=Object.assign({},DIST_DEFAULTS); return t.dist; }
+function distSet(id,k,v){ const t=getTitle(id); if(!t) return; distGet(t)[k]=v; debouncedSave(id); distRefresh(id); }
+// ── helpers
+function distTxt(h){ const d=document.createElement('div'); d.innerHTML=plainToRichHtml(String(h||'')).replace(/<\/(p|h3|li|div)>/gi,'</$1>\n'); return d.textContent.replace(/\n{2,}/g,'\n').trim(); }
+function distIsbnDigits(v){ return String(v||'').replace(/[^\dXx]/g,'').toUpperCase(); }
+function distFrac(x){
+  if(!isFinite(x)||x<=0) return '';
+  const n=Math.round(x*DIST_INCH_STEP); const whole=Math.floor(n/DIST_INCH_STEP); let num=n%DIST_INCH_STEP, den=DIST_INCH_STEP;
+  while(num && num%2===0 && den%2===0){ num/=2; den/=2; }
+  return num ? (whole?whole+' ':'')+num+'/'+den : String(whole);
+}
+// Trim → {wMm,hMm,wIn,hIn,src,note}. Prefers the mm figures (exact), smaller = width
+// unless the text says landscape.
+function distTrim(t){
+  const s=String((t.commercial&&t.commercial.trimSize)||'').replace(/\[NEEDS REVIEW\]/g,'');
+  const nums=(s.match(/\d+(?:\.\d+)?/g)||[]).map(Number);
+  const mm=nums.filter(n=>n>=60&&n<=450);
+  let w,h,src='';
+  if(mm.length>=2){ w=Math.min(mm[0],mm[1]); h=Math.max(mm[0],mm[1]); src='mm'; }
+  else {
+    // inches, allowing "5 1/2 x 8 1/2"
+    const m=s.match(/(\d+(?:\.\d+)?)(?:\s+(\d)\/(\d))?\s*["”]?\s*(?:in(?:ch(?:es)?)?)?\s*[x×]\s*(\d+(?:\.\d+)?)(?:\s+(\d)\/(\d))?/i);
+    if(m){ const a=+m[1]+(m[2]?m[2]/m[3]:0), b=+m[4]+(m[5]?m[5]/m[6]:0); if(a<30&&b<30){ w=Math.min(a,b)*25.4; h=Math.max(a,b)*25.4; src='in'; } }
+  }
+  if(!w||!h) return null;
+  if(/landscape/i.test(s)){ const x=w; w=h; h=x; }
+  return {wMm:w,hMm:h,wIn:distFrac(w/25.4),hIn:distFrac(h/25.4),src,review:/\[NEEDS REVIEW\]/.test(String(t.commercial.trimSize||''))};
+}
+function distOz(g){ const n=parseFloat(String(g||'').replace(',','.')); return n>0?(n/28.349523125).toFixed(1):''; }
+function distInFromMm(mm){ const n=parseFloat(String(mm||'').replace(',','.')); return n>0?distFrac(n/25.4):''; }
+function distAuthorSplit(t){ const a=String(t.authors||'').trim(); const p=a.split(/\s+/); return {first:p.slice(0,-1).join(' '),last:p.length>1?p[p.length-1]:a,multi:/(&|,|\band\b)/i.test(a)}; }
+function distPretext(t){ return /editor/i.test((t.authorInfo&&t.authorInfo.contributorRole)||'')?'Edited by':'By'; }
+// Quotes: one per line in BPH; a short line starting with a dash is the
+// previous quote's attribution and is joined to it (as Dean's kit does).
+function distQuotes(t){
+  const items=String(t.content.quotes||'').split('\n').map(x=>x.trim()).filter(Boolean); const out=[];
+  items.forEach(q=>{ if(/^[—–-]\s?\S/.test(q) && q.length<100 && out.length){ out[out.length-1].v+=' '+q; out[out.length-1].joined=true; } else out.push({v:q,joined:false}); });
+  return out;
+}
+function distFirstUrl(t){ const s=distTxt(t.authorInfo.socials||''); const m=s.match(/https?:\/\/\S+|(?:www\.)?[a-z0-9-]+\.(?:com|co\.uk|org|net|uk|io)(?:\/\S*)?/i); return m?m[0].replace(/[),.;]+$/,''):''; }
+function distShipSuggest(t){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(t.dates.streetDate||''); if(!m) return ''; const d=new Date(+m[1],+m[2]-2,+m[3]); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function distHasStraightQuotes(s){ return /["']/.test(distTxt(s).replace(/\b\w'\w/g,'')); }
+// ── SCB rows, in SCB's form order
+// kind: line | rich | list | text | related | size | weight
+// src: 'main' (read-only, from title page: sec/el say where), 'derived', 'dist' (editable here)
+function SCB_ROWS(t){
+  const c=t.content, a=t.authorInfo, d=distGet(t), AS=distAuthorSplit(t), Q=distQuotes(t);
+  const pbk=distIsbnDigits(t.commercial.isbnPbk), hbk=distIsbnDigits(t.commercial.isbnHbk);
+  const ed=(sec,el)=>({sec,el:`f-${t.id}-${el}`});
+  const rows=[
+  {h:'Title'},
+  {n:'1',label:'Book Title',req:1,kind:'line',src:'main',go:ed('top','title'),get:()=>t.title},
+  {n:'2',label:'Subtitle',kind:'line',src:'main',go:ed('top','subtitle'),get:()=>t.subtitle},
+  {n:'3',label:'ISBN',req:1,kind:'line',src:'derived',how:pbk?'Paperback ISBN, digits only':'Hardback ISBN, digits only (no paperback ISBN)',go:ed('commercial','isbnPbk'),get:()=>pbk||hbk,chk:(v,R)=>{ if(v && ctIsbnStatus(v)!=='ok13') R.push('Not a valid ISBN-13'); }},
+  {n:'4',label:'Previous ISBN',kind:'line',src:'dist',dk:'prevIsbn',chk:(v,R)=>{ if(v && ctIsbnStatus(v)==='bad') R.push('Not a valid ISBN'); }},
+  {n:'5',label:'Edition Number',kind:'line',src:'dist',dk:'edNum'},
+  {n:'6',label:'Edition Type',kind:'line',src:'dist',dk:'edType'},
+  {n:'7',label:'Edition Detail',kind:'line',src:'dist',dk:'edDetail'},
+  {n:'8',label:'Series Name',kind:'line',src:'dist',dk:'series'},
+  {n:'9',label:'Series Number',kind:'line',src:'dist',dk:'seriesNum'},
+  {h:'Book Info'},
+  {n:'10',label:'Full Description',req:1,cap:2500,key:1,kind:'rich',src:'main',how:'Jacket Blurb',path:'content.jacketBlurb',go:ed('content','jacketBlurb'),get:()=>c.jacketBlurb},
+  {n:'11',label:'Sales Handle',req:1,cap:120,kind:'line',src:'main',path:'content.salesHandle',go:ed('content','salesHandle'),get:()=>c.salesHandle},
+  {n:'12',label:'Selling Points',req:1,cap:300,kind:'list',src:'main',path:'content.sellingPoints',go:ed('content','sellingPoints'),get:()=>c.sellingPoints}];
+  const nq=Math.max(1,Q.length);
+  for(let i=0;i<nq;i++){ const q=Q[i];
+    rows.push({n:i?'13'+String.fromCharCode(96+i):'13',label:i?`Quote #${i+1} (“ADD Additional Quote (+)”)`:'Quote #1',cap:1000,key:i===0,kind:'line',src:'main',go:ed('content','quotes'),get:()=>q?q.v:'',
+      chk:(v,R,A)=>{ if(q&&q.joined) A.push('Joined with its attribution line (stored as a separate line in BPH).'); }});
+  }
+  rows.push(
+  {n:'14',label:'Marketing, Advertising, Publicity',req:1,cap:1200,key:1,kind:'rich',src:'main',how:'Marketing Notes USA',path:'publicity.marketingUSA',go:ed('publicity','marketingUSA'),get:()=>t.publicity.marketingUSA},
+  {n:'15',label:'Target Audience',cap:120,kind:'line',src:'main',path:'content.targetAudience',go:ed('content','targetAud'),get:()=>c.targetAudience},
+  {n:'16',label:'Related Titles 1–9',req:1,kind:'related',src:'main',how:'Competing Titles',go:ed('content','ct-title-0'),get:()=>(c.competingTitles||[]).filter(r=>r.title||r.isbn)},
+  {h:'Authors Info'},
+  {n:'17',label:'Author #1 Pretext',req:1,kind:'line',src:'derived',how:'from the contributor role (Editor → “Edited by”)',go:ed('top','contribRole'),get:()=>distPretext(t)},
+  {n:'18',label:'Author #1 First Name',req:1,kind:'line',src:'derived',how:'Author, split',go:ed('top','authors'),get:()=>AS.first,chk:(v,R,A)=>{ if(AS.multi) A.push('More than one name in Author. Put the others in Author #2/#3 below.'); }},
+  {n:'19',label:'Author #1 Last Name',req:1,kind:'line',src:'derived',how:'Author, split',go:ed('top','authors'),get:()=>AS.last},
+  {n:'20',label:'Author #1 Biography',req:1,cap:600,key:1,kind:'rich',src:'main',path:'authorInfo.bio',go:ed('author','bio'),get:()=>a.bio},
+  {n:'21',label:'Author #1 Current Hometown',req:1,cap:120,kind:'line',src:'main',path:'authorInfo.hometown',go:ed('author','hometown'),get:()=>a.hometown},
+  {n:'22',label:'Author #2 Pretext',kind:'line',src:'dist',dk:'a2pre',ph:'e.g. Foreword by'},
+  {n:'23',label:'Author #2 First Name',kind:'line',src:'dist',dk:'a2first'},
+  {n:'24',label:'Author #2 Last Name',kind:'line',src:'dist',dk:'a2last'},
+  {n:'25',label:'Author #2 Biography',cap:600,kind:'text',src:'dist',dk:'a2bio'},
+  {n:'26',label:'Author #2 Current Hometown',cap:120,kind:'line',src:'dist',dk:'a2home'},
+  {n:'27',label:'Author #3 Pretext',kind:'line',src:'dist',dk:'a3pre'},
+  {n:'28',label:'Author #3 First Name',kind:'line',src:'dist',dk:'a3first'},
+  {n:'29',label:'Author #3 Last Name',kind:'line',src:'dist',dk:'a3last'},
+  {n:'30',label:'Author #3 Biography',cap:600,kind:'text',src:'dist',dk:'a3bio'},
+  {n:'31',label:'Author #3 Current Hometown',cap:120,kind:'line',src:'dist',dk:'a3home'},
+  {n:'32',label:'Contributors',cap:500,kind:'text',src:'dist',dk:'contrib'},
+  {h:'Book Specs'},
+  {n:'33',label:'Price $',req:1,kind:'line',src:'derived',how:'Cover Price PBK (US $), number only',go:ed('commercial','pbkUSD'),get:()=>{ const m=String(t.price.pbkUSD||'').match(/\d+(?:\.\d{1,2})?/); return m?m[0]:''; },chk:(v,R,A)=>{ if(/£|\//.test(t.price.pbkUSD||'')) A.push('The US price field holds “'+t.price.pbkUSD+'”. Check it on the title page.'); }},
+  {n:'34',label:'Binding',req:1,kind:'line',src:'derived',how:pbk?'paperback ISBN':'no paperback ISBN, so hardback',get:()=>pbk?'Paperback':(hbk?'Hardback':'')},
+  {n:'35',label:'Number of Pages',req:1,kind:'line',src:'main',go:ed('commercial','pages'),get:()=>String(t.commercial.pages||''),chk:(v,R)=>{ if(v && !/^\d+$/.test(v.trim())) R.push('Number only'); }},
+  {n:'36',label:'Size (inches): Width / Height / Thickness',req:1,kind:'size',src:'mixed',dk:'spineMm',go:ed('commercial','trimSize')},
+  {n:'37',label:'Weight (ounces)',req:1,kind:'weight',src:'dist',dk:'weightG',shared:1},
+  {n:'38',label:'Content Information',kind:'line',src:'dist',dk:'contentInfo',ph:'e.g. Introduction, Foreword, Afterword, Index'},
+  {n:'39',label:'Illustration/Graphics Information',kind:'line',src:'main',go:ed('commercial','illustrationsText'),get:()=>t.commercial.illustrationsText},
+  {n:'40',label:'Media/packaging Information',kind:'line',src:'dist',dk:'media'},
+  {n:'41',label:'Print Run',kind:'line',src:'dist',dk:'printRun'},
+  {n:'42',label:'Ship Date (YYYY-MM-DD)',req:1,kind:'line',src:'dist',dk:'ship',ship:1,ph:'YYYY-MM-DD',chk:(v,R)=>{ if(v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) R.push('Must be YYYY-MM-DD'); }},
+  {n:'43',label:'Publishing Date (YYYY-MM-DD)',req:1,kind:'line',src:'main',how:'Street Date',go:ed('dates','streetDate'),get:()=>String(t.dates.streetDate||'').slice(0,10)},
+  {n:'44',label:'Number Of Pieces',kind:'line',src:'dist',dk:'pieces'},
+  {n:'45',label:'Carton Quantity',kind:'line',src:'dist',dk:'carton'},
+  {n:'46',label:'Industry Category 1',req:1,kind:'line',src:'dist',dk:'ic1',hint:'Category USA on the title page: '+(t.commercial.categoryUSA||'—')},
+  {n:'47',label:'Industry Category 2',kind:'line',src:'dist',dk:'ic2'},
+  {n:'48',label:'Industry Category 3',kind:'line',src:'dist',dk:'ic3'},
+  {n:'49',label:'Audience Code',req:1,kind:'line',src:'dist',dk:'audCode'},
+  {n:'50',label:'Bisac Category 1',req:1,kind:'line',src:'dist',dk:'bisac1',shared:1},
+  {n:'51',label:'Bisac Category 2',req:1,kind:'line',src:'dist',dk:'bisac2'},
+  {n:'52',label:'Bisac Category 3',kind:'line',src:'dist',dk:'bisac3'},
+  {n:'53',label:'Keywords',req:1,cap:500,kind:'line',src:'main',path:'content.keywords',go:ed('content','keywords'),get:()=>c.keywords},
+  {n:'54',label:'Author/Book URL(s)',kind:'line',src:'derived',how:'first web address in Socials & Societies',go:ed('author','socials'),get:()=>distFirstUrl(t)},
+  {h:'Additional Information'},
+  {n:'55',label:'Table of Contents',cap:2500,kind:'text',src:'main',path:'toc.tableOfContents',go:ed('toc','toc'),get:()=>scbTocText(t.toc.tableOfContents)},
+  {n:'56',label:'Excerpt',cap:2500,kind:'rich',src:'main',path:'toc.excerpt',go:ed('toc','excerpt'),get:()=>t.toc.excerpt},
+  {h:'Comments'},
+  {n:'57',label:'Comments to SCB',kind:'text',src:'dist',dk:'scbComments'});
+  return rows;
+}
+function distRowValue(t,r){ if(r.src==='dist') return distGet(t)[r.dk]; return r.get?r.get():''; }
+function distOutHtml(r,v){ return r.kind==='rich'?scbHtml(v):(r.kind==='list'?scbListHtml(v):bphEscText(String(v||''))); }
+function distLen(r,v){
+  if(r.path && SCB_CAPS[r.path]){ const x=scbCount(r.path,v); return x?x.n:0; }
+  if(r.kind==='rich') return scbHtml(v).length;
+  return String(v||'').length;
+}
+function distEval(t,r){
+  const R=[],A=[]; const v=distRowValue(t,r);
+  if(r.kind==='related'){
+    const rows=v||[];
+    for(let i=0;i<Math.max(5,rows.length);i++){ const x=rows[i]||{title:'',isbn:''};
+      if(i<5 && !String(x.title||'').trim()) R.push('Row '+(i+1)+': title required (SCB wants at least 5)');
+      if(x.title && !x.isbn) (i<5?R:A).push('Row '+(i+1)+' ('+String(x.title).slice(0,30)+'): no ISBN in BPH');
+      if(x.isbn && ctIsbnStatus(x.isbn)==='bad') R.push('Row '+(i+1)+': ISBN not valid'); }
+    return {R,A,level:R.length?'red':A.length?'amber':'ok'};
+  }
+  if(r.kind==='size'){ const tr=distTrim(t), sp=distGet(t).spineMm;
+    if(!tr) R.push('Width/height: no trim size BPH can read. Fix Trim Size on the title page.');
+    else if(tr.review) A.push('Trim Size is still marked [NEEDS REVIEW] on the title page.');
+    if(!String(sp||'').trim()) R.push('Thickness: fill Spine (mm) here.');
+    return {R,A,level:R.length?'red':A.length?'amber':'ok'}; }
+  if(r.kind==='weight'){ if(!String(v||'').trim()) R.push('Required, empty: fill Weight (g) here.'); else if(!distOz(v)) R.push('Grams, number only'); return {R,A,level:R.length?'red':'ok'}; }
+  const s=String(v||''); const empty=!distTxt(s).trim();
+  if(empty){ if(r.req) R.push('Required, empty'+(r.src==='dist'?'':' in BPH. Fill it on the title page.')); }
+  else {
+    if(r.cap){ const n=distLen(r,s); if(n>r.cap) R.push('Over the limit by '+(n-r.cap)+': SCB cuts the end off without warning.'); else if(n>=r.cap*0.9) A.push('Close to the limit.'); }
+    if(/\[TRUNCATED\]/.test(s)) A.push('Holds a literal “[TRUNCATED]” marker (left out when copied). Check the cut on the title page.');
+    if(/\[NEEDS REVIEW\]/.test(s)) A.push('Still marked [NEEDS REVIEW] on the title page.');
+    if((r.kind==='rich'||r.kind==='list'||/^13/.test(r.n)) && distHasStraightQuotes(s)) A.push('Straight quotes: try Tidy on the title page.');
+  }
+  if(r.chk) r.chk(s,R,A);
+  return {R,A,level:R.length?'red':A.length?'amber':(empty?'none':'ok')};
+}
+function distCopyBtns(t,sec,r,i){
+  const id=t.id;
+  if(r.kind==='related') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopyRelated('${id}',this)">Copy all</button>`;
+  if(r.kind==='size'||r.kind==='weight') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'text',this)">Copy</button>`;
+  if(r.kind==='rich'||r.kind==='list') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'fmt',this)">Copy formatted</button><button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'html',this)">Copy as basic HTML</button>`;
+  return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'text',this)">Copy</button>`;
+}
+function distSizeOut(t){ const tr=distTrim(t), sp=distInFromMm(distGet(t).spineMm); return {w:tr?tr.wIn:'',h:tr?tr.hIn:'',th:sp}; }
+function distValueHtml(t,sec,r){
+  const v=distRowValue(t,r), d=distGet(t), id=t.id;
+  if(r.kind==='related'){ const rows=v||[]; if(!rows.length) return '<span class="dp-empty">empty in BPH</span>';
+    return `<ol class="dp-rel">${rows.map(x=>`<li>${esc(x.title||'')}${x.isbn?` <span class="dp-isbn">${esc(x.isbn)}</span>`:' <span class="dp-miss">no ISBN</span>'}</li>`).join('')}</ol>`; }
+  if(r.kind==='size'){ const tr=distTrim(t), o=distSizeOut(t);
+    return `<div class="dp-size"><span>W <b>${esc(o.w||'?')}</b></span><span>H <b>${esc(o.h||'?')}</b></span><span>T <b data-conv="spine">${esc(o.th||'?')}</b></span> <span class="dp-unit">inches, nearest 1/${DIST_INCH_STEP}"</span></div>
+      <div class="dp-sub">Trim on the title page: ${esc(t.commercial.trimSize||'empty')}${tr?` → ${Math.round(tr.wMm)} × ${Math.round(tr.hMm)} mm`:''}</div>
+      <label class="dp-inline dist-edit">Spine (mm) <input type="text" inputmode="decimal" value="${esc(d.spineMm)}" oninput="distSet('${id}','spineMm',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label>`; }
+  if(r.kind==='weight'){ return `<label class="dp-inline dist-edit">Weight (g) <input type="text" inputmode="decimal" value="${esc(d.weightG)}" oninput="distSet('${id}','weightG',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label> <span class="dp-conv">= <b data-conv="oz">${esc(distOz(d.weightG)||'?')}</b> oz</span>`; }
+  if(r.src==='dist'){
+    const chip=`<span class="dp-chip">${r.shared?'SCB + Turnaround':'SCB only'}</span>`;
+    const ship=r.ship&&distShipSuggest(t)?` <button type="button" class="btn btn-sm" onclick="distSet('${id}','ship','${distShipSuggest(t)}');distRender()">Use ${distShipSuggest(t)} (pub date − 1 month)</button>`:'';
+    const hint=r.hint?`<div class="dp-sub">${esc(r.hint)}</div>`:'';
+    if(r.kind==='text') return `<div class="dist-edit"><textarea class="autoexpand" rows="2" oninput="distSet('${id}','${r.dk}',this.value);autoGrow(this)" placeholder="${esc(r.ph||'')}">${esc(v)}</textarea>${chip}</div>${hint}`;
+    return `<div class="dist-edit"><input type="text" value="${esc(v)}" oninput="distSet('${id}','${r.dk}',this.value)" placeholder="${esc(r.ph||'')}">${chip}${ship}</div>${hint}`;
+  }
+  if(!distTxt(v).trim() && !String(v||'').trim()) return '<span class="dp-empty">empty in BPH</span>';
+  if(r.kind==='rich') return `<div class="dp-rich">${scbHtml(v)}</div>`;
+  if(r.kind==='list') return `<div class="dp-rich">${scbListHtml(v)}</div>`;
+  if(r.kind==='text') return `<div class="dp-pre">${esc(v)}</div>`;
+  return `<span class="dp-line">${esc(v)}</span>`;
+}
+function distSrcHtml(t,r){
+  if(r.src==='dist') return '';
+  const where=r.how?esc(r.how):'';
+  const link=r.go?`<button type="button" class="dp-go" onclick="distEditOnTitle('${t.id}','${r.go.sec}','${r.go.el}')" title="Edit this on the title page">Edit on title page ✎</button>`:'';
+  return `<span class="dp-src">${r.src==='derived'?'Worked out from the title page':'From the title page'}${where?': '+where:''}</span>${link}`;
+}
+function distRowHtml(t,sec,r,i){
+  if(r.h) return `<div class="dp-h">${esc(r.h)}</div>`;
+  const ev=distEval(t,r); const v=distRowValue(t,r);
+  const cnt=(r.cap && !['related','size','weight'].includes(r.kind)) ? `<span class="scb-count ${(()=>{ const n=distLen(r,v); return n>r.cap?'red':n>=r.cap*0.9?'amber':'ok'; })()}">${distLen(r,v).toLocaleString('en-GB')} / ${r.cap.toLocaleString('en-GB')}</span>`:'';
+  return `<div class="dp-row lvl-${ev.level}${r.src==='dist'||r.kind==='size'||r.kind==='weight'?' is-dist':''}" id="dp-${sec}-${r.n}" data-i="${i}">
+    <div class="dp-n">${esc(r.n)}</div>
+    <div class="dp-main">
+      <div class="dp-label">${esc(r.label)}${r.req?' <span class="dp-req" title="Required by SCB">*</span>':''} ${distSrcHtml(t,r)}</div>
+      <div class="dp-val">${distValueHtml(t,sec,r)}</div>
+      <div class="dp-msgs">${distMsgs(ev)}</div>
+    </div>
+    <div class="dp-act">${cnt}${distCopyBtns(t,sec,r,i)}</div>
+  </div>`;
+}
+function distMsgs(ev){ return ev.R.map(m=>`<div class="dp-msg red">✕ ${esc(m)}</div>`).join('')+ev.A.map(m=>`<div class="dp-msg amber">⚠ ${esc(m)}</div>`).join(''); }
+function distSummary(t,sec,rows){
+  let red=0,amber=0; const items=[];
+  rows.forEach(r=>{ if(r.h) return; const e=distEval(t,r); if(e.level==='red'){ red++; items.push({r,lvl:'red',m:e.R[0]}); } else if(e.level==='amber'){ amber++; items.push({r,lvl:'amber',m:e.A[0]}); } });
+  return {red,amber,items};
+}
+function distKeyTotal(t,rows){ return rows.filter(r=>r.key).reduce((s,r)=>s+distLen(r,distRowValue(t,r)),0); }
+function distSectionHeadHtml(t,sec,rows){
+  const s=distSummary(t,sec,rows);
+  const badge=s.red?`<span class="dp-badge red">${s.red} to fix</span>`:(s.amber?`<span class="dp-badge amber">${s.amber} to check</span>`:'<span class="dp-badge ok">ready</span>');
+  let extra='';
+  if(sec==='scb'){ const kt=distKeyTotal(t,rows); extra=`<div class="dp-keytotal ${kt>=800?'ok':'red'}">Key fields (Full Description, Quote #1, Marketing, Author #1 Bio) together: <b>${kt.toLocaleString('en-GB')}</b> characters. SCB needs 800+ ${kt>=800?'✓':'✕'}</div>`; }
+  const list=s.items.length?`<details class="dp-issues"${s.red?' open':''}><summary>${s.items.length} field${s.items.length>1?'s':''} to fix or check</summary><ul>${s.items.map(x=>`<li class="${x.lvl}"><a href="#dp-${sec}-${x.r.n}" onclick="event.preventDefault();distJump('dp-${sec}-${x.r.n}')">${esc(x.r.n)}. ${esc(x.r.label)}</a>: ${esc(x.m||'')}</li>`).join('')}</ul></details>`:'';
+  return `<div class="dp-sechead-status" id="dp-status-${sec}">${badge}${extra}${list}</div>`;
+}
+function distRender(){
+  const t=getTitle(selectedId); if(!t){ gotoTitles(); return; }
+  distOpenId=t.id;
+  const y=window.scrollY;
+  const scb=SCB_ROWS(t);
+  const main=document.getElementById('main');
+  main.innerHTML=`<div class="dp-page">
+    <div class="dp-top">
+      <button type="button" class="btn" onclick="gotoDetail('${t.id}')">← Back to title</button>
+      <div class="dp-title"><div class="dp-title-main">${esc(t.title||'Untitled')}</div><div class="dp-title-sub">${esc(t.subtitle||'')}${t.authors?' · '+esc(distPretext(t))+' '+esc(t.authors):''}</div></div>
+    </div>
+    <div class="dp-jump" role="navigation" aria-label="Jump to">
+      <button type="button" onclick="distJump('dp-sec-scb')">SCB <span id="dp-jb-scb"></span></button>
+      <button type="button" onclick="distJump('dp-sec-ta')">Turnaround <span id="dp-jb-ta"></span></button>
+      <span class="dp-legend"><span class="dp-key-dist"></span> editable here (distributor-only) · everything else comes from the title page</span>
+    </div>
+    <section class="dp-sec" id="dp-sec-scb">
+      <div class="dp-sechead"><h2>SCB Distributors</h2><span class="dp-secnote">In SCB's form order. Character counts include HTML tags, as SCB counts them.</span></div>
+      ${distSectionHeadHtml(t,'scb',scb)}
+      <div class="dp-rows">${scb.map((r,i)=>distRowHtml(t,'scb',r,i)).join('')}</div>
+    </section>
+    <section class="dp-sec" id="dp-sec-ta">${typeof distTaSectionHtml==='function'?distTaSectionHtml(t):'<div class="dp-sechead"><h2>Turnaround</h2></div><p class="dp-sub">Coming in the next round.</p>'}</section>
+  </div>`;
+  distJumpBadges(t);
+  if(typeof autoGrowAll==='function') autoGrowAll(main);
+  window.scrollTo(0,y);
+}
+function distJumpBadges(t){
+  const s=distSummary(t,'scb',SCB_ROWS(t)); const el=document.getElementById('dp-jb-scb'); if(el){ el.className='dp-badge '+(s.red?'red':s.amber?'amber':'ok'); el.textContent=s.red?s.red+' to fix':s.amber?s.amber+' to check':'ready'; }
+  if(typeof TA_ROWS==='function'){ const s2=distSummary(t,'ta',TA_ROWS(t)); const e2=document.getElementById('dp-jb-ta'); if(e2){ e2.className='dp-badge '+(s2.red?'red':s2.amber?'amber':'ok'); e2.textContent=s2.red?s2.red+' to fix':s2.amber?s2.amber+' to check':'ready'; } }
+}
+// After typing in a distributor-only field: refresh flags, counts, conversions — never the input itself.
+function distRefresh(id){
+  const t=getTitle(id); if(!t || view!=='dist') return;
+  [['scb',SCB_ROWS(t)]].concat(typeof TA_ROWS==='function'?[['ta',TA_ROWS(t)]]:[]).forEach(([sec,rows])=>{
+    rows.forEach(r=>{ if(r.h) return; const el=document.getElementById(`dp-${sec}-${r.n}`); if(!el) return;
+      const ev=distEval(t,r); el.className=el.className.replace(/lvl-\w+/,'lvl-'+ev.level);
+      const m=el.querySelector('.dp-msgs'); if(m) m.innerHTML=distMsgs(ev);
+      if(r.kind==='weight'){ const o=el.querySelector('[data-conv="oz"]'); if(o) o.textContent=distOz(distGet(t).weightG)||'?'; }
+      if(r.kind==='size'){ const o=el.querySelector('[data-conv="spine"]'); if(o) o.textContent=distInFromMm(distGet(t).spineMm)||'?'; }
+      if(r.src==='dist' && r.cap){ const c=el.querySelector('.scb-count'); if(c){ const n=distLen(r,distRowValue(t,r)); c.className='scb-count '+(n>r.cap?'red':n>=r.cap*0.9?'amber':'ok'); c.textContent=n.toLocaleString('en-GB')+' / '+r.cap.toLocaleString('en-GB'); } }
+      if(r.mirror){ const mv=el.querySelector('[data-mirror]'); if(mv) mv.textContent=r.get(); }
+    });
+    const st=document.getElementById('dp-status-'+sec); if(st){ const open=!!(st.querySelector('details')||{}).open; st.outerHTML=distSectionHeadHtml(t,sec,rows); if(open){ const d=document.querySelector('#dp-status-'+sec+' details'); if(d) d.open=true; } }
+  });
+  distJumpBadges(t);
+}
+function distJump(elId){ const el=document.getElementById(elId); if(!el) return; const top=el.getBoundingClientRect().top+window.scrollY-120; window.scrollTo({top,behavior:'smooth'}); el.classList.add('dp-flash'); setTimeout(()=>el.classList.remove('dp-flash'),1400); }
+function distEditOnTitle(id,sec,elId){
+  gotoDetail(id);
+  setTimeout(()=>{ if(sec && sec!=='top' && typeof setAccordOpen==='function') setAccordOpen(id,sec,true);
+    setTimeout(()=>{ const el=document.getElementById(elId); if(el){ el.scrollIntoView({block:'center'}); try{ el.focus({preventScroll:true}); }catch(e){} el.classList.add('dp-flash'); setTimeout(()=>el.classList.remove('dp-flash'),1400); } },60); },30);
+}
+function distRowsFor(t,sec){ return sec==='ta'?TA_ROWS(t):SCB_ROWS(t); }
+function distCopy(id,sec,i,mode,btn){
+  const t=getTitle(id); if(!t) return; const r=distRowsFor(t,sec)[i]; if(!r) return;
+  let v=distRowValue(t,r);
+  if(r.kind==='size'){ const o=distSizeOut(t); ctCopyText([o.w,o.h,o.th].join(' / '),btn,'Size copied'); return; }
+  if(r.kind==='weight'){ ctCopyText(distOz(distGet(t).weightG),btn,'Ounces copied'); return; }
+  if(sec==='ta' && r.out) v=r.out();
+  if(mode==='html'){ ctCopyText(sec==='ta'?distTaHtml(r,v):distOutHtml(r,v),btn,'Basic HTML copied'); return; }
+  if(mode==='fmt'){ scbCopyRich(sec==='ta'?distTaHtml(r,v):distOutHtml(r,v),btn,'Copied with formatting'); return; }
+  ctCopyText(String(v||'').replace(/\s?\[TRUNCATED\]/g,''),btn,'Copied');
+}
+function distCopyRelated(id,btn){ const t=getTitle(id); if(!t) return; const rows=(t.content.competingTitles||[]).filter(r=>r.title||r.isbn); if(!rows.length){ ctToast('Nothing to copy'); return; } ctCopyText(rows.map(r=>r.isbn?`${r.title} — ${r.isbn}`:r.title).join('\n'),btn,rows.length+' titles copied'); }
+function distTaHtml(r,v){ return r.kind==='rich'?bphCleanHtml(plainToRichHtml(String(v||''))).html.replace(/\s?\[TRUNCATED\]/g,''):(r.kind==='list'?scbListHtml(v):bphEscText(String(v||''))); }
+
 // ─── Round 65 (2026-10-09) — "Original" snapshot per field ───
 // The first time text is pasted into an EMPTY field, BPH keeps a copy of
 // it, dated. Later edits and cuts never touch it. "Replace original" saves
