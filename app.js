@@ -3947,7 +3947,7 @@ function SCB_ROWS(t){
   {n:'57',label:'Comments to SCB',kind:'text',src:'dist',dk:'scbComments'});
   return rows;
 }
-function distRowValue(t,r){ if(r.src==='dist') return distGet(t)[r.dk]; return r.get?r.get():''; }
+function distRowValue(t,r){ if(r.src==='dist'){ const x=distGet(t)[r.dk]; return ((x===''||x==null) && r.def) ? r.def : x; } return r.get?r.get():''; }
 function distOutHtml(r,v){ return r.kind==='rich'?scbHtml(v):(r.kind==='list'?scbListHtml(v):bphEscText(String(v||''))); }
 function distLen(r,v){
   if(r.path && SCB_CAPS[r.path]){ const x=scbCount(r.path,v); return x?x.n:0; }
@@ -3958,9 +3958,10 @@ function distEval(t,r){
   const R=[],A=[]; const v=distRowValue(t,r);
   if(r.kind==='related'){
     const rows=v||[];
-    for(let i=0;i<Math.max(5,rows.length);i++){ const x=rows[i]||{title:'',isbn:''};
-      if(i<5 && !String(x.title||'').trim()) R.push('Row '+(i+1)+': title required (SCB wants at least 5)');
-      if(x.title && !x.isbn) (i<5?R:A).push('Row '+(i+1)+' ('+String(x.title).slice(0,30)+'): no ISBN in BPH');
+    const need=r.soft?0:5;
+    for(let i=0;i<Math.max(need,rows.length);i++){ const x=rows[i]||{title:'',isbn:''};
+      if(i<need && !String(x.title||'').trim()) R.push('Row '+(i+1)+': title required (SCB wants at least 5)');
+      if(x.title && !x.isbn) (i<need?R:A).push('Row '+(i+1)+' ('+String(x.title).slice(0,30)+'): no ISBN in BPH');
       if(x.isbn && ctIsbnStatus(x.isbn)==='bad') R.push('Row '+(i+1)+': ISBN not valid'); }
     return {R,A,level:R.length?'red':A.length?'amber':'ok'};
   }
@@ -3970,6 +3971,10 @@ function distEval(t,r){
     if(!String(sp||'').trim()) R.push('Thickness: fill Spine (mm) here.');
     return {R,A,level:R.length?'red':A.length?'amber':'ok'}; }
   if(r.kind==='weight'){ if(!String(v||'').trim()) R.push('Required, empty: fill Weight (g) here.'); else if(!distOz(v)) R.push('Grams, number only'); return {R,A,level:R.length?'red':'ok'}; }
+  if(r.kind==='check'){ if(!v && !r.opt) A.push('Not done yet'); return {R,A,level:A.length?'amber':(v?'ok':'none')}; }
+  if(r.kind==='date'){ return {R,A,level:v?'ok':'none'}; }
+  if(r.mirror && !String(v||'').trim()) A.push('Empty: fill it in the SCB section above.');
+  if(r.words && distWords(v)>r.words) A.push(distWords(v)+' words: over ~'+r.words+', so selling points move to page 2 of the AI sheet (Dean’s layout). Fine, just longer.');
   const s=String(v||''); const empty=!distTxt(s).trim();
   if(empty){ if(r.req) R.push('Required, empty'+(r.src==='dist'?'':' in BPH. Fill it on the title page.')); }
   else {
@@ -3983,6 +3988,7 @@ function distEval(t,r){
 }
 function distCopyBtns(t,sec,r,i){
   const id=t.id;
+  if(r.kind==='check'||r.kind==='date') return '';
   if(r.kind==='related') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopyRelated('${id}',this)">Copy all</button>`;
   if(r.kind==='size'||r.kind==='weight') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'text',this)">Copy</button>`;
   if(r.kind==='rich'||r.kind==='list') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'fmt',this)">Copy formatted</button><button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'html',this)">Copy as basic HTML</button>`;
@@ -3998,12 +4004,16 @@ function distValueHtml(t,sec,r){
       <div class="dp-sub">Trim on the title page: ${esc(t.commercial.trimSize||'empty')}${tr?` → ${Math.round(tr.wMm)} × ${Math.round(tr.hMm)} mm`:''}</div>
       <label class="dp-inline dist-edit">Spine (mm) <input type="text" inputmode="decimal" value="${esc(d.spineMm)}" oninput="distSet('${id}','spineMm',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label>`; }
   if(r.kind==='weight'){ return `<label class="dp-inline dist-edit">Weight (g) <input type="text" inputmode="decimal" value="${esc(d.weightG)}" oninput="distSet('${id}','weightG',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label> <span class="dp-conv">= <b data-conv="oz">${esc(distOz(d.weightG)||'?')}</b> oz</span>`; }
+  if(r.mirror){ return `<span class="dp-line" data-mirror>${esc(v)}</span> <button type="button" class="dp-go" onclick="distJump('dp-scb-${r.dk==='bisac1'||r.n==='14'?'50':(r.n==='16'?'36':'37')}')">Go to it in SCB ↑</button>`; }
+  if(r.src==='dist' && r.kind==='check'){ return `<label class="dp-check dist-edit"><input type="checkbox" ${d[r.dk]?'checked':''} onchange="distSet('${id}','${r.dk}',this.checked)"> Done <span class="dp-chip">${esc(r.chip||'Turnaround only')}</span>${r.opt?' <span class="dp-sub">if the title has them</span>':''}</label>`; }
+  if(r.src==='dist' && r.kind==='date'){ return `<div class="dist-edit"><input type="date" value="${esc(d[r.dk]||'')}" onchange="distSet('${id}','${r.dk}',this.value)" style="flex:0 1 180px"><span class="dp-chip">${esc(r.chip||'Turnaround only')}</span></div>`; }
   if(r.src==='dist'){
-    const chip=`<span class="dp-chip">${r.shared?'SCB + Turnaround':'SCB only'}</span>`;
+    const chip=`<span class="dp-chip">${esc(r.chip||(r.shared?'SCB + Turnaround':'SCB only'))}</span>`;
+    const raw=d[r.dk]==null?'':d[r.dk];
     const ship=r.ship&&distShipSuggest(t)?` <button type="button" class="btn btn-sm" onclick="distSet('${id}','ship','${distShipSuggest(t)}');distRender()">Use ${distShipSuggest(t)} (pub date − 1 month)</button>`:'';
     const hint=r.hint?`<div class="dp-sub">${esc(r.hint)}</div>`:'';
-    if(r.kind==='text') return `<div class="dist-edit"><textarea class="autoexpand" rows="2" oninput="distSet('${id}','${r.dk}',this.value);autoGrow(this)" placeholder="${esc(r.ph||'')}">${esc(v)}</textarea>${chip}</div>${hint}`;
-    return `<div class="dist-edit"><input type="text" value="${esc(v)}" oninput="distSet('${id}','${r.dk}',this.value)" placeholder="${esc(r.ph||'')}">${chip}${ship}</div>${hint}`;
+    if(r.kind==='text') return `<div class="dist-edit"><textarea class="autoexpand" rows="2" oninput="distSet('${id}','${r.dk}',this.value);autoGrow(this)" placeholder="${esc(r.def||r.ph||'')}">${esc(raw)}</textarea>${chip}</div>${hint}`;
+    return `<div class="dist-edit"><input type="text" value="${esc(raw)}" oninput="distSet('${id}','${r.dk}',this.value)" placeholder="${esc(r.def||r.ph||'')}">${chip}${ship}</div>${hint}`;
   }
   if(!distTxt(v).trim() && !String(v||'').trim()) return '<span class="dp-empty">empty in BPH</span>';
   if(r.kind==='rich') return `<div class="dp-rich">${scbHtml(v)}</div>`;
@@ -4020,7 +4030,7 @@ function distSrcHtml(t,r){
 function distRowHtml(t,sec,r,i){
   if(r.h) return `<div class="dp-h">${esc(r.h)}</div>`;
   const ev=distEval(t,r); const v=distRowValue(t,r);
-  const cnt=(r.cap && !['related','size','weight'].includes(r.kind)) ? `<span class="scb-count ${(()=>{ const n=distLen(r,v); return n>r.cap?'red':n>=r.cap*0.9?'amber':'ok'; })()}">${distLen(r,v).toLocaleString('en-GB')} / ${r.cap.toLocaleString('en-GB')}</span>`:'';
+  const cnt=(sec==='ta' && (r.kind==='rich'||r.kind==='list') && distTxt(v)) ? `<span class="scb-count ${r.words&&distWords(v)>r.words?'amber':'ok'}">${distWords(v).toLocaleString('en-GB')} words</span>` : (r.cap && !['related','size','weight'].includes(r.kind)) ? `<span class="scb-count ${(()=>{ const n=distLen(r,v); return n>r.cap?'red':n>=r.cap*0.9?'amber':'ok'; })()}">${distLen(r,v).toLocaleString('en-GB')} / ${r.cap.toLocaleString('en-GB')}</span>`:'';
   return `<div class="dp-row lvl-${ev.level}${r.src==='dist'||r.kind==='size'||r.kind==='weight'?' is-dist':''}" id="dp-${sec}-${r.n}" data-i="${i}">
     <div class="dp-n">${esc(r.n)}</div>
     <div class="dp-main">
@@ -4112,6 +4122,69 @@ function distCopy(id,sec,i,mode,btn){
 }
 function distCopyRelated(id,btn){ const t=getTitle(id); if(!t) return; const rows=(t.content.competingTitles||[]).filter(r=>r.title||r.isbn); if(!rows.length){ ctToast('Nothing to copy'); return; } ctCopyText(rows.map(r=>r.isbn?`${r.title} — ${r.isbn}`:r.title).join('\n'),btn,rows.length+' titles copied'); }
 function distTaHtml(r,v){ return r.kind==='rich'?bphCleanHtml(plainToRichHtml(String(v||''))).html.replace(/\s?\[TRUNCATED\]/g,''):(r.kind==='list'?scbListHtml(v):bphEscText(String(v||''))); }
+
+// ─── Round 70 (2026-10-09, David-approved) — Distributor page: Turnaround section ───
+// Fields in the Turnaround AI-sheet order (Dean Thorn's kit builder), then
+// Turnaround's sales-kit checklist. Same rules as SCB: title-page text is
+// read-only here; Turnaround-only fields are editable and highlighted.
+// Turnaround has no character limits, so counts are words (for the AI
+// sheet's layout), not characters.
+const TA_RIGHTS_DEFAULT='Headpress controls world rights. All translation rights available. Enquiries: headoffice@headpress.com'; // Priya Vance's Option 2, approved 09-10 (same text as Dean's kit)
+const TA_ORIGIN_DEFAULT='United Kingdom';
+function distWords(h){ const s=distTxt(h); return s?s.split(/\s+/).length:0; }
+function distUkDate(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||''); if(!m) return ''; return (+m[3])+' '+['January','February','March','April','May','June','July','August','September','October','November','December'][+m[2]-1]+' '+m[1]; }
+function distPrice(v,cur){ const m=String(v||'').match(/\d+(?:\.\d{1,2})?/); return m?cur+m[0]:''; }
+function TA_ROWS(t){
+  const c=t.content, a=t.authorInfo, d=distGet(t), Q=distQuotes(t), tr=distTrim(t);
+  const ed=(sec,el)=>({sec,el:`f-${t.id}-${el}`});
+  const editor=/editor/i.test(a.contributorRole||'');
+  return [
+  {h:'Key data (AI sheet, page 1)'},
+  {n:'1',label:'Title',req:1,kind:'line',src:'main',go:ed('top','title'),get:()=>t.title},
+  {n:'2',label:'Subtitle',kind:'line',src:'main',go:ed('top','subtitle'),get:()=>t.subtitle},
+  {n:'3',label:'Author line',req:1,kind:'line',src:'derived',how:'contributor role + Author',go:ed('top','authors'),get:()=>t.authors?(editor?'Edited by '+t.authors:t.authors):''},
+  {n:'4',label:'Sales handle',req:1,kind:'line',src:'main',go:ed('content','salesHandle'),get:()=>c.salesHandle},
+  {n:'5',label:'Publication',req:1,kind:'line',src:'derived',how:'Street Date',go:ed('dates','streetDate'),get:()=>distUkDate(t.dates.streetDate)},
+  {n:'6',label:'Price UK',req:1,kind:'line',src:'derived',how:'Cover Price PBK (UK £)',go:ed('commercial','pbkGBP'),get:()=>{ const p=distPrice(t.price.pbkGBP,'£'); return p?'UK '+p:''; },chk:(v,R,A)=>{ if(/\$|\//.test(t.price.pbkGBP||'')) A.push('The UK price field holds “'+t.price.pbkGBP+'”. Check it on the title page.'); }},
+  {n:'7',label:'Price US',req:1,kind:'line',src:'derived',how:'Cover Price PBK (US $)',go:ed('commercial','pbkUSD'),get:()=>{ const p=distPrice(t.price.pbkUSD,'$'); return p?'US '+p:''; }},
+  {n:'8',label:'ISBN (paperback)',req:1,kind:'line',src:'main',go:ed('commercial','isbnPbk'),get:()=>t.commercial.isbnPbk,chk:(v,R)=>{ if(v && ctIsbnStatus(v)!=='ok13') R.push('Not a valid ISBN-13'); }},
+  {n:'9',label:'eBook ISBN + price (Digital version only)',kind:'line',src:'derived',how:'never on the Turnaround print version',go:ed('commercial','isbnEbk'),get:()=>t.commercial.isbnEbk?(t.commercial.isbnEbk+(t.price.ebkUSD?' · US '+distPrice(t.price.ebkUSD,'$'):'')):'',chk:(v,R,A)=>{ if(v && !t.price.ebkUSD) A.push('No eBook price in BPH'); if(/£/.test(t.price.ebkUSD||'')) A.push('eBook price “'+t.price.ebkUSD+'” is in £ but the field is US $.'); }},
+  {n:'10',label:'Format',req:1,kind:'line',src:'derived',how:'trim · binding · pages',go:ed('commercial','trimSize'),get:()=>[tr?Math.round(tr.hMm)+' × '+Math.round(tr.wMm)+' mm':'',t.commercial.isbnPbk?'Paperback':(t.commercial.isbnHbk?'Hardback':''),t.commercial.pages?t.commercial.pages+' pages':''].filter(Boolean).join(' · '),chk:(v,R)=>{ if(!t.commercial.pages) R.push('No page count in BPH'); if(!tr) R.push('No trim size BPH can read'); }},
+  {n:'11',label:'Illustrations',req:1,kind:'line',src:'main',how:'buyers want this stated, even “None”',go:ed('commercial','illustrationsText'),get:()=>t.commercial.illustrationsText},
+  {n:'12',label:'Subject / category',kind:'line',src:'main',how:'Category UK',go:ed('commercial','categoryUK'),get:()=>t.commercial.categoryUK||''},
+  {n:'13',label:'Thema code(s)',kind:'line',src:'dist',dk:'thema',chip:'Turnaround only',chk:(v,R,A)=>{ if(!v) A.push('Empty: Thema is still parked (to discuss with David). Left off the sheet until filled.'); }},
+  {n:'14',label:'BISAC code(s)',kind:'line',src:'derived',mirror:1,how:'BISAC 1, set in the SCB section',get:()=>d.bisac1||''},
+  {n:'15',label:'Rights',kind:'text',src:'dist',dk:'rights',chip:'Turnaround only',def:TA_RIGHTS_DEFAULT,hint:'Empty = the standard wording (Priya Vance’s Option 2, approved 09-10). Type here only to change it for this title.'},
+  {n:'16',label:'Spine (mm)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.spineMm||''},
+  {n:'17',label:'Weight (g)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.weightG||''},
+  {n:'18',label:'Country of origin',kind:'line',src:'dist',dk:'origin',chip:'Turnaround only',def:TA_ORIGIN_DEFAULT},
+  {n:'19',label:'Product page URL',kind:'line',src:'dist',dk:'productUrl',chip:'Turnaround only',ph:'https://headpress.com/product/…',hint:'Left off the sheet until the page is live (Dean).',chk:(v,R)=>{ if(v && !/^https:\/\//.test(v)) R.push('Must start https://'); }},
+  {n:'20',label:'Publisher',req:1,kind:'line',src:'main',how:'imprint only, never Turnaround or SCB',go:ed('top','imprint'),get:()=>t.imprint},
+  {h:'Copy (AI sheet, pages 1–2)'},
+  {n:'21',label:'Description',req:1,kind:'rich',src:'main',how:'Jacket Blurb',words:430,go:ed('content','jacketBlurb'),get:()=>c.jacketBlurb},
+  {n:'22',label:'Selling points',kind:'list',src:'main',go:ed('content','sellingPoints'),get:()=>c.sellingPoints},
+  {n:'23',label:'Target audience',kind:'line',src:'main',go:ed('content','targetAud'),get:()=>c.targetAudience},
+  {n:'24',label:'Keywords',kind:'line',src:'main',go:ed('content','keywords'),get:()=>c.keywords},
+  {n:'25',label:editor?'About the editor':'About the author',req:1,kind:'rich',src:'main',how:'Author Bio',go:ed('author','bio'),get:()=>a.bio},
+  {n:'26',label:'Bibliography',kind:'rich',src:'main',how:'Previous Publications',go:ed('author','prevPubs'),get:()=>a.previousPublications},
+  {n:'27',label:'Marketing & promotion',kind:'rich',src:'main',how:'Marketing Notes UK',go:ed('publicity','marketingUK'),get:()=>t.publicity.marketingUK,chk:(v,R,A)=>{ if(distTxt(v)) A.push('Printed as written: read it before sending (Dean).'); }},
+  {n:'28',label:'Praise',kind:'rich',src:'main',how:'Quotes, one per paragraph',go:ed('content','quotes'),get:()=>Q.map(q=>'<p>'+bphEscText(q.v)+'</p>').join(''),chk:(v,R,A)=>{ if(Q.some(q=>q.joined)) A.push('A quote’s attribution is stored as its own line in BPH; joined here.'); }},
+  {n:'29',label:'Competing titles',kind:'related',src:'main',soft:1,go:ed('content','ct-title-0'),get:()=>(c.competingTitles||[]).filter(r=>r.title||r.isbn)},
+  {n:'30',label:'Publicity contact',kind:'line',src:'derived',how:'PR contact (Key Contacts)',get:()=>/jen/i.test(t.publicity.prContact||'')?'jen@headpress.com':(t.publicity.prContact||'')},
+  {h:'Sales kit checklist (Turnaround)'},
+  {n:'K1',label:'Cover JPG named with the ISBN-13 (e.g. 9781915316585.jpg)',kind:'check',src:'dist',dk:'taCover',chip:'Turnaround only'},
+  {n:'K2',label:'AI sheet (Print PDF) built and checked',kind:'check',src:'dist',dk:'taAi',chip:'Turnaround only'},
+  {n:'K3',label:'Interior images',kind:'check',src:'dist',dk:'taImages',chip:'Turnaround only',opt:1},
+  {n:'K4',label:'Sample spreads',kind:'check',src:'dist',dk:'taSpreads',chip:'Turnaround only',opt:1},
+  {n:'K5',label:'Kit sent to Turnaround on',kind:'date',src:'dist',dk:'taSent',chip:'Turnaround only'}
+  ];
+}
+function distTaSectionHtml(t){
+  const rows=TA_ROWS(t);
+  return `<div class="dp-sechead"><h2>Turnaround</h2><span class="dp-secnote">In the AI-sheet order (Dean’s kit builder). Turnaround has no character limits; word counts are for the sheet’s layout. Build the kit itself with Dean’s script.</span></div>
+    ${distSectionHeadHtml(t,'ta',rows)}
+    <div class="dp-rows">${rows.map((r,i)=>distRowHtml(t,'ta',r,i)).join('')}</div>`;
+}
 
 // ─── Round 65 (2026-10-09) — "Original" snapshot per field ───
 // The first time text is pasted into an EMPTY field, BPH keeps a copy of
