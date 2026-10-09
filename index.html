@@ -1086,6 +1086,25 @@ textarea.autoexpand.autoexpand-line{min-height:0;line-height:1.5}
 .tidy-actions{display:flex;gap:6px;flex-wrap:wrap;align-items:center}
 .tidy-key{font-size:.74rem;color:var(--text3)}
 @media (max-width:700px){.tidy-ba{grid-template-columns:1fr}}
+/* Round 65 (2026-10-09) — "Original" snapshot + live SCB counts under fields */
+.rt-under{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;flex-wrap:wrap;min-height:0}
+.rt-under:empty{display:none}
+.rt-under-r{display:flex;align-items:flex-start;gap:10px;margin-left:auto;flex-wrap:wrap}
+.orig{font-size:.76rem;color:var(--text3);min-width:0;flex:1 1 auto}
+.orig-link{border:none;background:none;padding:0;color:var(--text3);text-decoration:underline;cursor:pointer;font-size:.76rem}
+.orig-link:hover{color:var(--text)}
+.orig-d summary{cursor:pointer;color:var(--text2);text-decoration:underline;list-style:none}
+.orig-d summary::-webkit-details-marker{display:none}
+.orig-d summary::before{content:'▸ ';text-decoration:none;display:inline-block}
+.orig-d[open] summary::before{content:'▾ '}
+.orig-body{margin-top:6px;border:1px dashed var(--border2);border-radius:var(--r4);background:var(--surface2);padding:8px 10px;font-size:.9rem;line-height:1.5;color:var(--text);max-height:320px;overflow:auto;overflow-wrap:anywhere}
+.orig-body p{margin-bottom:.7em}.orig-body p:last-child{margin-bottom:0}
+.orig-body ul,.orig-body ol{margin:0 0 .6em 22px}
+.orig-actions{display:flex;gap:10px;align-items:center;margin-top:6px}
+.scb-count{font-size:.74rem;font-weight:600;white-space:nowrap;border-radius:999px;padding:1px 8px;border:1px solid}
+.scb-count.ok{color:var(--sage-border);background:var(--sage-bg);border-color:var(--sage-border)}
+.scb-count.amber{color:#7a4a12;background:var(--amber-bg);border-color:var(--amber-border)}
+.scb-count.red{color:#8a1d0e;background:var(--terra-bg);border-color:var(--terra-border)}
 /* Round 12, item 2c — this is a contenteditable field's placeholder,
    rendered via ::before rather than a real ::placeholder pseudo-element (no
    <input>/<textarea> underneath it), so the global input/textarea rule
@@ -2336,7 +2355,7 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r64"></script>
+<script src="app.js?v=r65"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>

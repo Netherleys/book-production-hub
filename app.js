@@ -1197,7 +1197,11 @@ function rowToTitle(row){
       // Round 62 — Competing Titles moved here from box 6 as Title + ISBN rows
       // (see competingTitlesFromEditorial()). _ctNotMigrated is display-only.
       competingTitles: ct.rows, competingTitlesLegacy: ct.legacy, _ctNotMigrated: ct.notMigrated },
-    authorInfo: Object.assign({}, authorInfo),
+    authorInfo: (()=>{ const a=Object.assign({}, authorInfo); delete a._orig; return a; })(),
+    // Round 65 — "Original" snapshots, one per field, keyed by field path.
+    // Stored as an `_orig` key inside the JSON cell the field already lives
+    // in (no new Sheet column), merged here into one map.
+    originals: Object.assign({}, origFrom(editorial), origFrom(publicity), origFrom(authorInfo), origFrom(pn)),
     pipeline: { stages },
     print: { printEstimate: pn.printerEstimates, scbEbookCoverSpec: pn.scbEbookCover, forLsiNotes: pn.lsiNotes, printerContacts: contacts },
     publicity: { publicityStatement: publicity.publicityStatement, prContact: publicity.prContact, marketing: publicity.marketing },
@@ -1239,13 +1243,13 @@ function legacyMergeNotes(proofing,typesetting){
 function titleToRow(t){
   const price_json = JSON.stringify(t.price||{});
   const production_json = JSON.stringify(t.pipeline.stages.map(s=>({stage:s.name,status:s.status,expectedDate:s.expectedDate,notes:s.notes})));
-  const publicity_json = JSON.stringify({
+  const publicity_json = origJson(t,'publicity_json',{
     publicityStatement: t.publicity.publicityStatement||'', prContact: t.publicity.prContact||'', marketing: t.publicity.marketing||'',
     targetAudience: t.content.targetAudience||'',
     quotes: (t.content.quotes||'').split('\n').map(s=>s.trim()).filter(Boolean),
     sellingPoints: (t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean)
   });
-  const editorial_json = JSON.stringify({
+  const editorial_json = origJson(t,'editorial_json',{
     fullDescription: t.content.fullDescription||'', jacketBlurb: t.content.jacketBlurb||'', briefDescription: t.content.briefDescription||'',
     salesHandle: t.content.salesHandle||'', toc: t.toc.tableOfContents||'', excerpt: t.toc.excerpt||'',
     authorInsight: t.toc.howICameToWriteThis||'',
@@ -1254,8 +1258,8 @@ function titleToRow(t){
     competingTitles: (t.content.competingTitles||[]).map(r=>({title:(r.title||'').trim(),isbn:(r.isbn||'').trim()})).filter(r=>r.title||r.isbn),
     competingTitlesLegacy: t.content.competingTitlesLegacy||''
   });
-  const authorInfo_json = JSON.stringify(t.authorInfo||{});
-  const productionNotes_json = JSON.stringify({
+  const authorInfo_json = origJson(t,'authorInfo_json',Object.assign({},t.authorInfo||{}));
+  const productionNotes_json = origJson(t,'productionNotes_json',{
     checklist: (t.productionNotes.checklist||[]).map(c=>({item:c.text,checked:!!c.checked})),
     combinedNotes: t.productionNotes.notes||'',
     // Legacy fields round-tripped verbatim — the UI no longer edits these
@@ -1351,7 +1355,7 @@ function defTitle(o={}){
     productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),notes:'',proofingNotes:'',typesettingNotes:''},
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
-    quickNotes:[], promoCalendar:{}, poManualNotes:'',
+    quickNotes:[], promoCalendar:{}, poManualNotes:'', originals:{},
     imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:DEFAULT_COVER_PLACEHOLDER, authorBookkeepingLink:'', poTrackerIsbnKey:'', poTrackerTitleOverride:'',
     _row: null
   };
@@ -3786,6 +3790,149 @@ function emDashAutocorrect(el){
   sel.removeAllRanges();
   sel.addRange(newRange);
 }
+// ─── Round 65 (2026-10-09) — "Original" snapshot per field ───
+// The first time text is pasted into an EMPTY field, BPH keeps a copy of
+// it, dated. Later edits and cuts never touch it. "Replace original" saves
+// the current text as the new original on purpose (e.g. a fresh author file).
+// Which JSON cell each field's original lives in (the cell the field itself
+// is saved in):
+const ORIG_BLOB={
+  'content.fullDescription':'editorial_json','content.jacketBlurb':'editorial_json','content.briefDescription':'editorial_json','content.salesHandle':'editorial_json',
+  'toc.tableOfContents':'editorial_json','toc.excerpt':'editorial_json','toc.howICameToWriteThis':'editorial_json',
+  'publicity.publicityStatement':'publicity_json','publicity.marketing':'publicity_json','publicity.marketingUK':'publicity_json','publicity.marketingUSA':'publicity_json',
+  'content.sellingPoints':'publicity_json','content.quotes':'publicity_json','content.targetAudience':'publicity_json',
+  'authorInfo.bio':'authorInfo_json','authorInfo.otherContributors':'authorInfo_json','authorInfo.socials':'authorInfo_json','authorInfo.previousPublications':'authorInfo_json'
+  // Internal notes fields (print, PO, production, future edition) have no
+  // original: they're David's own notes, not copy that gets cut for SCB.
+};
+const ORIG_CELL_MAX=45000; // Google Sheets cell limit is 50,000 characters; keep headroom
+function origFrom(blob){ const o=blob&&blob._orig; if(!o||typeof o!=='object') return {}; const r={}; Object.keys(o).forEach(k=>{ const e=o[k]; if(e&&typeof e==='object'&&typeof e.v==='string') r[k]={v:e.v,d:e.d||''}; }); return r; }
+let origCapWarned={};
+function origJson(t,blobName,obj){
+  delete obj._orig;
+  const all=t.originals||{};
+  const mine=Object.keys(all).filter(k=>ORIG_BLOB[k]===blobName && all[k] && all[k].v);
+  if(!mine.length) return JSON.stringify(obj);
+  const o={}; mine.forEach(k=>o[k]={v:all[k].v,d:all[k].d||''});
+  let out=JSON.stringify(Object.assign({},obj,{_orig:o}));
+  if(out.length<=ORIG_CELL_MAX) return out;
+  // Too big for one Sheet cell: drop the largest originals from the SAVE
+  // (the field text itself is always saved in full) and warn once.
+  const dropped=[];
+  mine.slice().sort((a,b)=>o[b].v.length-o[a].v.length).some(k=>{ delete o[k]; dropped.push(k); out=JSON.stringify(Object.keys(o).length?Object.assign({},obj,{_orig:o}):obj); return out.length<=ORIG_CELL_MAX; });
+  const key=t.id+'|'+dropped.join(',');
+  if(!origCapWarned[key]){ origCapWarned[key]=1; console.warn('BPH: originals not saved (Sheet cell size limit)',t.id,dropped); try{ ctToast('Original not saved for '+dropped.length+' field(s): the Sheet cell would be too big. The field text itself is saved.'); }catch(e){} }
+  return out;
+}
+function origDate(d){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||''); return m?m[3]+'-'+m[2]+'-'+m[1].slice(2):''; }
+function origToday(){ const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); }
+function origIsRich(path){ return !/^content\.(salesHandle|sellingPoints|quotes|targetAudience)$/.test(path); }
+function origSet(titleId,path,value){
+  const t=getTitle(titleId); if(!t) return;
+  if(!t.originals) t.originals={};
+  t.originals[path]={v:String(value||''),d:origToday()};
+  debouncedSave(titleId); origRefresh(titleId,path);
+}
+function origCaptureIfFirst(titleId,path,value){
+  const t=getTitle(titleId); if(!t||!ORIG_BLOB[path]) return;
+  if(t.originals && t.originals[path] && t.originals[path].v) return;
+  if(!String(value||'').replace(/<[^>]+>/g,'').trim()) return;
+  origSet(titleId,path,value);
+}
+function origElId(titleId,path){ return 'orig-'+titleId+'-'+path.replace(/\./g,'-'); }
+function origBlock(titleId,path){ return `<div class="orig" id="${origElId(titleId,path)}">${origInner(titleId,path)}</div>`; }
+function origInner(titleId,path){
+  const t=getTitle(titleId); const o=t&&t.originals&&t.originals[path];
+  if(!o||!o.v) return `<button type="button" class="orig-link" title="Keep a copy of the text as it is now. Later edits and cuts won't touch it." onclick="origReplace('${titleId}','${path}',true)">Save current text as original</button>`;
+  const body = origIsRich(path) ? plainToRichHtml(o.v) : o.v.split('\n').map(l=>`<div>${esc(l)||'&nbsp;'}</div>`).join('');
+  return `<details class="orig-d"><summary>View original (${esc(origDate(o.d))})</summary>
+    <div class="orig-body">${body}</div>
+    <div class="orig-actions"><button type="button" class="btn btn-sm btn-copy" onclick="origCopy('${titleId}','${path}',this)">Copy</button>
+    <button type="button" class="orig-link" title="Save the field's current text as the new original" onclick="origReplace('${titleId}','${path}',false)">Replace original</button></div>
+  </details>`;
+}
+function origRefresh(titleId,path){ const el=document.getElementById(origElId(titleId,path)); if(el){ const open=!!el.querySelector('details[open]'); el.innerHTML=origInner(titleId,path); if(open){ const d=el.querySelector('details'); if(d) d.open=true; } } }
+function origCurrentValue(titleId,path){ const t=getTitle(titleId); if(!t) return ''; return path.split('.').reduce((o,k)=>o?o[k]:'',t)||''; }
+function origReplace(titleId,path,isNew){
+  const cur=origCurrentValue(titleId,path);
+  if(!String(cur).replace(/<[^>]+>/g,'').trim()){ ctToast('The field is empty: nothing to save as the original.'); return; }
+  if(!isNew && !confirm('Replace the saved original with the text in the field now? The old original is not kept.')) return;
+  origSet(titleId,path,cur); ctToast(isNew?'Saved as the original.':'Original replaced.');
+}
+function origCopy(titleId,path,btn){
+  const t=getTitle(titleId); const o=t&&t.originals&&t.originals[path]; if(!o) return;
+  if(!origIsRich(path)){ ctCopyText(o.v,btn,'Original copied'); return; }
+  scbCopyRich(plainToRichHtml(o.v),btn,'Original copied');
+}
+// Copy rich text so it pastes WITH its italics/bold (text/html) and as
+// plain text where formatting isn't accepted (text/plain).
+function scbCopyRich(html,btn,msg){
+  const plain=(()=>{ const d=document.createElement('div'); d.innerHTML=html.replace(/<\/(p|h3|li)>/gi,'</$1>\n'); return d.textContent.replace(/\n{2,}/g,'\n').trim(); })();
+  const done=()=>{ ctToast(msg||'Copied'); if(btn){ const o=btn.textContent; btn.classList.add('copied'); btn.textContent='Copied'; setTimeout(()=>{btn.classList.remove('copied');btn.textContent=o;},1200); } };
+  try{
+    if(navigator.clipboard && window.ClipboardItem && window.isSecureContext){
+      navigator.clipboard.write([new ClipboardItem({'text/html':new Blob([html],{type:'text/html'}),'text/plain':new Blob([plain],{type:'text/plain'})})]).then(done,()=>ctCopyText(plain,btn,msg));
+      return;
+    }
+  }catch(e){}
+  ctCopyText(plain,btn,msg);
+}
+
+// ─── Round 65 — live SCB counts on the title page ───
+// SCB counts characters of the HTML it stores, tags included (Evelyn
+// Cross's method, 08-10). Green under 90%, amber 90–100%, red over.
+// Turnaround has no limits.
+const SCB_CAPS={
+  'content.jacketBlurb':{cap:2500,label:'Full Description'},
+  'content.salesHandle':{cap:120,label:'Sales Handle'},
+  'content.sellingPoints':{cap:300,label:'Selling Points'},
+  'content.quotes':{cap:1000,label:'each Quote',each:1},
+  'publicity.marketing':{cap:1200,label:'Marketing'},
+  'publicity.marketingUSA':{cap:1200,label:'Marketing'},
+  'content.targetAudience':{cap:120,label:'Target Audience'},
+  'authorInfo.bio':{cap:600,label:'Author #1 Biography'},
+  'authorInfo.hometown':{cap:120,label:'Author #1 Hometown'},
+  'content.keywords':{cap:500,label:'Keywords'},
+  'toc.tableOfContents':{cap:2500,label:'Table of Contents'},
+  'toc.excerpt':{cap:2500,label:'Excerpt'}
+};
+const SCB_PLAIN_PATHS={'content.salesHandle':1,'content.targetAudience':1,'authorInfo.hometown':1,'content.keywords':1};
+// HTML exactly as it goes into SCB's form: <i> <b> <p> <ul>/<ol> <li>.
+// Headers become bold paragraphs, links become their text, a literal
+// "[TRUNCATED]" marker is dropped, and a single paragraph goes in bare.
+function scbHtml(v){
+  let s=bphCleanHtml(plainToRichHtml(String(v||''))).html;
+  s=s.replace(/<h3>([\s\S]*?)<\/h3>/g,'<p><b>$1</b></p>').replace(/<a [^>]*>([\s\S]*?)<\/a>/g,'$1').replace(/\s?\[TRUNCATED\]/g,'').replace(/<p>\s*<\/p>/g,'');
+  const one=/^<p>((?:(?!<\/?p>)[\s\S])*)<\/p>$/.exec(s); if(one) s=one[1];
+  // A bare "&" as typed in SCB's form (and as Evelyn counts it), not &amp;
+  return s.replace(/&amp;/g,'&');
+}
+function scbListHtml(text){ const items=String(text||'').split('\n').map(x=>x.replace(/\s?\[TRUNCATED\]/g,'').trim()).filter(Boolean); return items.length?'<ul>'+items.map(x=>'<li>'+bphEscText(x)+'</li>').join('')+'</ul>':''; }
+function scbTocText(v){ const d=document.createElement('div'); d.innerHTML=plainToRichHtml(String(v||'')).replace(/<\/(p|h3|li|div)>/gi,'</$1>\n'); return d.textContent.replace(/\u00a0/g,' ').replace(/[ \t]+\n/g,'\n').replace(/\n{2,}/g,'\n').trim(); }
+// {n, cap, level, text}
+function scbCount(path,value){
+  const c=SCB_CAPS[path]; if(!c) return null;
+  let n;
+  if(c.each){ const items=String(value||'').split('\n').map(x=>x.trim()).filter(Boolean); n=items.length?Math.max(...items.map(x=>x.length)):0; }
+  else if(path==='content.sellingPoints') n=scbListHtml(value).length;
+  else if(path==='toc.tableOfContents') n=scbTocText(value).length;
+  else if(SCB_PLAIN_PATHS[path]) n=String(value||'').replace(/\s?\[TRUNCATED\]/g,'').trim().length;
+  else n=scbHtml(value).length;
+  const level = n>c.cap?'red':(n>=c.cap*0.9?'amber':'ok');
+  const fmt=x=>x.toLocaleString('en-GB');
+  return {n,cap:c.cap,level,text:(c.each?'longest ':'')+fmt(n)+' / '+fmt(c.cap)+' SCB'+(n>c.cap?' · '+fmt(n-c.cap)+' over':'')};
+}
+function scbCountElId(titleId,path){ return 'scbc-'+titleId+'-'+path.replace(/\./g,'-'); }
+function scbCountBadge(titleId,path,value){
+  const r=scbCount(path,value); if(!r) return '';
+  return `<span class="scb-count ${r.level}" id="${scbCountElId(titleId,path)}" title="SCB counts the characters of the HTML it stores, tags included. SCB cuts anything over the limit without warning.">${esc(r.text)}</span>`;
+}
+function updateScbCount(titleId,path,value){
+  const el=document.getElementById(scbCountElId(titleId,path)); if(!el) return;
+  const r=scbCount(path,value); if(!r) return;
+  el.className='scb-count '+r.level; el.textContent=r.text;
+}
+
 // ─── Round 64 (2026-10-09, David-approved) — auto-clean + Tidy ───
 // Every rich field (richTa) is cleaned automatically on paste and on save.
 // KEPT: bold, italic, ONE header level (<h3>), paragraphs, bullet + numbered
@@ -3948,6 +4095,7 @@ function richTaPaste(e,el,titleId,path){
   const h=cd.getData('text/html'), t=cd.getData('text/plain');
   const r = h ? bphCleanHtml(h) : {html:bphPlainToHtml(t),stats:null};
   if(!r.html){ richTaStatus(el.id,'Nothing to paste after cleaning.'); return; }
+  const wasEmpty=!bphTextOnly(el.innerHTML);
   if(!h && !/[\r\n]/.test(t)){ // one line of plain text: insert as typed, spaces and all
     document.execCommand('insertText',false,t.replace(BPH_ZW_RE,'').replace(/\u00a0/g,' '));
   } else {
@@ -3959,6 +4107,7 @@ function richTaPaste(e,el,titleId,path){
   fc(titleId,path,richTaStoredValue(el));
   el.dataset.empty = el.innerText.trim()?'0':'1';
   richTaStatus(el.id,'✓ Pasted and auto-cleaned: '+(r.stats?bphStatsLine(r.stats):'plain text')+'.');
+  if(wasEmpty) origCaptureIfFirst(titleId,path,richTaStoredValue(el)); // Round 65
 }
 function richTaBlur(el,titleId,path){
   el.dataset.empty=el.innerText.trim()?'0':'1';
@@ -4096,7 +4245,8 @@ function undoTidy(editId){
 // Tidy button + preview slot for a plain textarea (Sales Handle, Selling
 // Points, Quotes, Target Audience). Line breaks there are kept: one item per line.
 function tidyBar(editId,titleId,path){
-  return `<div class="tidy-plain-bar"><button type="button" class="rt-btn rt-tidy" title="House style: curly quotes, dashes, spaces. Shows a before/after first." onclick="openTidy('${editId}','${titleId}','${path}','plain')">Tidy</button><span class="rt-status" id="rts-${editId}" role="status"></span></div><div id="tp-${editId}"></div>`;
+  setTimeout(()=>{ const ta=document.getElementById(editId); if(ta){ ta.dataset.origPath=path; ta.dataset.origTitle=titleId; } },0);
+  return `<div class="tidy-plain-bar"><button type="button" class="rt-btn rt-tidy" title="House style: curly quotes, dashes, spaces. Shows a before/after first." onclick="openTidy('${editId}','${titleId}','${path}','plain')">Tidy</button><span class="rt-status" id="rts-${editId}" role="status"></span><span class="rt-under-r">${ORIG_BLOB[path]?origBlock(titleId,path):''}${scbCountBadge(titleId,path,origCurrentValue(titleId,path))}</span></div><div id="tp-${editId}"></div>`;
 }
 function richTa(titleId,fieldKey,path,val,ph){
   const editId=`f-${titleId}-${fieldKey}`;
@@ -4117,6 +4267,7 @@ function richTa(titleId,fieldKey,path,val,ph){
       onpaste="richTaPaste(event,this,'${titleId}','${path}')"
       onfocus="this.dataset.wasEmpty=this.dataset.empty;try{document.execCommand('defaultParagraphSeparator',false,'p')}catch(e){}" onblur="richTaBlur(this,'${titleId}','${path}')"
       >${displayHtml}</div>
+    <div class="rt-under">${ORIG_BLOB[path]?origBlock(titleId,path):''}${scbCountBadge(titleId,path,val)}</div>
     <div id="tp-${editId}"></div>
   </div>`;
 }
@@ -4192,7 +4343,7 @@ function renderContent(t){const id=t.id;const c=t.content;
     ${frow('Selling Points (one per line)',taAuto(`f-${id}-sellingPoints`,c.sellingPoints,'One selling point per line…',`fc('${id}','content.sellingPoints',this.value)`)+tidyBar(`f-${id}-sellingPoints`,id,'content.sellingPoints'),'full')}
     ${frow('Quotes (one per line)',taAuto(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`)+tidyBar(`f-${id}-quotes`,id,'content.quotes'),'full')}
     ${frow('Target Audience',taLine(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`,false)+tidyBar(`f-${id}-targetAud`,id,'content.targetAudience'))}
-    ${frow('Keywords / Metadata',taLine(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`,true)+`<div class="field-help">Enter doesn't add a line break. Keywords stay one semicolon-separated line.</div>`)}
+    ${frow('Keywords / Metadata',taLine(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`,true)+`<div class="field-help">Enter doesn't add a line break. Keywords stay one semicolon-separated line. ${scbCountBadge(id,'content.keywords',c.keywords)}</div>`)}
     ${renderCompetingTitles(t)}
   </div>`;}
 
@@ -4212,6 +4363,7 @@ document.addEventListener('paste',e=>{
   // Single-line ones still flatten line breaks to spaces (Round 62).
   const t=e.target; if(!t||!t.matches||!t.matches('textarea')) return;
   const raw=(e.clipboardData&&e.clipboardData.getData('text'))||'';
+  if(t.dataset.origPath && !t.value.trim()) setTimeout(()=>origCaptureIfFirst(t.dataset.origTitle,t.dataset.origPath,t.value),0); // Round 65
   let txt=raw.replace(BPH_ZW_RE,'').replace(/\u00a0/g,' ');
   if(t.matches('textarea[data-single-line]') && /[\r\n]/.test(txt)) txt=txt.replace(/\s*\r?\n\s*/g,' ').trim();
   if(txt===raw) return;
@@ -4323,7 +4475,7 @@ function renderAuthor(t){const id=t.id;const a=t.authorInfo;
   // without visually collapsing.
   return `<div class="field-grid">
     ${frow('Author Bio',richTa(id,'bio','authorInfo.bio',a.bio,''),'full')}
-    ${frow('Author Hometown',inp(`f-${id}-hometown`,a.hometown,'',`fc('${id}','authorInfo.hometown',this.value)`))}
+    ${frow('Author Hometown',inp(`f-${id}-hometown`,a.hometown,'',`fc('${id}','authorInfo.hometown',this.value)`)+`<div class="rt-under">${scbCountBadge(id,'authorInfo.hometown',a.hometown)}</div>`)}
     ${frow('Contributor(s)',richTa(id,'otherContribs','authorInfo.otherContributors',a.otherContributors,'Any additional contributor(s), separate from the main author(s)…'),'full')}
     ${frow('Socials & Societies',richTa(id,'socials','authorInfo.socials',a.socials,'One per line is fine…'),'full')}
     ${frow('Previous Publications',richTa(id,'prevPubs','authorInfo.previousPublications',a.previousPublications,''),'full')}
@@ -5912,6 +6064,7 @@ function fc(titleId,path,value){
   for(let i=0;i<parts.length-1;i++){if(!obj[parts[i]])obj[parts[i]]={};obj=obj[parts[i]];}
   obj[parts[parts.length-1]]=value;
   debouncedSave(titleId);updateSectionHeaders(titleId);
+  if(SCB_CAPS[path]) updateScbCount(titleId,path,value); // Round 65
 }
 function stageChange(titleId,idx,field,value){
   const t=getTitle(titleId);if(!t)return;
