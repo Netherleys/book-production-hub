@@ -1201,10 +1201,19 @@ function rowToTitle(row){
     // Round 65 — "Original" snapshots, one per field, keyed by field path.
     // Stored as an `_orig` key inside the JSON cell the field already lives
     // in (no new Sheet column), merged here into one map.
-    originals: Object.assign({}, origFrom(editorial), origFrom(publicity), origFrom(authorInfo), origFrom(pn)),
+    originals: (()=>{ const o=Object.assign({}, origFrom(editorial), origFrom(publicity), origFrom(authorInfo), origFrom(pn));
+      // Round 68 — the new UK/USA Marketing fields inherit the old Marketing field's Original.
+      ['publicity.marketingUK','publicity.marketingUSA'].forEach(k=>{ if(!o[k] && o['publicity.marketing']) o[k]=Object.assign({},o['publicity.marketing']); });
+      return o; })(),
     pipeline: { stages },
     print: { printEstimate: pn.printerEstimates, scbEbookCoverSpec: pn.scbEbookCover, forLsiNotes: pn.lsiNotes, printerContacts: contacts },
-    publicity: { publicityStatement: publicity.publicityStatement, prContact: publicity.prContact, marketing: publicity.marketing },
+    // Round 68 (2026-10-09, David-approved) — Marketing Notes split into UK
+    // (Turnaround) and USA (SCB). Until a title is saved with the new keys,
+    // both start as a copy of the old single Marketing field, which itself
+    // is kept in the data unchanged (marketing) for reference.
+    publicity: { publicityStatement: publicity.publicityStatement, prContact: publicity.prContact, marketing: publicity.marketing,
+      marketingUK: ('marketingUK' in publicity) ? (publicity.marketingUK||'') : (publicity.marketing||''),
+      marketingUSA: ('marketingUSA' in publicity) ? (publicity.marketingUSA||'') : (publicity.marketing||'') },
     toc: { tableOfContents: editorial.toc, howICameToWriteThis: editorial.authorInsight, excerpt: editorial.excerpt },
     // Round 42 (2026-09-03) — Proofing Notes + Typesetting Notes collapsed
     // into one field (David: "PRODUCTION NOTES... just a single text
@@ -1245,6 +1254,7 @@ function titleToRow(t){
   const production_json = JSON.stringify(t.pipeline.stages.map(s=>({stage:s.name,status:s.status,expectedDate:s.expectedDate,notes:s.notes})));
   const publicity_json = origJson(t,'publicity_json',{
     publicityStatement: t.publicity.publicityStatement||'', prContact: t.publicity.prContact||'', marketing: t.publicity.marketing||'',
+    marketingUK: t.publicity.marketingUK||'', marketingUSA: t.publicity.marketingUSA||'',
     targetAudience: t.content.targetAudience||'',
     quotes: (t.content.quotes||'').split('\n').map(s=>s.trim()).filter(Boolean),
     sellingPoints: (t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean)
@@ -1350,7 +1360,7 @@ function defTitle(o={}){
     authorInfo:{bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:'',contributorRole:'Author(s)'},
     pipeline:{stages:PIPELINE_STAGES.map(n=>({name:n,status:'Not Started',expectedDate:'',notes:''}))},
     print:{printEstimate:'',scbEbookCoverSpec:'1400px on shortest side / RGB',forLsiNotes:'',printerContacts:PRINTER_DEF.map(p=>Object.assign({},p))},
-    publicity:{publicityStatement:'',prContact:'',marketing:''},
+    publicity:{publicityStatement:'',prContact:'',marketing:'',marketingUK:'',marketingUSA:''},
     toc:{tableOfContents:'',howICameToWriteThis:'',excerpt:''},
     productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),notes:'',proofingNotes:'',typesettingNotes:''},
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
@@ -5627,7 +5637,8 @@ function renderPublicity(t){const id=t.id;const p=t.publicity;
   // easy to pick a different label if this reads as confusing once live.
   return `<div class="field-grid">
     ${frow('Selling Points',richTa(id,'pubStmt','publicity.publicityStatement',p.publicityStatement,''),'full')}
-    ${frow('Marketing Notes',richTa(id,'marketing','publicity.marketing',p.marketing,''),'full')}
+    ${frow('Marketing Notes UK <span class="field-label-note">Turnaround</span>',richTa(id,'marketingUK','publicity.marketingUK',p.marketingUK,'Marketing plan for the UK (Turnaround)…'),'full')}
+    ${frow('Marketing Notes USA <span class="field-label-note">SCB</span>',richTa(id,'marketingUSA','publicity.marketingUSA',p.marketingUSA,'Marketing plan for the USA (SCB)…'),'full')}
     <p style="grid-column:1/-1;font-size:.78rem;color:var(--text3)">Amazon A+, PLS.ORG, Newsletter and Promo Film status now live in the Production Pipeline section above (they were duplicated in both places in the original app) — use each stage's Notes field for detail.</p>
   </div>`;}
 
@@ -6828,7 +6839,7 @@ function getSectionExportFields(t,key,blockNameById){
       // renderPublicity() above) so exports read the same, same pattern as
       // the Contributor(s) rename precedent (item 7, Round 11) above.
       ['Selling Points','html', t.publicity.publicityStatement],
-      ['Marketing Notes','html', t.publicity.marketing]
+      ['Marketing Notes UK','html', t.publicity.marketingUK],['Marketing Notes USA','html', t.publicity.marketingUSA]
     ];
     case 'toc': return [
       ['Table of Contents','html', t.toc.tableOfContents],
