@@ -2229,6 +2229,7 @@ function render(){
   else if(view==='promocal')renderPromoCalendar();
   else if(view==='ordertracker')renderOrderTracker();
   else if(view==='dist')distRender(); // Round 69
+  if(typeof distReturnChipSync==='function') distReturnChipSync(); // Round 71
   populateQuickNoteTitles();
   updateQuickNotesBadge();
   // Round 20 (2026-08-19) — header dropdown lives outside #main (it's part
@@ -2474,7 +2475,7 @@ function imprintEditSelect(t){
   // Round 10, item 5 — data-imprint drives the per-imprint accent-colour CSS
   // (see .imprint-edit-select[data-imprint=...] in index.html), same
   // attribute/pattern .book-card already uses for its own imprint accent.
-  return `<select class="imprint-edit-select" data-imprint="${ik}" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
+  return `<select class="imprint-edit-select" id="f-${t.id}-imprint" data-imprint="${ik}" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
     <option value="Headpress" ${ik==='headpress'?'selected':''}>Headpress</option>
     <option value="Oil On Water Press" ${ik==='oowp'?'selected':''}>Oil On Water Press</option>
   </select>`;
@@ -2881,6 +2882,7 @@ function renderDetail(){
                 ${contribRoleSelectHtml(`f-${t.id}-contribRole`,t.id,t.authorInfo.contributorRole)}
               </div>
               ${t.authors?`<div class="detail-author-preview" id="detail-author-preview-${t.id}">Displays as: “${esc(contributorLabel(t))}”</div>`:''}
+              ${productUrlRowHtml(t)}
               ${streetPrintHtml}
               <div class="detail-meta-row detail-progress-row">${printStatusPill(t)}</div>
               <div class="detail-strip-wrap">
@@ -3328,6 +3330,13 @@ async function revealWorkingFolderRoot(){
 // contactSelectHtml()/getContacts() above) instead — Author Liaison stops
 // being a special hardcoded case, PR Contact gains the dropdown David asked
 // for, and either field can grow the list via "+ Add new contact…".
+// Round 71 (2026-10-10, David-approved) — Product page URL, shown at the top of
+// the title page. ONE value: the same t.dist.productUrl the distributor page's
+// Turnaround "Product page URL" row edits (saved in productionNotes_json.distributor).
+function productUrlRowHtml(t){ const u=String(distGet(t).productUrl||'');
+  return `<div class="detail-produrl"><label for="f-${t.id}-productUrl">Product page</label><input type="url" id="f-${t.id}-productUrl" value="${esc(u)}" placeholder="https://headpress.com/product/…" oninput="onProductUrlInput('${t.id}',this.value)" spellcheck="false"><a id="produrl-open-${t.id}" class="detail-produrl-open${/^https?:\/\//.test(u)?'':' is-hidden'}" href="${esc(/^https?:\/\//.test(u)?u:'#')}" target="_blank" rel="noopener" title="Open the product page">Open &#8599;</a></div>`; }
+function onProductUrlInput(id,v){ const t=getTitle(id); if(!t) return; v=String(v||'').trim(); distGet(t).productUrl=v; debouncedSave(id);
+  const a=document.getElementById('produrl-open-'+id); if(a){ const ok=/^https?:\/\//.test(v); a.classList.toggle('is-hidden',!ok); a.href=ok?v:'#'; } }
 function renderKeyContacts(t){const id=t.id;
   return `<div class="key-contacts-box">
     <div class="key-contacts-label">Key Contacts</div>
@@ -3931,7 +3940,7 @@ function SCB_ROWS(t){
   {n:'43',label:'Publishing Date (YYYY-MM-DD)',req:1,kind:'line',src:'main',how:'Street Date',go:ed('dates','streetDate'),get:()=>String(t.dates.streetDate||'').slice(0,10)},
   {n:'44',label:'Number Of Pieces',kind:'line',src:'dist',dk:'pieces'},
   {n:'45',label:'Carton Quantity',kind:'line',src:'dist',dk:'carton'},
-  {n:'46',label:'Industry Category 1',req:1,kind:'line',src:'dist',dk:'ic1',hint:'Category USA on the title page: '+(t.commercial.categoryUSA||'—')},
+  {n:'46',label:'Industry Category 1',req:1,kind:'line',src:'dist',dk:'ic1',hint:'Category USA on the title page: '+(t.commercial.categoryUSA||'—'),hintGo:ed('commercial','categoryUSA')},
   {n:'47',label:'Industry Category 2',kind:'line',src:'dist',dk:'ic2'},
   {n:'48',label:'Industry Category 3',kind:'line',src:'dist',dk:'ic3'},
   {n:'49',label:'Audience Code',req:1,kind:'line',src:'dist',dk:'audCode'},
@@ -4011,7 +4020,7 @@ function distValueHtml(t,sec,r){
     const chip=`<span class="dp-chip">${esc(r.chip||(r.shared?'SCB + Turnaround':'SCB only'))}</span>`;
     const raw=d[r.dk]==null?'':d[r.dk];
     const ship=r.ship&&distShipSuggest(t)?` <button type="button" class="btn btn-sm" onclick="distSet('${id}','ship','${distShipSuggest(t)}');distRender()">Use ${distShipSuggest(t)} (pub date − 1 month)</button>`:'';
-    const hint=r.hint?`<div class="dp-sub">${esc(r.hint)}</div>`:'';
+    const hint=r.hint?`<div class="dp-sub">${esc(r.hint)}${r.hintGo?` <button type="button" class="dp-go" onclick="distEditOnTitle('${id}','${r.hintGo.sec}','${r.hintGo.el}')">Open on title page ✎</button>`:''}</div>`:'';
     if(r.kind==='text') return `<div class="dist-edit"><textarea class="autoexpand" rows="2" oninput="distSet('${id}','${r.dk}',this.value);autoGrow(this)" placeholder="${esc(r.def||r.ph||'')}">${esc(raw)}</textarea>${chip}</div>${hint}`;
     return `<div class="dist-edit"><input type="text" value="${esc(raw)}" oninput="distSet('${id}','${r.dk}',this.value)" placeholder="${esc(r.def||r.ph||'')}">${chip}${ship}</div>${hint}`;
   }
@@ -4021,9 +4030,11 @@ function distValueHtml(t,sec,r){
   if(r.kind==='text') return `<div class="dp-pre">${esc(v)}</div>`;
   return `<span class="dp-line">${esc(v)}</span>`;
 }
+// Round 71 — where a row's title-page field is (for links). Mirrors point at their SCB row instead.
+function distGoFor(t,r){ return (r && r.go && r.src!=='dist') ? r.go : null; }
 function distSrcHtml(t,r){
   if(r.src==='dist') return '';
-  const where=r.how?esc(r.how):'';
+  const where=r.how?(r.go?`<a href="#" class="dp-ref" onclick="event.preventDefault();distEditOnTitle('${t.id}','${r.go.sec}','${r.go.el}')" title="Open the title page at this field">${esc(r.how)}</a>`:esc(r.how)):'';
   const link=r.go?`<button type="button" class="dp-go" onclick="distEditOnTitle('${t.id}','${r.go.sec}','${r.go.el}')" title="Edit this on the title page">Edit on title page ✎</button>`:'';
   return `<span class="dp-src">${r.src==='derived'?'Worked out from the title page':'From the title page'}${where?': '+where:''}</span>${link}`;
 }
@@ -4053,7 +4064,13 @@ function distSectionHeadHtml(t,sec,rows){
   const badge=s.red?`<span class="dp-badge red">${s.red} to fix</span>`:(s.amber?`<span class="dp-badge amber">${s.amber} to check</span>`:'<span class="dp-badge ok">ready</span>');
   let extra='';
   if(sec==='scb'){ const kt=distKeyTotal(t,rows); extra=`<div class="dp-keytotal ${kt>=800?'ok':'red'}">Key fields (Full Description, Quote #1, Marketing, Author #1 Bio) together: <b>${kt.toLocaleString('en-GB')}</b> characters. SCB needs 800+ ${kt>=800?'✓':'✕'}</div>`; }
-  const list=s.items.length?`<details class="dp-issues"${s.red?' open':''}><summary>${s.items.length} field${s.items.length>1?'s':''} to fix or check</summary><ul>${s.items.map(x=>`<li class="${x.lvl}"><a href="#dp-${sec}-${x.r.n}" onclick="event.preventDefault();distJump('dp-${sec}-${x.r.n}')">${esc(x.r.n)}. ${esc(x.r.label)}</a>: ${esc(x.m||'')}</li>`).join('')}</ul></details>`:'';
+  // Round 71 — a field that lives on the title page links straight to it (exact field, section opened);
+  // "row ↓" still jumps to the row on this page. Distributor-only fields are fixed here, so they jump here.
+  const list=s.items.length?`<details class="dp-issues"${s.red?' open':''}><summary>${s.items.length} field${s.items.length>1?'s':''} to fix or check</summary><ul>${s.items.map(x=>{
+    const go=distGoFor(t,x.r);
+    const main=go?`<a href="#" class="dp-tolink" onclick="event.preventDefault();distEditOnTitle('${t.id}','${go.sec}','${go.el}')" title="Open the title page at this field">${esc(x.r.n)}. ${esc(x.r.label)} ✎</a> <a href="#dp-${sec}-${x.r.n}" class="dp-rowlink" onclick="event.preventDefault();distJump('dp-${sec}-${x.r.n}')" title="Show this row on the distributor page">row ↓</a>`
+      :`<a href="#dp-${sec}-${x.r.n}" onclick="event.preventDefault();distJump('dp-${sec}-${x.r.n}')">${esc(x.r.n)}. ${esc(x.r.label)}</a>`;
+    return `<li class="${x.lvl}">${main}: ${esc(x.m||'')}</li>`; }).join('')}</ul></details>`:'';
   return `<div class="dp-sechead-status" id="dp-status-${sec}">${badge}${extra}${list}</div>`;
 }
 function distRender(){
@@ -4104,11 +4121,23 @@ function distRefresh(id){
   distJumpBadges(t);
 }
 function distJump(elId){ const el=document.getElementById(elId); if(!el) return; const top=el.getBoundingClientRect().top+window.scrollY-120; window.scrollTo({top,behavior:'smooth'}); el.classList.add('dp-flash'); setTimeout(()=>el.classList.remove('dp-flash'),1400); }
+// Round 71 — remember the distributor page + scroll position, so the floating
+// "← Back to distributor page" chip on the title page returns to the same spot.
+let distReturn=null;
 function distEditOnTitle(id,sec,elId){
+  if(view==='dist') distReturn={id,y:window.scrollY};
   gotoDetail(id);
   setTimeout(()=>{ if(sec && sec!=='top' && typeof setAccordOpen==='function') setAccordOpen(id,sec,true);
     setTimeout(()=>{ const el=document.getElementById(elId); if(el){ el.scrollIntoView({block:'center'}); try{ el.focus({preventScroll:true}); }catch(e){} el.classList.add('dp-flash'); setTimeout(()=>el.classList.remove('dp-flash'),1400); } },60); },30);
 }
+function distReturnChipSync(){
+  let el=document.getElementById('dist-return-chip');
+  const show=view==='detail' && distReturn && distReturn.id===selectedId;
+  if(!show){ if(el) el.remove(); if(view!=='detail' && view!=='dist') distReturn=null; return; }
+  if(!el){ el=document.createElement('button'); el.type='button'; el.id='dist-return-chip'; el.className='dist-return-chip'; el.onclick=distBack; document.body.appendChild(el); }
+  el.innerHTML='&#8592; Back to distributor page';
+}
+function distBack(){ const r=distReturn; if(!r) return; distReturn=null; gotoDist(r.id); const y=r.y; requestAnimationFrame(()=>{ window.scrollTo(0,y); setTimeout(()=>window.scrollTo(0,y),60); }); }
 function distRowsFor(t,sec){ return sec==='ta'?TA_ROWS(t):SCB_ROWS(t); }
 function distCopy(id,sec,i,mode,btn){
   const t=getTitle(id); if(!t) return; const r=distRowsFor(t,sec)[i]; if(!r) return;
@@ -4158,8 +4187,8 @@ function TA_ROWS(t){
   {n:'16',label:'Spine (mm)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.spineMm||''},
   {n:'17',label:'Weight (g)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.weightG||''},
   {n:'18',label:'Country of origin',kind:'line',src:'dist',dk:'origin',chip:'Turnaround only',def:TA_ORIGIN_DEFAULT},
-  {n:'19',label:'Product page URL',kind:'line',src:'dist',dk:'productUrl',chip:'Turnaround only',ph:'https://headpress.com/product/…',hint:'Left off the sheet until the page is live (Dean).',chk:(v,R)=>{ if(v && !/^https:\/\//.test(v)) R.push('Must start https://'); }},
-  {n:'20',label:'Publisher',req:1,kind:'line',src:'main',how:'imprint only, never Turnaround or SCB',go:ed('top','imprint'),get:()=>t.imprint},
+  {n:'19',label:'Product page URL',kind:'line',src:'dist',dk:'productUrl',chip:'Turnaround only',ph:'https://headpress.com/product/…',hint:'Same value as “Product page” at the top of the title page. Left off the sheet until the page is live (Dean).',hintGo:ed('top','productUrl'),chk:(v,R)=>{ if(v && !/^https:\/\//.test(v)) R.push('Must start https://'); }},
+  {n:'20',label:'Publisher',req:1,kind:'line',src:'main',how:'imprint only, never Turnaround or SCB',go:ed('dates','imprint'),get:()=>t.imprint},
   {h:'Copy (AI sheet, pages 1–2)'},
   {n:'21',label:'Description',req:1,kind:'rich',src:'main',how:'Jacket Blurb',words:430,go:ed('content','jacketBlurb'),get:()=>c.jacketBlurb},
   {n:'22',label:'Selling points',kind:'list',src:'main',go:ed('content','sellingPoints'),get:()=>c.sellingPoints},

@@ -2025,6 +2025,17 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 .dp-rel{margin:0 0 0 20px}.dp-isbn{font-family:Consolas,monospace;font-size:.82rem;color:var(--text3)}.dp-miss{font-size:.74rem;color:#8a1d0e}
 .dp-flash{animation:dpflash 1.4s ease}
 .dp-check{display:inline-flex;gap:6px;align-items:center;font-size:.9rem;cursor:pointer}.dp-check input{width:18px;height:18px;flex:none}
+/* Round 71 — links from the distributor page to the title page, and the way back */
+.dp-ref{color:#2B5AA8;text-decoration:underline;cursor:pointer}
+.dp-issues .dp-rowlink{font-size:.72rem;color:var(--text3);text-decoration:underline}
+.dist-return-chip{position:fixed;left:18px;bottom:72px;z-index:900;border:1.5px solid #2B5AA8;background:#2B5AA8;color:#fff;font-weight:700;font-size:.85rem;border-radius:999px;padding:8px 16px;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
+.dist-return-chip:hover{background:#1f4787}
+@media (max-width:700px){.dist-return-chip{left:12px;bottom:64px;font-size:.8rem;padding:7px 12px}}
+.detail-produrl{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:.82rem;min-width:0}
+.detail-produrl label{font-weight:700;color:var(--text3);white-space:nowrap;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em}
+.detail-produrl input{flex:1 1 auto;min-width:0;border:1px solid var(--border2);background:var(--surface);border-radius:var(--r4);padding:3px 8px;font-size:.84rem;color:#2B5AA8}
+.detail-produrl-open{white-space:nowrap;font-weight:700;color:#2B5AA8;text-decoration:none;font-size:.8rem}
+.detail-produrl-open.is-hidden{display:none}
 @keyframes dpflash{0%,40%{box-shadow:0 0 0 3px #2B5AA8}100%{box-shadow:none}}
 @media (max-width:700px){.dp-row{grid-template-columns:28px minmax(0,1fr)}.dp-act{grid-column:2;flex-direction:row;flex-wrap:wrap;align-items:center;min-width:0}.dp-issues ul{columns:1}.dp-legend{margin-left:0}}
 </style>
@@ -2420,7 +2431,7 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r70"></script>
+<script src="app.js?v=r71"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
