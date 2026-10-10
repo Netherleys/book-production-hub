@@ -4007,7 +4007,7 @@ function distEval(t,r){
     return {R,A,level:A.length?'amber':(st.s.expectedDate?'ok':'none')}; }
   if(r.kind==='code' && v && !codeLookup(r.codes,v)) A.push('“'+v+'” isn’t in the '+codeListName(r.codes)+' list yet. Pick it again from the dropdown, or add it.');
   if(r.kind==='date'){ return {R,A,level:v?'ok':'none'}; }
-  if(r.mirror && !String(v||'').trim()) A.push('Empty: fill it in the SCB section above.');
+  if(r.mirror && !r.jump && !String(v||'').trim()) A.push('Empty: fill it in the SCB section above.');
   if(r.words && distWords(v)>r.words) A.push(distWords(v)+' words: over ~'+r.words+', so selling points move to page 2 of the AI sheet (Dean’s layout). Fine, just longer.');
   const s=String(v||''); const empty=!distTxt(s).trim();
   if(empty){ if(r.req) R.push('Required, empty'+(r.src==='dist'?'':' in BPH. Fill it on the title page.')); }
@@ -4038,7 +4038,7 @@ function distValueHtml(t,sec,r){
       <div class="dp-sub">Trim on the title page: ${esc(t.commercial.trimSize||'empty')}${tr?` → ${Math.round(tr.wMm)} × ${Math.round(tr.hMm)} mm`:''}</div>
       <label class="dp-inline dist-edit">Spine (mm) <input type="text" inputmode="decimal" value="${esc(d.spineMm)}" oninput="distSet('${id}','spineMm',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label>`; }
   if(r.kind==='weight'){ return `<label class="dp-inline dist-edit">Weight (g) <input type="text" inputmode="decimal" value="${esc(d.weightG)}" oninput="distSet('${id}','weightG',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label> <span class="dp-conv">= <b data-conv="oz">${esc(distOz(d.weightG)||'?')}</b> oz</span>`; }
-  if(r.mirror){ return `<span class="dp-line" data-mirror>${esc(v)}</span> <button type="button" class="dp-go" onclick="distJump('dp-scb-${r.dk==='bisac1'||r.n==='14'?'50':(r.n==='16'?'36':'37')}')">Go to it in SCB ↑</button>`; }
+  if(r.mirror){ return `<span class="dp-line" data-mirror>${esc(v)}</span> <button type="button" class="dp-go" onclick="distJump('dp-scb-${r.jump||(r.n==='16'?'36':'37')}')">Go to it in SCB ↑</button>`; }
   if(r.kind==='stage') return distStageValueHtml(t,r);
   if(r.src==='dist' && r.kind==='code') return distCodeValueHtml(t,r);
   if(r.src==='dist' && r.kind==='check'){ return `<label class="dp-check dist-edit"><input type="checkbox" ${d[r.dk]?'checked':''} onchange="distSet('${id}','${r.dk}',this.checked)"> Done <span class="dp-chip">${esc(r.chip||'Turnaround only')}</span>${r.opt?' <span class="dp-sub">if the title has them</span>':''}</label>`; }
@@ -4258,10 +4258,12 @@ function TA_ROWS(t){
   {n:'9',label:'eBook ISBN + price (Digital version only)',kind:'line',src:'derived',how:'never on the Turnaround print version',go:ed('commercial','isbnEbk'),get:()=>t.commercial.isbnEbk?(t.commercial.isbnEbk+(t.price.ebkUSD?' · US '+distPrice(t.price.ebkUSD,'$'):'')):'',chk:(v,R,A)=>{ if(v && !t.price.ebkUSD) A.push('No eBook price in BPH'); if(/£/.test(t.price.ebkUSD||'')) A.push('eBook price “'+t.price.ebkUSD+'” is in £ but the field is US $.'); }},
   {n:'10',label:'Format',req:1,kind:'line',src:'derived',how:'trim · binding · pages',go:ed('commercial','trimSize'),get:()=>[tr?Math.round(tr.hMm)+' × '+Math.round(tr.wMm)+' mm':'',t.commercial.isbnPbk?'Paperback':(t.commercial.isbnHbk?'Hardback':''),t.commercial.pages?t.commercial.pages+' pages':''].filter(Boolean).join(' · '),chk:(v,R)=>{ if(!t.commercial.pages) R.push('No page count in BPH'); if(!tr) R.push('No trim size BPH can read'); }},
   {n:'11',label:'Illustrations',req:1,kind:'line',src:'main',how:'buyers want this stated, even “None”',go:ed('commercial','illustrationsText'),get:()=>t.commercial.illustrationsText},
+  // Round 74 — Dean's kit now prints SCB's Content Information as a "Contents" row under Illustrations.
+  {n:'11a',label:'Contents (Content Information)',kind:'line',src:'derived',mirror:1,jump:'38',how:'set in the SCB section; left off the sheet if empty',get:()=>d.contentInfo||''},
   {n:'12',label:'Subject / category',kind:'line',src:'main',how:'Category UK',go:ed('commercial','categoryUK'),get:()=>t.commercial.categoryUK||''},
   {n:'13',label:'Thema code',kind:'code',codes:'THEMA',src:'dist',dk:'thema',chip:'Turnaround only',help:'thema'},
   {n:'14',label:'BIC code',kind:'code',codes:'BIC',src:'dist',dk:'bic',chip:'Turnaround only',help:'bic'},
-  {n:'15',label:'Rights',kind:'text',src:'dist',dk:'rights',chip:'Turnaround only',def:TA_RIGHTS_DEFAULT,hint:'Empty = the standard wording (Priya Vance’s Option 2, approved 09-10). Type here only to change it for this title.'},
+  {n:'15',label:'Rights',kind:'text',src:'dist',dk:'rights',chip:'Turnaround only',def:TA_RIGHTS_DEFAULT,hint:'Empty = the standard wording (Priya Vance’s Option 2, approved 09-10). Type here only to change it for this title. Dean’s kit prints whichever applies.'},
   {n:'16',label:'Spine (mm)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.spineMm||''},
   {n:'17',label:'Weight (g)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.weightG||''},
   {n:'18',label:'Country of origin',kind:'line',src:'dist',dk:'origin',chip:'Turnaround only',def:TA_ORIGIN_DEFAULT},
