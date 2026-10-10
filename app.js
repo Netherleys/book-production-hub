@@ -169,7 +169,7 @@ function ensureFeaturedContacts(contacts){
 // "Book Production Titles" Sheet), loaded once alongside titles/isbns (see
 // loadAllData()/loadDevSampleData()) and read synchronously off this cache
 // from here on, same pattern as `isbns`.
-let data = { titles: [], isbns: [], blocks: [] };
+let data = { titles: [], isbns: [], blocks: [], codes: [] };
 // Round 61 (2026-09-24) — which titles have their Printer Contacts "More
 // Contacts" disclosure expanded, this browser session only. See
 // toggleMoreContacts()/renderPrint().
@@ -1463,6 +1463,9 @@ function loadDevSampleData(){
     {block_id:'2026-h2', block_name:'2026 (2/2) August-January', sortOrder:3, notes:'provenance note (incl. harmonised titles)'},
     {block_id:'2027', block_name:'2027', sortOrder:4, notes:'titles on the 2027 year-sheet, no half-year chosen yet'},
     {block_id:'not-yet-assigned', block_name:'Not Yet Assigned', sortOrder:999, notes:'titles genuinely unscheduled'}
+  ], codes:[
+    // Round 72 — mirrors the live Codes tab's seed row
+    {list:'BIC', code:'AP', desc:'Film, TV & Radio', addedBy:'Seed', addedOn:'2026-10-10', _row:2}
   ]};
   // Round 10, item 2 — same load-time normalisation pass loadAllData() runs
   // on real data (see there); saveTitle() no-ops under devMode anyway, but
@@ -1533,6 +1536,12 @@ async function loadAllData(){
       // never needed this before today because nothing ever deleted a block.
       _row: findRowIndex(blockRows, r) + 2
     }));
+    // Round 72 — BIC / BISAC / Thema code lists (Codes tab). Optional: if the
+    // tab can't be read, the dropdowns just start empty; titles still load.
+    try{
+      const codeRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Codes!A2:E2000');
+      data.codes = codeRowsToObjs(codeRows);
+    }catch(e){ data.codes = []; console.warn('Codes tab not loaded:', e && e.message); }
     setSyncStatus('saved');
     document.getElementById('footer-sync-label').textContent = 'Connected — Book Production Titles';
     render();
@@ -3828,10 +3837,10 @@ const DIST_DEFAULTS={
   prevIsbn:'',edNum:'',edType:'',edDetail:'',series:'',seriesNum:'',
   a2pre:'',a2first:'',a2last:'',a2bio:'',a2home:'',a3pre:'',a3first:'',a3last:'',a3bio:'',a3home:'',contrib:'',
   contentInfo:'',media:'',printRun:'',ship:'',pieces:'',carton:'',ic1:'',ic2:'',ic3:'',audCode:'',bisac2:'',bisac3:'',scbComments:'',
-  // shared by SCB + Turnaround (one value)
+  // shared by SCB + Turnaround (one value); bisac1 is SCB only from Round 72 (Turnaround uses BIC)
   bisac1:'',weightG:'',spineMm:'',
   // Turnaround only (Round 70)
-  thema:'',rights:'',origin:'',productUrl:'',taCover:false,taAi:false,taImages:false,taSpreads:false,taSent:''
+  thema:'',bic:'',rights:'',origin:'',productUrl:'',taCover:false,taAi:false,taImages:false,taSpreads:false,taSent:''
 };
 const DIST_INCH_STEP=8; // nearest 1/8 inch
 let distOpenId=null;
@@ -3944,16 +3953,18 @@ function SCB_ROWS(t){
   {n:'47',label:'Industry Category 2',kind:'line',src:'dist',dk:'ic2'},
   {n:'48',label:'Industry Category 3',kind:'line',src:'dist',dk:'ic3'},
   {n:'49',label:'Audience Code',req:1,kind:'line',src:'dist',dk:'audCode'},
-  {n:'50',label:'Bisac Category 1',req:1,kind:'line',src:'dist',dk:'bisac1',shared:1},
-  {n:'51',label:'Bisac Category 2',req:1,kind:'line',src:'dist',dk:'bisac2'},
-  {n:'52',label:'Bisac Category 3',kind:'line',src:'dist',dk:'bisac3'},
+  {n:'50',label:'Bisac Category 1',req:1,kind:'code',codes:'BISAC',src:'dist',dk:'bisac1'},
+  {n:'51',label:'Bisac Category 2',req:1,kind:'code',codes:'BISAC',src:'dist',dk:'bisac2'},
+  {n:'52',label:'Bisac Category 3',kind:'code',codes:'BISAC',src:'dist',dk:'bisac3'},
   {n:'53',label:'Keywords',req:1,cap:500,kind:'line',src:'main',path:'content.keywords',go:ed('content','keywords'),get:()=>c.keywords},
   {n:'54',label:'Author/Book URL(s)',kind:'line',src:'derived',how:'first web address in Socials & Societies',go:ed('author','socials'),get:()=>distFirstUrl(t)},
   {h:'Additional Information'},
   {n:'55',label:'Table of Contents',cap:2500,kind:'text',src:'main',path:'toc.tableOfContents',go:ed('toc','toc'),get:()=>scbTocText(t.toc.tableOfContents)},
   {n:'56',label:'Excerpt',cap:2500,kind:'rich',src:'main',path:'toc.excerpt',go:ed('toc','excerpt'),get:()=>t.toc.excerpt},
   {h:'Comments'},
-  {n:'57',label:'Comments to SCB',kind:'text',src:'dist',dk:'scbComments'});
+  {n:'57',label:'Comments to SCB',kind:'text',src:'dist',dk:'scbComments'},
+  {h:'Submission (BPH only, not on SCB’s form)'},
+  distStageRow(t,'S1','Info sent to SCB on','Info SCB'));
   return rows;
 }
 function distRowValue(t,r){ if(r.src==='dist'){ const x=distGet(t)[r.dk]; return ((x===''||x==null) && r.def) ? r.def : x; } return r.get?r.get():''; }
@@ -3981,6 +3992,11 @@ function distEval(t,r){
     return {R,A,level:R.length?'red':A.length?'amber':'ok'}; }
   if(r.kind==='weight'){ if(!String(v||'').trim()) R.push('Required, empty: fill Weight (g) here.'); else if(!distOz(v)) R.push('Grams, number only'); return {R,A,level:R.length?'red':'ok'}; }
   if(r.kind==='check'){ if(!v && !r.opt) A.push('Not done yet'); return {R,A,level:A.length?'amber':(v?'ok':'none')}; }
+  if(r.kind==='stage'){ const st=r.stage(); if(!st) return {R,A,level:'none'};
+    if(st.s.expectedDate && st.s.status!=='Complete' && st.s.status!=='Not Required') A.push('Pipeline status is “'+st.s.status+'”, so this may be the date it’s due, not the date it went.');
+    if(!st.s.expectedDate && distGet(t)[r.legacy]) A.push('An earlier date was typed on this page ('+distUkDate(distGet(t)[r.legacy])+'). Put it in the pipeline to keep one date.');
+    return {R,A,level:A.length?'amber':(st.s.expectedDate?'ok':'none')}; }
+  if(r.kind==='code' && v && !codeLookup(r.codes,v)) A.push('“'+v+'” isn’t in the '+codeListName(r.codes)+' list yet. Pick it again from the dropdown, or add it.');
   if(r.kind==='date'){ return {R,A,level:v?'ok':'none'}; }
   if(r.mirror && !String(v||'').trim()) A.push('Empty: fill it in the SCB section above.');
   if(r.words && distWords(v)>r.words) A.push(distWords(v)+' words: over ~'+r.words+', so selling points move to page 2 of the AI sheet (Dean’s layout). Fine, just longer.');
@@ -3997,7 +4013,7 @@ function distEval(t,r){
 }
 function distCopyBtns(t,sec,r,i){
   const id=t.id;
-  if(r.kind==='check'||r.kind==='date') return '';
+  if(r.kind==='check'||r.kind==='date'||r.kind==='stage') return '';
   if(r.kind==='related') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopyRelated('${id}',this)">Copy all</button>`;
   if(r.kind==='size'||r.kind==='weight') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'text',this)">Copy</button>`;
   if(r.kind==='rich'||r.kind==='list') return `<button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'fmt',this)">Copy formatted</button><button type="button" class="btn btn-sm btn-copy" onclick="distCopy('${id}','${sec}',${i},'html',this)">Copy as basic HTML</button>`;
@@ -4014,6 +4030,8 @@ function distValueHtml(t,sec,r){
       <label class="dp-inline dist-edit">Spine (mm) <input type="text" inputmode="decimal" value="${esc(d.spineMm)}" oninput="distSet('${id}','spineMm',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label>`; }
   if(r.kind==='weight'){ return `<label class="dp-inline dist-edit">Weight (g) <input type="text" inputmode="decimal" value="${esc(d.weightG)}" oninput="distSet('${id}','weightG',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label> <span class="dp-conv">= <b data-conv="oz">${esc(distOz(d.weightG)||'?')}</b> oz</span>`; }
   if(r.mirror){ return `<span class="dp-line" data-mirror>${esc(v)}</span> <button type="button" class="dp-go" onclick="distJump('dp-scb-${r.dk==='bisac1'||r.n==='14'?'50':(r.n==='16'?'36':'37')}')">Go to it in SCB ↑</button>`; }
+  if(r.kind==='stage') return distStageValueHtml(t,r);
+  if(r.src==='dist' && r.kind==='code') return distCodeValueHtml(t,r);
   if(r.src==='dist' && r.kind==='check'){ return `<label class="dp-check dist-edit"><input type="checkbox" ${d[r.dk]?'checked':''} onchange="distSet('${id}','${r.dk}',this.checked)"> Done <span class="dp-chip">${esc(r.chip||'Turnaround only')}</span>${r.opt?' <span class="dp-sub">if the title has them</span>':''}</label>`; }
   if(r.src==='dist' && r.kind==='date'){ return `<div class="dist-edit"><input type="date" value="${esc(d[r.dk]||'')}" onchange="distSet('${id}','${r.dk}',this.value)" style="flex:0 1 180px"><span class="dp-chip">${esc(r.chip||'Turnaround only')}</span></div>`; }
   if(r.src==='dist'){
@@ -4130,6 +4148,57 @@ function distEditOnTitle(id,sec,elId){
   setTimeout(()=>{ if(sec && sec!=='top' && typeof setAccordOpen==='function') setAccordOpen(id,sec,true);
     setTimeout(()=>{ const el=document.getElementById(elId); if(el){ el.scrollIntoView({block:'center'}); try{ el.focus({preventScroll:true}); }catch(e){} el.classList.add('dp-flash'); setTimeout(()=>el.classList.remove('dp-flash'),1400); } },60); },30);
 }
+// ─── Round 72 (2026-10-10, David-approved) — code dropdowns (BIC / BISAC / Thema) ───
+// One shared list per kind, in the Sheet's "Codes" tab (list | code | description |
+// addedBy | addedOn), so a code David adds once is there for every title, on every
+// device. A title stores the CODE only (e.g. "AP"); the description is looked up.
+// Seeded with nothing but BIC "AP / Film, TV & Radio" (David's own example).
+const CODE_LISTS={BIC:'BIC',BISAC:'BISAC',THEMA:'Thema'};
+const THEMA_URL='https://ns.editeur.org/thema';
+const BIC_PDF_PATH='D:\\PRODUCTION & PUBLICITY\\101201 bic2.1 complete rev.pdf';
+function codeListName(k){ return CODE_LISTS[k]||k; }
+function codeRowsToObjs(rows){ return (rows||[]).map((r,i)=>({list:String(r[0]||'').trim().toUpperCase(),code:String(r[1]||'').trim(),desc:String(r[2]||'').trim(),addedBy:r[3]||'',addedOn:r[4]||'',_row:i+2})).filter(c=>c.list&&c.code); }
+function codesFor(k){ return (data.codes||[]).filter(c=>c.list===k).slice().sort((x,y)=>x.code.localeCompare(y.code,'en',{numeric:true})); }
+function codeLookup(k,code){ const c=String(code||'').trim().toUpperCase(); return codesFor(k).find(x=>x.code.toUpperCase()===c)||null; }
+function codeLabel(c){ return c.desc?c.code+' / '+c.desc:c.code; }
+function distCodeValueHtml(t,r){
+  const d=distGet(t), id=t.id, cur=String(d[r.dk]||'');
+  const opts=codesFor(r.codes).map(c=>({value:c.code,label:codeLabel(c)}));
+  const sel=growableListSelectHtml(`dp-code-${id}-${r.dk}`,cur,opts,`distCodeSelect('${id}','${r.dk}','${r.codes}',this)`,codeListName(r.codes)+' code');
+  const chip=`<span class="dp-chip">${esc(r.chip||(r.shared?'SCB + Turnaround':'SCB only'))}</span>`;
+  let help='';
+  if(r.help==='thema') help=`<div class="dp-sub">Find Thema codes: <a href="${THEMA_URL}" target="_blank" rel="noopener">ns.editeur.org/thema</a></div>`;
+  if(r.help==='bic') help=`<div class="dp-sub">BIC reference (David’s PDF): <span class="dp-path">${esc(BIC_PDF_PATH)}</span></div>`;
+  return `<div class="dist-edit dist-code">${sel}${chip}</div><div class="dp-sub">Codes you add here are kept for every title (BPH Sheet, “Codes” tab).</div>${help}`;
+}
+async function distCodeSelect(id,dk,list,sel){
+  if(sel.value!=='__add_new__'){ distSet(id,dk,sel.value); return; }
+  const name=codeListName(list);
+  const ex=list==='BIC'?'AP':(list==='BISAC'?'PER004030':'ATF');
+  const code=(window.prompt('New '+name+' code (e.g. '+ex+'):')||'').trim().toUpperCase();
+  if(!code){ distRenderKeep(); return; }
+  let c=codeLookup(list,code);
+  if(!c){
+    const desc=(window.prompt('Description for '+code+' (e.g. '+(list==='BIC'?'Film, TV & Radio':'what the code means')+'):')||'').trim();
+    c={list,code,desc,addedBy:(typeof getUserIdentity==='function'&&getUserIdentity())||'',addedOn:new Date().toISOString().slice(0,10),_row:null};
+    data.codes.push(c);
+    if(!devMode){
+      try{ c._row=await sheetsAppend(CFG.TITLES_SHEET_ID,'Codes',[c.list,c.code,c.desc,c.addedBy,c.addedOn]); }
+      catch(e){ const auth=isAuthFailure(e); showReconnect(auth?'Code not saved to the shared list: signed out / token expired. Reconnect, then add it again.':'Code not saved to the shared list ('+e.message+'). Is there a “Codes” tab in the BPH Sheet?',auth); console.error(e); }
+    }
+  }
+  distSet(id,dk,c.code); distRenderKeep();
+}
+function distRenderKeep(){ if(view==='dist') distRender(); }
+// Round 72 — "sent on" dates come from the Production Pipeline (Marketing Detail),
+// one source of truth: Info Turnaround → "Kit sent to Turnaround on", Info SCB → "Info sent to SCB on".
+function distStageOf(t,name){ const i=t.pipeline.stages.findIndex(s=>s.name===name); return i<0?null:{s:t.pipeline.stages[i],i}; }
+function distStageRow(t,n,label,stageName){ const st=distStageOf(t,stageName);
+  return {n,label,kind:'stage',src:'derived',how:'Production Pipeline → Marketing Detail → '+stageName,stage:()=>distStageOf(t,stageName),legacy:stageName==='Info Turnaround'?'taSent':'',
+    go:st?{sec:'pipeline',el:`f-${t.id}-stage-${st.i}`}:null,get:()=>{ const x=distStageOf(t,stageName); return x?x.s.expectedDate:''; }}; }
+function distStageValueHtml(t,r){ const st=r.stage(); if(!st) return '<span class="dp-empty">no such pipeline stage</span>';
+  const dt=st.s.expectedDate;
+  return `<span class="dp-line">${dt?esc(distUkDate(dt)):'<span class="dp-empty">no date in the pipeline yet</span>'}</span> <span class="dp-stage-pill">${esc(st.s.status)}</span>`; }
 function distReturnChipSync(){
   let el=document.getElementById('dist-return-chip');
   const show=view==='detail' && distReturn && distReturn.id===selectedId;
@@ -4181,8 +4250,8 @@ function TA_ROWS(t){
   {n:'10',label:'Format',req:1,kind:'line',src:'derived',how:'trim · binding · pages',go:ed('commercial','trimSize'),get:()=>[tr?Math.round(tr.hMm)+' × '+Math.round(tr.wMm)+' mm':'',t.commercial.isbnPbk?'Paperback':(t.commercial.isbnHbk?'Hardback':''),t.commercial.pages?t.commercial.pages+' pages':''].filter(Boolean).join(' · '),chk:(v,R)=>{ if(!t.commercial.pages) R.push('No page count in BPH'); if(!tr) R.push('No trim size BPH can read'); }},
   {n:'11',label:'Illustrations',req:1,kind:'line',src:'main',how:'buyers want this stated, even “None”',go:ed('commercial','illustrationsText'),get:()=>t.commercial.illustrationsText},
   {n:'12',label:'Subject / category',kind:'line',src:'main',how:'Category UK',go:ed('commercial','categoryUK'),get:()=>t.commercial.categoryUK||''},
-  {n:'13',label:'Thema code(s)',kind:'line',src:'dist',dk:'thema',chip:'Turnaround only',chk:(v,R,A)=>{ if(!v) A.push('Empty: Thema is still parked (to discuss with David). Left off the sheet until filled.'); }},
-  {n:'14',label:'BISAC code(s)',kind:'line',src:'derived',mirror:1,how:'BISAC 1, set in the SCB section',get:()=>d.bisac1||''},
+  {n:'13',label:'Thema code',kind:'code',codes:'THEMA',src:'dist',dk:'thema',chip:'Turnaround only',help:'thema'},
+  {n:'14',label:'BIC code',kind:'code',codes:'BIC',src:'dist',dk:'bic',chip:'Turnaround only',help:'bic'},
   {n:'15',label:'Rights',kind:'text',src:'dist',dk:'rights',chip:'Turnaround only',def:TA_RIGHTS_DEFAULT,hint:'Empty = the standard wording (Priya Vance’s Option 2, approved 09-10). Type here only to change it for this title.'},
   {n:'16',label:'Spine (mm)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.spineMm||''},
   {n:'17',label:'Weight (g)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.weightG||''},
@@ -4205,7 +4274,7 @@ function TA_ROWS(t){
   {n:'K2',label:'AI sheet (Print PDF) built and checked',kind:'check',src:'dist',dk:'taAi',chip:'Turnaround only'},
   {n:'K3',label:'Interior images',kind:'check',src:'dist',dk:'taImages',chip:'Turnaround only',opt:1},
   {n:'K4',label:'Sample spreads',kind:'check',src:'dist',dk:'taSpreads',chip:'Turnaround only',opt:1},
-  {n:'K5',label:'Kit sent to Turnaround on',kind:'date',src:'dist',dk:'taSent',chip:'Turnaround only'}
+  distStageRow(t,'K5','Kit sent to Turnaround on','Info Turnaround')
   ];
 }
 function distTaSectionHtml(t){
@@ -4976,7 +5045,7 @@ function renderPipeline(t){const id=t.id;
         <span class="stage-box-num">${i+1}.</span>
         <span class="stage-box-name">${esc(s.name)}</span>
         <button class="stage-btn ${cls}" data-stage-btn="${id}-${i}" onclick="cycleStage('${id}',${i})">${esc(s.status)}</button>
-        <input type="date" class="stage-date-input" value="${esc(s.expectedDate)}" onchange="stageChange('${id}',${i},'expectedDate',this.value)">
+        <input type="date" class="stage-date-input" id="f-${id}-stage-${i}" value="${esc(s.expectedDate)}" onchange="stageChange('${id}',${i},'expectedDate',this.value)">
         <input type="text" class="stage-notes-input" value="${esc(s.notes)}" placeholder="Notes…" oninput="stageChange('${id}',${i},'notes',this.value)">
       </div>`;
     }).join('');
