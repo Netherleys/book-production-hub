@@ -3894,6 +3894,40 @@ function distQuotes(t){
   return out;
 }
 function distFirstUrl(t){ const s=distTxt(t.authorInfo.socials||''); const m=s.match(/https?:\/\/\S+|(?:www\.)?[a-z0-9-]+\.(?:com|co\.uk|org|net|uk|io)(?:\/\S*)?/i); return m?m[0].replace(/[),.;]+$/,''):''; }
+// Round 75 (2026-10-10) — SCB 54 "Author/Book URL(s)": the Product page URL (ONE value, the
+// "Product page" at the top of the title page) is always the first line, then every web address
+// in Socials & Societies, without repeats. Handles (@name) and e-mail addresses are left out.
+function distUrlKey(u){ return String(u||'').trim().toLowerCase().replace(/^https?:\/\//,'').replace(/^www\./,'').replace(/[\/#?]+$/,''); }
+function distSocialUrls(t){ const out=[];
+  distTxt(t.authorInfo.socials||'').split(/[\s;,]+/).forEach(tok=>{
+    tok=tok.replace(/^[(\[<"'“‘]+/,'').replace(/[\]>"'”’.,;:]+$/,'');
+    if(/\)$/.test(tok) && !/\(/.test(tok)) tok=tok.replace(/\)+$/,'').replace(/[.,;:]+$/,'');
+    if(!tok) return;
+    if(/^https?:\/\/\S+/i.test(tok)){ out.push(tok); return; }
+    const at=tok.indexOf('@'), sl=tok.indexOf('/'); if(at>=0 && (sl<0 || at<sl)) return;
+    if(/^(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|co\.uk|org|net|uk|io|app|blog|info|tv|me)(?:\/\S*)?$/i.test(tok)) out.push(tok); });
+  return out; }
+function distScbUrls(t){ const p=String(distGet(t).productUrl||'').trim(), seen=new Set(), out=[];
+  if(/^https?:\/\//i.test(p)){ out.push({u:p,product:true}); seen.add(distUrlKey(p)); }
+  distSocialUrls(t).forEach(u=>{ const k=distUrlKey(u); if(seen.has(k)) return; seen.add(k); out.push({u,product:false}); });
+  return out; }
+function distUrlsHtml(t){ const id=t.id, L=distScbUrls(t), p=L.find(x=>x.product);
+  const top=`distEditOnTitle('${id}','top','f-${id}-productUrl')`;
+  const prod=p?`<li class="dp-url-prod"><a href="${esc(p.u)}" target="_blank" rel="noopener">${esc(p.u)}</a> <span class="dp-chip dp-chip-ro">Product page · read-only here</span> <button type="button" class="dp-go" onclick="${top}">change it at the top of the title page ✎</button></li>`
+    :`<li class="dp-url-prod"><span class="dp-empty">No Product page URL yet.</span> <button type="button" class="dp-go" onclick="${top}">Add it at the top of the title page ✎</button></li>`;
+  const rest=L.filter(x=>!x.product).map(x=>`<li>${esc(x.u)}</li>`).join('');
+  return `<ul class="dp-urls">${prod}${rest||'<li><span class="dp-empty">No web addresses in Socials &amp; Societies</span></li>'}</ul><div class="dp-sub">Line 1 is the Product page URL (one value, kept at the top of the title page). The other lines are the web addresses in Socials &amp; Societies: <button type="button" class="dp-go" onclick="distEditOnTitle('${id}','author','f-${id}-socials')">edit them on the title page ✎</button></div>`; }
+// Round 75 — Rights (AI sheet): the default wording is shown in full, not as a faint placeholder.
+// "Edit for this title" opens a box pre-filled with the default; anything different is saved for this
+// title only (dist.rights). Typing the default back (or "Back to the default") stores empty = default.
+const distRightsEditing={};
+function distRightsHtml(t,r){ const id=t.id, raw=String(distGet(t)[r.dk]||''), custom=!!raw.trim();
+  if(!custom && !distRightsEditing[id]) return `<div class="dp-rights"><div class="dp-rights-text"><span class="dp-rights-k">Default:</span> ${esc(r.def)}</div><div class="dist-edit"><span class="dp-chip">Using the default</span><button type="button" class="btn btn-sm dp-rights-edit" onclick="distRightsEdit('${id}')">Edit for this title ✎</button></div><div class="dp-sub">Priya Vance’s Option 2, approved 09-10: right for most titles. Dean’s kit prints this line on the AI sheet.</div></div>`;
+  return `<div class="dp-rights is-custom"><div class="dist-edit"><textarea class="autoexpand" rows="2" id="dp-rights-${id}" oninput="distRightsInput('${id}',this.value);autoGrow(this)">${esc(custom?raw:r.def)}</textarea><span class="dp-chip">${custom?'This title only':'Editing'}</span></div><div class="dist-edit"><button type="button" class="btn btn-sm dp-rights-reset" onclick="distRightsReset('${id}')">Back to the default</button></div><div class="dp-sub"><span class="dp-rights-k">Default:</span> ${esc(r.def)}</div></div>`; }
+function distRightsEdit(id){ distRightsEditing[id]=true; distRenderKeep(); setTimeout(()=>{ const el=document.getElementById('dp-rights-'+id); if(el){ el.focus({preventScroll:true}); el.setSelectionRange(el.value.length,el.value.length); } },30); }
+function distRightsInput(id,v){ const same=String(v||'').trim()===TA_RIGHTS_DEFAULT; distSet(id,'rights',same?'':v);
+  const el=document.getElementById('dp-ta-15'), ch=el&&el.querySelector('.dist-edit .dp-chip'); if(ch) ch.textContent=same?'Same as the default':'This title only'; }
+function distRightsReset(id){ distRightsEditing[id]=false; distSet(id,'rights',''); distRenderKeep(); }
 function distShipSuggest(t){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(t.dates.streetDate||''); if(!m) return ''; const d=new Date(+m[1],+m[2]-2,+m[3]); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 function distHasStraightQuotes(s){ return /["']/.test(distTxt(s).replace(/\b\w'\w/g,'')); }
 // ── SCB rows, in SCB's form order
@@ -3966,7 +4000,7 @@ function SCB_ROWS(t){
   {n:'51',label:'Bisac Category 2',req:1,kind:'code',codes:'BISAC',src:'dist',dk:'bisac2'},
   {n:'52',label:'Bisac Category 3',kind:'code',codes:'BISAC',src:'dist',dk:'bisac3'},
   {n:'53',label:'Keywords',req:1,cap:500,kind:'line',src:'main',path:'content.keywords',go:ed('content','keywords'),get:()=>c.keywords},
-  {n:'54',label:'Author/Book URL(s)',kind:'line',src:'derived',how:'first web address in Socials & Societies',go:ed('author','socials'),get:()=>distFirstUrl(t)},
+  {n:'54',label:'Author/Book URL(s)',kind:'urls',src:'derived',how:'Product page URL, then the web addresses in Socials & Societies',go:ed('author','socials'),get:()=>distScbUrls(t).map(x=>x.u).join('\n')},
   {h:'Additional Information'},
   {n:'55',label:'Table of Contents',cap:2500,kind:'text',src:'main',path:'toc.tableOfContents',go:ed('toc','toc'),get:()=>scbTocText(t.toc.tableOfContents)},
   {n:'56',label:'Excerpt',cap:2500,kind:'rich',src:'main',path:'toc.excerpt',go:ed('toc','excerpt'),get:()=>t.toc.excerpt},
@@ -4040,6 +4074,8 @@ function distValueHtml(t,sec,r){
   if(r.kind==='weight'){ return `<label class="dp-inline dist-edit">Weight (g) <input type="text" inputmode="decimal" value="${esc(d.weightG)}" oninput="distSet('${id}','weightG',this.value.trim())" placeholder="from the printer's spec"> <span class="dp-chip">SCB + Turnaround</span></label> <span class="dp-conv">= <b data-conv="oz">${esc(distOz(d.weightG)||'?')}</b> oz</span>`; }
   if(r.mirror){ return `<span class="dp-line" data-mirror>${esc(v)}</span> <button type="button" class="dp-go" onclick="distJump('dp-scb-${r.jump||(r.n==='16'?'36':'37')}')">Go to it in SCB ↑</button>`; }
   if(r.kind==='stage') return distStageValueHtml(t,r);
+  if(r.kind==='urls') return distUrlsHtml(t);
+  if(r.kind==='rights') return distRightsHtml(t,r);
   if(r.src==='dist' && r.kind==='code') return distCodeValueHtml(t,r);
   if(r.src==='dist' && r.kind==='check'){ return `<label class="dp-check dist-edit"><input type="checkbox" ${d[r.dk]?'checked':''} onchange="distSet('${id}','${r.dk}',this.checked)"> Done <span class="dp-chip">${esc(r.chip||'Turnaround only')}</span>${r.opt?' <span class="dp-sub">if the title has them</span>':''}</label>`; }
   if(r.src==='dist' && r.kind==='date'){ return `<div class="dist-edit"><input type="date" value="${esc(d[r.dk]||'')}" onchange="distSet('${id}','${r.dk}',this.value)" style="flex:0 1 180px"><span class="dp-chip">${esc(r.chip||'Turnaround only')}</span></div>`; }
@@ -4110,14 +4146,19 @@ function distRender(){
     <div class="dp-top">
       <button type="button" class="btn" onclick="gotoDetail('${t.id}')">← Back to title</button>
       <div class="dp-title"><div class="dp-title-main">${esc(t.title||'Untitled')}</div><div class="dp-title-sub">${esc(t.subtitle||'')}${t.authors?' · '+esc(distPretext(t))+' '+esc(t.authors):''}</div></div>
-    </div>
-    <div class="dp-jump" role="navigation" aria-label="Jump to">
-      <button type="button" onclick="distJump('dp-sec-scb')">SCB <span id="dp-jb-scb"></span></button>
-      <button type="button" onclick="distJump('dp-sec-ta')">Turnaround <span id="dp-jb-ta"></span></button>
       <span class="dp-legend"><span class="dp-key-dist"></span> editable here (distributor-only) · everything else comes from the title page</span>
     </div>
+    <div class="dp-jump" role="navigation" aria-label="Distributor page: ${esc(t.title||'Untitled')}">
+      <div class="dp-bar-title" title="You are on the distributor page for ${esc(t.title||'Untitled')}">${t.coverThumbnailFile?`<img class="dp-bar-cover" src="${esc(t.coverThumbnailFile)}" alt="" onerror="this.remove()">`:''}<div class="dp-bar-text"><div class="dp-bar-name">${esc(t.title||'Untitled')}</div><div class="dp-bar-meta">${esc(distBarMeta(t))}</div></div></div>
+      <div class="dp-bar-btns">
+        <button type="button" class="dp-bar-goto" onclick="gotoDetail('${t.id}')">Go to title page</button>
+        <button type="button" onclick="distJump('dp-sec-scb')">SCB <span id="dp-jb-scb"></span></button>
+        <button type="button" onclick="distJump('dp-sec-ta')">Turnaround <span id="dp-jb-ta"></span></button>
+        <button type="button" onclick="distJump('dp-ta-15')">Rights</button>
+      </div>
+    </div>
     <section class="dp-sec" id="dp-sec-scb">
-      <div class="dp-sechead"><h2>SCB Distributors</h2><span class="dp-secnote">In SCB's form order. Character counts include HTML tags, as SCB counts them.</span></div>
+      <div class="dp-sechead"><h2>SCB Distributors <span class="dp-h2-title">· ${esc(t.title||'Untitled')}</span></h2><span class="dp-secnote">In SCB's form order. Character counts include HTML tags, as SCB counts them.</span></div>
       ${distSectionHeadHtml(t,'scb',scb)}
       <div class="dp-rows">${scb.map((r,i)=>distRowHtml(t,'scb',r,i)).join('')}</div>
     </section>
@@ -4127,6 +4168,9 @@ function distRender(){
   if(typeof autoGrowAll==='function') autoGrowAll(main);
   window.scrollTo(0,y);
 }
+// Round 75 — the sticky bar says which title this is: ISBN · binding · pages.
+function distBarMeta(t){ const c=t.commercial||{}; const isbn=c.isbnPbk||c.isbnHbk||'';
+  return [isbn?'ISBN '+isbn:'No ISBN yet', c.isbnPbk?'Paperback':(c.isbnHbk?'Hardback':''), c.pages?c.pages+' pp':''].filter(Boolean).join(' · '); }
 function distJumpBadges(t){
   const s=distSummary(t,'scb',SCB_ROWS(t)); const el=document.getElementById('dp-jb-scb'); if(el){ el.className='dp-badge '+(s.red?'red':s.amber?'amber':'ok'); el.textContent=s.red?s.red+' to fix':s.amber?s.amber+' to check':'ready'; }
   if(typeof TA_ROWS==='function'){ const s2=distSummary(t,'ta',TA_ROWS(t)); const e2=document.getElementById('dp-jb-ta'); if(e2){ e2.className='dp-badge '+(s2.red?'red':s2.amber?'amber':'ok'); e2.textContent=s2.red?s2.red+' to fix':s2.amber?s2.amber+' to check':'ready'; } }
@@ -4142,12 +4186,13 @@ function distRefresh(id){
       if(r.kind==='size'){ const o=el.querySelector('[data-conv="spine"]'); if(o) o.textContent=distInFromMm(distGet(t).spineMm)||'?'; }
       if(r.src==='dist' && r.cap){ const c=el.querySelector('.scb-count'); if(c){ const n=distLen(r,distRowValue(t,r)); c.className='scb-count '+(n>r.cap?'red':n>=r.cap*0.9?'amber':'ok'); c.textContent=n.toLocaleString('en-GB')+' / '+r.cap.toLocaleString('en-GB'); } }
       if(r.mirror){ const mv=el.querySelector('[data-mirror]'); if(mv) mv.textContent=r.get(); }
+      if(r.kind==='urls'){ const vv=el.querySelector('.dp-val'); if(vv) vv.innerHTML=distUrlsHtml(t); }
     });
     const st=document.getElementById('dp-status-'+sec); if(st){ const open=!!(st.querySelector('details')||{}).open; st.outerHTML=distSectionHeadHtml(t,sec,rows); if(open){ const d=document.querySelector('#dp-status-'+sec+' details'); if(d) d.open=true; } }
   });
   distJumpBadges(t);
 }
-function distJump(elId){ const el=document.getElementById(elId); if(!el) return; const top=el.getBoundingClientRect().top+window.scrollY-120; window.scrollTo({top,behavior:'smooth'}); el.classList.add('dp-flash'); setTimeout(()=>el.classList.remove('dp-flash'),1400); }
+function distJump(elId){ const el=document.getElementById(elId); if(!el) return; const bar=document.querySelector('.dp-jump'); const hh=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--hh'))||64; const off=bar?hh+4+bar.offsetHeight+10:120; const top=el.getBoundingClientRect().top+window.scrollY-off; window.scrollTo({top,behavior:'smooth'}); el.classList.add('dp-flash'); setTimeout(()=>el.classList.remove('dp-flash'),1400); }
 // Round 71 — remember the distributor page + scroll position, so the floating
 // "← Back to distributor page" chip on the title page returns to the same spot.
 let distReturn=null;
@@ -4263,7 +4308,7 @@ function TA_ROWS(t){
   {n:'12',label:'Subject / category',kind:'line',src:'main',how:'Category UK',go:ed('commercial','categoryUK'),get:()=>t.commercial.categoryUK||''},
   {n:'13',label:'Thema code',kind:'code',codes:'THEMA',src:'dist',dk:'thema',chip:'Turnaround only',help:'thema'},
   {n:'14',label:'BIC code',kind:'code',codes:'BIC',src:'dist',dk:'bic',chip:'Turnaround only',help:'bic'},
-  {n:'15',label:'Rights',kind:'text',src:'dist',dk:'rights',chip:'Turnaround only',def:TA_RIGHTS_DEFAULT,hint:'Empty = the standard wording (Priya Vance’s Option 2, approved 09-10). Type here only to change it for this title. Dean’s kit prints whichever applies.'},
+  {n:'15',label:'Rights (AI sheet)',kind:'rights',src:'dist',dk:'rights',chip:'Turnaround only',def:TA_RIGHTS_DEFAULT},
   {n:'16',label:'Spine (mm)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.spineMm||''},
   {n:'17',label:'Weight (g)',kind:'line',src:'derived',mirror:1,how:'set in the SCB section',get:()=>d.weightG||''},
   {n:'18',label:'Country of origin',kind:'line',src:'dist',dk:'origin',chip:'Turnaround only',def:TA_ORIGIN_DEFAULT},
@@ -4290,7 +4335,7 @@ function TA_ROWS(t){
 }
 function distTaSectionHtml(t){
   const rows=TA_ROWS(t);
-  return `<div class="dp-sechead"><h2>Turnaround</h2><span class="dp-secnote">In the AI-sheet order (Dean’s kit builder). Turnaround has no character limits; word counts are for the sheet’s layout. Build the kit itself with Dean’s script.</span></div>
+  return `<div class="dp-sechead"><h2>Turnaround <span class="dp-h2-title">· ${esc(t.title||'Untitled')}</span></h2><span class="dp-secnote">In the AI-sheet order (Dean’s kit builder). Turnaround has no character limits; word counts are for the sheet’s layout. Build the kit itself with Dean’s script.</span></div>
     ${distSectionHeadHtml(t,'ta',rows)}
     <div class="dp-rows">${rows.map((r,i)=>distRowHtml(t,'ta',r,i)).join('')}</div>`;
 }

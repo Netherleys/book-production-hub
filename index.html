@@ -1974,8 +1974,8 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 .dp-title-main{font-size:1.35rem;font-weight:700;color:var(--text-oncream)}
 .dp-title-sub{font-size:.85rem;color:var(--text-oncream-dim)}
 .dp-jump{position:sticky;top:calc(var(--hh) + 4px);z-index:20;display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg-page);border:1px solid var(--card-border);border-radius:var(--r8);padding:8px 10px;box-shadow:var(--shadow-md)}
-.dp-jump>button{border:1px solid var(--border2);background:var(--surface);color:var(--text);border-radius:var(--r4);padding:5px 12px;font-weight:700;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
-.dp-jump>button:hover{background:var(--surface-hover)}
+.dp-jump button{border:1px solid var(--border2);background:var(--surface);color:var(--text);border-radius:var(--r4);padding:5px 12px;font-weight:700;cursor:pointer;display:inline-flex;gap:6px;align-items:center}
+.dp-jump button:hover{background:var(--surface-hover)}
 .dp-legend{font-size:.74rem;color:var(--text-oncream-dim);margin-left:auto;display:inline-flex;align-items:center;gap:6px}
 .dp-key-dist{display:inline-block;width:14px;height:12px;border-radius:3px;background:#E6EEF8;border:1.5px solid #2B5AA8}
 .dp-sec{background:var(--surface);border:1px solid var(--card-border);border-radius:var(--r12);padding:14px 16px;color:var(--text);scroll-margin-top:120px}
@@ -2036,6 +2036,24 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 .dist-return-chip{position:fixed;left:18px;bottom:72px;z-index:900;border:1.5px solid #2B5AA8;background:#2B5AA8;color:#fff;font-weight:700;font-size:.85rem;border-radius:999px;padding:8px 16px;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer}
 .dist-return-chip:hover{background:#1f4787}
 @media (max-width:700px){.dist-return-chip{left:12px;bottom:64px;font-size:.8rem;padding:7px 12px}}
+/* Round 75 — sticky title bar, SCB 54 URL list, Rights (AI sheet) */
+.dp-jump{justify-content:space-between}
+.dp-bar-title{display:flex;align-items:center;gap:10px;min-width:0;flex:1 1 240px}
+.dp-bar-cover{width:28px;height:42px;object-fit:cover;border-radius:2px;box-shadow:0 1px 3px rgba(0,0,0,.3);flex:none}
+.dp-bar-text{min-width:0}
+.dp-bar-name{font-weight:800;font-size:1rem;color:var(--text-oncream);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dp-bar-meta{font-size:.74rem;color:var(--text-oncream-dim);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dp-bar-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.dp-jump button.dp-bar-goto{background:#2B5AA8;border-color:#2B5AA8;color:#fff}
+.dp-jump button.dp-bar-goto:hover{background:#1f4787}
+.dp-top .dp-legend{flex-basis:100%;margin-left:0}
+.dp-h2-title{font-weight:600;color:var(--text3)}
+.dp-urls{list-style:none;margin:0;padding:0}.dp-urls li{padding:1px 0;overflow-wrap:anywhere}
+.dp-url-prod a{color:#2B5AA8;font-weight:600}
+.dp-chip-ro{color:var(--text3);background:var(--surface2);border-color:var(--border2)}
+.dp-rights-text{background:#fff;border:1px dashed #2B5AA8;border-radius:var(--r4);padding:6px 9px;margin-bottom:6px}
+.dp-rights-k{font-weight:700;color:#2B5AA8}
+@media (max-width:700px){.dp-bar-btns{width:100%}.dp-jump button{padding:4px 9px;font-size:.8rem}}
 .detail-produrl{display:flex;align-items:center;gap:8px;margin-top:6px;font-size:.82rem;min-width:0}
 .detail-produrl label{font-weight:700;color:var(--text3);white-space:nowrap;font-size:.74rem;text-transform:uppercase;letter-spacing:.04em}
 .detail-produrl input{flex:1 1 auto;min-width:0;border:1px solid var(--border2);background:var(--surface);border-radius:var(--r4);padding:3px 8px;font-size:.84rem;color:#2B5AA8}
@@ -2436,7 +2454,7 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r74"></script>
+<script src="app.js?v=r75"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
