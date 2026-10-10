@@ -1193,7 +1193,12 @@ function rowToTitle(row){
       pagesBreakdown: pn.pagesBreakdown||''
     },
     price,
-    content: { keywords: c.keywords||'', fullDescription: editorial.fullDescription, jacketBlurb: editorial.jacketBlurb, briefDescription: editorial.briefDescription, salesHandle: editorial.salesHandle, sellingPoints: (publicity.sellingPoints||[]).join('\n'), quotes: (publicity.quotes||[]).join('\n'), targetAudience: publicity.targetAudience,
+    content: { keywords: c.keywords||'', fullDescription: editorial.fullDescription, jacketBlurb: editorial.jacketBlurb, briefDescription: editorial.briefDescription, salesHandle: editorial.salesHandle, sellingPoints: (publicity.sellingPoints||[]).join('\n'),
+      // Round 73 (2026-10-10, David-approved) — Selling Points split UK (Turnaround) / USA (SCB),
+      // like Marketing Notes. Both start as a copy of the old single list; the old list is kept unchanged.
+      sellingPointsUK: (Array.isArray(publicity.sellingPointsUK) ? publicity.sellingPointsUK : (publicity.sellingPoints||[])).join('\n'),
+      sellingPointsUSA: (Array.isArray(publicity.sellingPointsUSA) ? publicity.sellingPointsUSA : (publicity.sellingPoints||[])).join('\n'),
+      quotes: (publicity.quotes||[]).join('\n'), targetAudience: publicity.targetAudience,
       // Round 62 — Competing Titles moved here from box 6 as Title + ISBN rows
       // (see competingTitlesFromEditorial()). _ctNotMigrated is display-only.
       competingTitles: ct.rows, competingTitlesLegacy: ct.legacy, _ctNotMigrated: ct.notMigrated },
@@ -1204,6 +1209,8 @@ function rowToTitle(row){
     originals: (()=>{ const o=Object.assign({}, origFrom(editorial), origFrom(publicity), origFrom(authorInfo), origFrom(pn));
       // Round 68 — the new UK/USA Marketing fields inherit the old Marketing field's Original.
       ['publicity.marketingUK','publicity.marketingUSA'].forEach(k=>{ if(!o[k] && o['publicity.marketing']) o[k]=Object.assign({},o['publicity.marketing']); });
+      // Round 73 — same for the UK/USA Selling Points.
+      ['content.sellingPointsUK','content.sellingPointsUSA'].forEach(k=>{ if(!o[k] && o['content.sellingPoints']) o[k]=Object.assign({},o['content.sellingPoints']); });
       return o; })(),
     pipeline: { stages },
     print: { printEstimate: pn.printerEstimates, scbEbookCoverSpec: pn.scbEbookCover, forLsiNotes: pn.lsiNotes, printerContacts: contacts },
@@ -1259,7 +1266,9 @@ function titleToRow(t){
     marketingUK: t.publicity.marketingUK||'', marketingUSA: t.publicity.marketingUSA||'',
     targetAudience: t.content.targetAudience||'',
     quotes: (t.content.quotes||'').split('\n').map(s=>s.trim()).filter(Boolean),
-    sellingPoints: (t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean)
+    sellingPoints: (t.content.sellingPoints||'').split('\n').map(s=>s.trim()).filter(Boolean),
+    sellingPointsUK: (t.content.sellingPointsUK||'').split('\n').map(s=>s.trim()).filter(Boolean),
+    sellingPointsUSA: (t.content.sellingPointsUSA||'').split('\n').map(s=>s.trim()).filter(Boolean)
   });
   const editorial_json = origJson(t,'editorial_json',{
     fullDescription: t.content.fullDescription||'', jacketBlurb: t.content.jacketBlurb||'', briefDescription: t.content.briefDescription||'',
@@ -1359,7 +1368,7 @@ function defTitle(o={}){
     // preserved rather than dropped, same non-destructive precedent as
     // _backupIsbnPbkRaw/_backupIsbnEbkRaw just above.
     price:{pbkGBP:'',pbkUSD:'',ebkUSD:'',hbkGBP:''},
-    content:{keywords:'',fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',sellingPoints:'',quotes:'',targetAudience:'',competingTitles:[],competingTitlesLegacy:'',_ctNotMigrated:[]},
+    content:{keywords:'',fullDescription:'',jacketBlurb:'',briefDescription:'',salesHandle:'',sellingPoints:'',sellingPointsUK:'',sellingPointsUSA:'',quotes:'',targetAudience:'',competingTitles:[],competingTitlesLegacy:'',_ctNotMigrated:[]},
     authorInfo:{bio:'',hometown:'',socials:'',otherContributors:'',previousPublications:'',contributorRole:'Author(s)'},
     pipeline:{stages:PIPELINE_STAGES.map(n=>({name:n,status:'Not Started',expectedDate:'',notes:''}))},
     print:{printEstimate:'',scbEbookCoverSpec:'1400px on shortest side / RGB',forLsiNotes:'',printerContacts:PRINTER_DEF.map(p=>Object.assign({},p))},
@@ -3908,7 +3917,7 @@ function SCB_ROWS(t){
   {h:'Book Info'},
   {n:'10',label:'Full Description',req:1,cap:2500,key:1,kind:'rich',src:'main',how:'Jacket Blurb',path:'content.jacketBlurb',go:ed('content','jacketBlurb'),get:()=>c.jacketBlurb},
   {n:'11',label:'Sales Handle',req:1,cap:120,kind:'line',src:'main',path:'content.salesHandle',go:ed('content','salesHandle'),get:()=>c.salesHandle},
-  {n:'12',label:'Selling Points',req:1,cap:300,kind:'list',src:'main',path:'content.sellingPoints',go:ed('content','sellingPoints'),get:()=>c.sellingPoints}];
+  {n:'12',label:'Selling Points',req:1,cap:300,kind:'list',src:'main',how:'Selling Points USA',path:'content.sellingPointsUSA',go:ed('content','sellingPointsUSA'),get:()=>c.sellingPointsUSA}];
   const nq=Math.max(1,Q.length);
   for(let i=0;i<nq;i++){ const q=Q[i];
     rows.push({n:i?'13'+String.fromCharCode(96+i):'13',label:i?`Quote #${i+1} (“ADD Additional Quote (+)”)`:'Quote #1',cap:1000,key:i===0,kind:'line',src:'main',go:ed('content','quotes'),get:()=>q?q.v:'',
@@ -4260,7 +4269,7 @@ function TA_ROWS(t){
   {n:'20',label:'Publisher',req:1,kind:'line',src:'main',how:'imprint only, never Turnaround or SCB',go:ed('dates','imprint'),get:()=>t.imprint},
   {h:'Copy (AI sheet, pages 1–2)'},
   {n:'21',label:'Description',req:1,kind:'rich',src:'main',how:'Jacket Blurb',words:430,go:ed('content','jacketBlurb'),get:()=>c.jacketBlurb},
-  {n:'22',label:'Selling points',kind:'list',src:'main',go:ed('content','sellingPoints'),get:()=>c.sellingPoints},
+  {n:'22',label:'Selling points',kind:'list',src:'main',how:'Selling Points UK',go:ed('content','sellingPointsUK'),get:()=>c.sellingPointsUK},
   {n:'23',label:'Target audience',kind:'line',src:'main',go:ed('content','targetAud'),get:()=>c.targetAudience},
   {n:'24',label:'Keywords',kind:'line',src:'main',go:ed('content','keywords'),get:()=>c.keywords},
   {n:'25',label:editor?'About the editor':'About the author',req:1,kind:'rich',src:'main',how:'Author Bio',go:ed('author','bio'),get:()=>a.bio},
@@ -4294,7 +4303,7 @@ const ORIG_BLOB={
   'content.fullDescription':'editorial_json','content.jacketBlurb':'editorial_json','content.briefDescription':'editorial_json','content.salesHandle':'editorial_json',
   'toc.tableOfContents':'editorial_json','toc.excerpt':'editorial_json','toc.howICameToWriteThis':'editorial_json',
   'publicity.publicityStatement':'publicity_json','publicity.marketing':'publicity_json','publicity.marketingUK':'publicity_json','publicity.marketingUSA':'publicity_json',
-  'content.sellingPoints':'publicity_json','content.quotes':'publicity_json','content.targetAudience':'publicity_json',
+  'content.sellingPoints':'publicity_json','content.sellingPointsUK':'publicity_json','content.sellingPointsUSA':'publicity_json','content.quotes':'publicity_json','content.targetAudience':'publicity_json',
   'authorInfo.bio':'authorInfo_json','authorInfo.otherContributors':'authorInfo_json','authorInfo.socials':'authorInfo_json','authorInfo.previousPublications':'authorInfo_json'
   // Internal notes fields (print, PO, production, future edition) have no
   // original: they're David's own notes, not copy that gets cut for SCB.
@@ -4320,7 +4329,7 @@ function origJson(t,blobName,obj){
 }
 function origDate(d){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(d||''); return m?m[3]+'-'+m[2]+'-'+m[1].slice(2):''; }
 function origToday(){ const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0'); }
-function origIsRich(path){ return !/^content\.(salesHandle|sellingPoints|quotes|targetAudience)$/.test(path); }
+function origIsRich(path){ return !/^content\.(salesHandle|sellingPoints|sellingPointsUK|sellingPointsUSA|quotes|targetAudience)$/.test(path); }
 function origSet(titleId,path,value){
   const t=getTitle(titleId); if(!t) return;
   if(!t.originals) t.originals={};
@@ -4380,6 +4389,7 @@ const SCB_CAPS={
   'content.jacketBlurb':{cap:2500,label:'Full Description'},
   'content.salesHandle':{cap:120,label:'Sales Handle'},
   'content.sellingPoints':{cap:300,label:'Selling Points'},
+  'content.sellingPointsUSA':{cap:300,label:'Selling Points'}, // Round 73 — SCB = USA
   'content.quotes':{cap:1000,label:'each Quote',each:1},
   'publicity.marketing':{cap:1200,label:'Marketing'},
   'publicity.marketingUSA':{cap:1200,label:'Marketing'},
@@ -4408,7 +4418,7 @@ function scbCount(path,value){
   const c=SCB_CAPS[path]; if(!c) return null;
   let n;
   if(c.each){ const items=String(value||'').split('\n').map(x=>x.trim()).filter(Boolean); n=items.length?Math.max(...items.map(x=>x.length)):0; }
-  else if(path==='content.sellingPoints') n=scbListHtml(value).length;
+  else if(path==='content.sellingPoints'||path==='content.sellingPointsUSA') n=scbListHtml(value).length;
   else if(path==='toc.tableOfContents') n=scbTocText(value).length;
   else if(SCB_PLAIN_PATHS[path]) n=String(value||'').replace(/\s?\[TRUNCATED\]/g,'').trim().length;
   else n=scbHtml(value).length;
@@ -4742,6 +4752,9 @@ function undoTidy(editId){
 }
 // Tidy button + preview slot for a plain textarea (Sales Handle, Selling
 // Points, Quotes, Target Audience). Line breaks there are kept: one item per line.
+// Round 73 — Turnaround has no limit: a plain word count under Selling Points UK.
+function spWordsText(v){ const items=String(v||'').split('\n').map(x=>x.trim()).filter(Boolean); const w=items.join(' ').split(/\s+/).filter(Boolean).length; return items.length?`${items.length} point${items.length>1?'s':''} · ${w.toLocaleString('en-GB')} words (Turnaround has no limit)`:''; }
+function spWordsUpdate(id){ const t=getTitle(id), el=document.getElementById('spw-'+id); if(t&&el) el.textContent=spWordsText(t.content.sellingPointsUK); }
 function tidyBar(editId,titleId,path){
   setTimeout(()=>{ const ta=document.getElementById(editId); if(ta){ ta.dataset.origPath=path; ta.dataset.origTitle=titleId; } },0);
   return `<div class="tidy-plain-bar"><button type="button" class="rt-btn rt-tidy" title="House style: curly quotes, dashes, spaces. Shows a before/after first." onclick="openTidy('${editId}','${titleId}','${path}','plain')">Tidy</button><span class="rt-status" id="rts-${editId}" role="status"></span><span class="rt-under-r">${ORIG_BLOB[path]?origBlock(titleId,path):''}${scbCountBadge(titleId,path,origCurrentValue(titleId,path))}</span></div><div id="tp-${editId}"></div>`;
@@ -4857,7 +4870,8 @@ function renderContent(t){const id=t.id;const c=t.content;
     ${frow('Jacket Blurb',richTa(id,'jacketBlurb','content.jacketBlurb',c.jacketBlurb,'Back cover blurb…'),'full')}
     ${frow('Brief Description',richTa(id,'briefDesc','content.briefDescription',c.briefDescription,'Short description…'),'full')}
     ${frow('Sales Handle',taLine(`f-${id}-salesHandle`,c.salesHandle,'One-line sales handle…',`fc('${id}','content.salesHandle',this.value)`,true)+tidyBar(`f-${id}-salesHandle`,id,'content.salesHandle'),'full')}
-    ${frow('Selling Points (one per line)',taAuto(`f-${id}-sellingPoints`,c.sellingPoints,'One selling point per line…',`fc('${id}','content.sellingPoints',this.value)`)+tidyBar(`f-${id}-sellingPoints`,id,'content.sellingPoints'),'full')}
+    ${frow('Selling Points UK (one per line) <span class="field-label-note">Turnaround · no limit</span>',taAuto(`f-${id}-sellingPointsUK`,c.sellingPointsUK,'One selling point per line, for the UK (Turnaround)…',`fc('${id}','content.sellingPointsUK',this.value)`)+tidyBar(`f-${id}-sellingPointsUK`,id,'content.sellingPointsUK')+`<div class="sp-words" id="spw-${id}">${spWordsText(c.sellingPointsUK)}</div>`,'full')}
+    ${frow('Selling Points USA (one per line) <span class="field-label-note">SCB</span>',taAuto(`f-${id}-sellingPointsUSA`,c.sellingPointsUSA,'One selling point per line, for the USA (SCB)…',`fc('${id}','content.sellingPointsUSA',this.value)`)+tidyBar(`f-${id}-sellingPointsUSA`,id,'content.sellingPointsUSA'),'full')}
     ${frow('Quotes (one per line)',taAuto(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`)+tidyBar(`f-${id}-quotes`,id,'content.quotes'),'full')}
     ${frow('Target Audience',taLine(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`,false)+tidyBar(`f-${id}-targetAud`,id,'content.targetAudience'))}
     ${frow('Keywords / Metadata',taLine(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`,true)+`<div class="field-help">Enter doesn't add a line break. Keywords stay one semicolon-separated line. ${scbCountBadge(id,'content.keywords',c.keywords)}</div>`)}
@@ -6583,6 +6597,7 @@ function fc(titleId,path,value){
   obj[parts[parts.length-1]]=value;
   debouncedSave(titleId);updateSectionHeaders(titleId);
   if(SCB_CAPS[path]) updateScbCount(titleId,path,value); // Round 65
+  if(path==='content.sellingPointsUK' && typeof spWordsUpdate==='function') spWordsUpdate(titleId); // Round 73
 }
 function stageChange(titleId,idx,field,value){
   const t=getTitle(titleId);if(!t)return;
@@ -7262,7 +7277,7 @@ function getSectionExportFields(t,key,blockNameById){
         ['Jacket Blurb','html', c.jacketBlurb],
         ['Brief Description','html', c.briefDescription],
         ['Sales Handle','text', c.salesHandle],
-        ['Selling Points','list', c.sellingPoints],
+        ['Selling Points UK','list', c.sellingPointsUK],['Selling Points USA','list', c.sellingPointsUSA],
         ['Quotes','quote', c.quotes],
         ['Target Audience','text', c.targetAudience],
         ['Keywords / Metadata','text', c.keywords],
