@@ -3995,7 +3995,7 @@ function SCB_ROWS(t){
   {n:'46',label:'Industry Category 1',req:1,kind:'line',src:'dist',dk:'ic1',hint:'Category USA on the title page: '+(t.commercial.categoryUSA||'—'),hintGo:ed('commercial','categoryUSA')},
   {n:'47',label:'Industry Category 2',kind:'line',src:'dist',dk:'ic2'},
   {n:'48',label:'Industry Category 3',kind:'line',src:'dist',dk:'ic3'},
-  {n:'49',label:'Audience Code',req:1,kind:'line',src:'dist',dk:'audCode'},
+  {n:'49',label:'Audience Code',req:1,kind:'line',src:'dist',dk:'audCode',def:'General/Trade',defShow:1}, // Round 76 — default (David 14-10)
   {n:'50',label:'Bisac Category 1',req:1,kind:'code',codes:'BISAC',src:'dist',dk:'bisac1'},
   {n:'51',label:'Bisac Category 2',req:1,kind:'code',codes:'BISAC',src:'dist',dk:'bisac2'},
   {n:'52',label:'Bisac Category 3',kind:'code',codes:'BISAC',src:'dist',dk:'bisac3'},
@@ -4039,6 +4039,7 @@ function distEval(t,r){
     if(st.s.expectedDate && st.s.status!=='Complete' && st.s.status!=='Not Required') A.push('Pipeline status is “'+st.s.status+'”, so this may be the date it’s due, not the date it went.');
     if(!st.s.expectedDate && distGet(t)[r.legacy]) A.push('An earlier date was typed on this page ('+distUkDate(distGet(t)[r.legacy])+'). Put it in the pipeline to keep one date.');
     return {R,A,level:A.length?'amber':(st.s.expectedDate?'ok':'none')}; }
+  if(r.kind==='code' && v && codeLookup(r.codes,v) && !codeLookup(r.codes,v).desc) A.push('No description yet for '+v+'. Use “Edit description” to add one.');
   if(r.kind==='code' && v && !codeLookup(r.codes,v)) A.push('“'+v+'” isn’t in the '+codeListName(r.codes)+' list yet. Pick it again from the dropdown, or add it.');
   if(r.kind==='date'){ return {R,A,level:v?'ok':'none'}; }
   if(r.mirror && !r.jump && !String(v||'').trim()) A.push('Empty: fill it in the SCB section above.');
@@ -4046,7 +4047,7 @@ function distEval(t,r){
   const s=String(v||''); const empty=!distTxt(s).trim();
   if(empty){ if(r.req) R.push('Required, empty'+(r.src==='dist'?'':' in BPH. Fill it on the title page.')); }
   else {
-    if(r.cap){ const n=distLen(r,s); if(n>r.cap) R.push('Over the limit by '+(n-r.cap)+': SCB cuts the end off without warning.'); else if(n>=r.cap*0.9) A.push('Close to the limit.'); }
+    if(r.cap){ const n=distLen(r,s); if(n>r.cap) R.push('Over the limit by '+(n-r.cap)+': SCB cuts the end off without warning.'); }
     if(/\[TRUNCATED\]/.test(s)) A.push('Holds a literal “[TRUNCATED]” marker (left out when copied). Check the cut on the title page.');
     if(/\[NEEDS REVIEW\]/.test(s)) A.push('Still marked [NEEDS REVIEW] on the title page.');
     if((r.kind==='rich'||r.kind==='list'||/^13/.test(r.n)) && distHasStraightQuotes(s)) A.push('Straight quotes: try Tidy on the title page.');
@@ -4085,15 +4086,25 @@ function distValueHtml(t,sec,r){
     const ship=r.ship&&distShipSuggest(t)?` <button type="button" class="btn btn-sm" onclick="distSet('${id}','ship','${distShipSuggest(t)}');distRender()">Use ${distShipSuggest(t)} (pub date − 1 month)</button>`:'';
     const hint=r.hint?`<div class="dp-sub">${esc(r.hint)}${r.hintGo?` <button type="button" class="dp-go" onclick="distEditOnTitle('${id}','${r.hintGo.sec}','${r.hintGo.el}')">Open on title page ✎</button>`:''}</div>`:'';
     if(r.kind==='text') return `<div class="dist-edit"><textarea class="autoexpand" rows="2" oninput="distSet('${id}','${r.dk}',this.value);autoGrow(this)" placeholder="${esc(r.def||r.ph||'')}">${esc(raw)}</textarea>${chip}</div>${hint}`;
+    // Round 76 — a shown default (Audience Code): the default sits in the box as real text, with a
+    // "default" chip; it's stored as '' until someone types something else.
+    if(r.defShow){ const isDef=(raw===''||raw===r.def);
+      return `<div class="dist-edit"><input type="text" value="${esc(isDef?r.def:raw)}" oninput="distSet('${id}','${r.dk}',this.value.trim()===${esc(JSON.stringify(r.def))}?'':this.value);distDefChip(this,${esc(JSON.stringify(r.def))})" placeholder="${esc(r.def)}">${chip}<span class="dp-chip dp-def"${isDef?'':' hidden'}>default</span></div>${hint}`; }
     return `<div class="dist-edit"><input type="text" value="${esc(raw)}" oninput="distSet('${id}','${r.dk}',this.value)" placeholder="${esc(r.def||r.ph||'')}">${chip}${ship}</div>${hint}`;
   }
   if(!distTxt(v).trim() && !String(v||'').trim()) return '<span class="dp-empty">empty in BPH</span>';
-  if(r.kind==='rich') return `<div class="dp-rich">${scbHtml(v)}</div>`;
-  if(r.kind==='list') return `<div class="dp-rich">${scbListHtml(v)}</div>`;
-  if(r.kind==='text') return `<div class="dp-pre">${esc(v)}</div>`;
-  return `<span class="dp-line">${esc(v)}</span>`;
+  if(r.kind==='rich') return `<div class="dp-rich">${truncShow(scbHtml(truncHide(v)))}</div>`;
+  if(r.kind==='list') return `<div class="dp-rich">${truncShow(scbListHtml(truncHide(v)))}</div>`;
+  if(r.kind==='text') return `<div class="dp-pre">${truncShow(esc(truncHide(v)))}</div>`;
+  return `<span class="dp-line">${truncShow(esc(truncHide(v)))}</span>`;
 }
+// Round 76 (2026-10-15, David-approved) — the "[TRUNCATED]" marker is SHOWN (highlighted) on the
+// distributor page so you can see where the cut is. Display only: every Copy still leaves it out.
+const TRUNC_TOKEN='BPHTRUNCMARKERX';
+function truncHide(v){ return typeof v==='string'?v.replace(/\[TRUNCATED\]/g,TRUNC_TOKEN):v; }
+function truncShow(html){ return String(html).split(TRUNC_TOKEN).join('<mark class="trunc" title="Where the text was cut. Left out when copied.">[TRUNCATED]</mark>'); }
 // Round 71 — where a row's title-page field is (for links). Mirrors point at their SCB row instead.
+function distDefChip(inp,def){ const c=inp.parentNode.querySelector('.dp-def'); if(c) c.hidden=!(inp.value.trim()===''||inp.value.trim()===def); }
 function distGoFor(t,r){ return (r && r.go && r.src!=='dist') ? r.go : null; }
 function distSrcHtml(t,r){
   if(r.src==='dist') return '';
@@ -4104,7 +4115,7 @@ function distSrcHtml(t,r){
 function distRowHtml(t,sec,r,i){
   if(r.h) return `<div class="dp-h">${esc(r.h)}</div>`;
   const ev=distEval(t,r); const v=distRowValue(t,r);
-  const cnt=(sec==='ta' && (r.kind==='rich'||r.kind==='list') && distTxt(v)) ? `<span class="scb-count ${r.words&&distWords(v)>r.words?'amber':'ok'}">${distWords(v).toLocaleString('en-GB')} words</span>` : (r.cap && !['related','size','weight'].includes(r.kind)) ? `<span class="scb-count ${(()=>{ const n=distLen(r,v); return n>r.cap?'red':n>=r.cap*0.9?'amber':'ok'; })()}">${distLen(r,v).toLocaleString('en-GB')} / ${r.cap.toLocaleString('en-GB')}</span>`:'';
+  const cnt=(sec==='ta' && (r.kind==='rich'||r.kind==='list') && distTxt(v)) ? `<span class="scb-count ${r.words&&distWords(v)>r.words?'amber':'ok'}">${distWords(v).toLocaleString('en-GB')} words</span>` : (r.cap && !['related','size','weight'].includes(r.kind)) ? `<span class="scb-count ${(()=>{ const n=distLen(r,v); return n>r.cap?'red':'ok'; })()}">${distLen(r,v).toLocaleString('en-GB')} / ${r.cap.toLocaleString('en-GB')}</span>`:'';
   return `<div class="dp-row lvl-${ev.level}${r.src==='dist'||r.kind==='size'||r.kind==='weight'?' is-dist':''}" id="dp-${sec}-${r.n}" data-i="${i}">
     <div class="dp-n">${esc(r.n)}</div>
     <div class="dp-main">
@@ -4121,10 +4132,13 @@ function distSummary(t,sec,rows){
   rows.forEach(r=>{ if(r.h) return; const e=distEval(t,r); if(e.level==='red'){ red++; items.push({r,lvl:'red',m:e.R[0]}); } else if(e.level==='amber'){ amber++; items.push({r,lvl:'amber',m:e.A[0]}); } });
   return {red,amber,items};
 }
+// Round 76 (2026-10-15, David-approved) — show both numbers, so the badge matches
+// the list underneath ("3 to fix · 3 to check", not just "3 to fix").
+function distBadgeHtml(s){ const b=[]; if(s.red) b.push(`<span class="dp-badge red">${s.red} to fix</span>`); if(s.amber) b.push(`<span class="dp-badge amber">${s.amber} to check</span>`); if(!b.length) b.push('<span class="dp-badge ok">ready</span>'); return b.join(' '); }
 function distKeyTotal(t,rows){ return rows.filter(r=>r.key).reduce((s,r)=>s+distLen(r,distRowValue(t,r)),0); }
 function distSectionHeadHtml(t,sec,rows){
   const s=distSummary(t,sec,rows);
-  const badge=s.red?`<span class="dp-badge red">${s.red} to fix</span>`:(s.amber?`<span class="dp-badge amber">${s.amber} to check</span>`:'<span class="dp-badge ok">ready</span>');
+  const badge=`<div class="dp-badges">${distBadgeHtml(s)}</div>`;
   let extra='';
   if(sec==='scb'){ const kt=distKeyTotal(t,rows); extra=`<div class="dp-keytotal ${kt>=800?'ok':'red'}">Key fields (Full Description, Quote #1, Marketing, Author #1 Bio) together: <b>${kt.toLocaleString('en-GB')}</b> characters. SCB needs 800+ ${kt>=800?'✓':'✕'}</div>`; }
   // Round 71 — a field that lives on the title page links straight to it (exact field, section opened);
@@ -4172,8 +4186,8 @@ function distRender(){
 function distBarMeta(t){ const c=t.commercial||{}; const isbn=c.isbnPbk||c.isbnHbk||'';
   return [isbn?'ISBN '+isbn:'No ISBN yet', c.isbnPbk?'Paperback':(c.isbnHbk?'Hardback':''), c.pages?c.pages+' pp':''].filter(Boolean).join(' · '); }
 function distJumpBadges(t){
-  const s=distSummary(t,'scb',SCB_ROWS(t)); const el=document.getElementById('dp-jb-scb'); if(el){ el.className='dp-badge '+(s.red?'red':s.amber?'amber':'ok'); el.textContent=s.red?s.red+' to fix':s.amber?s.amber+' to check':'ready'; }
-  if(typeof TA_ROWS==='function'){ const s2=distSummary(t,'ta',TA_ROWS(t)); const e2=document.getElementById('dp-jb-ta'); if(e2){ e2.className='dp-badge '+(s2.red?'red':s2.amber?'amber':'ok'); e2.textContent=s2.red?s2.red+' to fix':s2.amber?s2.amber+' to check':'ready'; } }
+  const s=distSummary(t,'scb',SCB_ROWS(t)); const el=document.getElementById('dp-jb-scb'); if(el){ el.className='dp-jb'; el.innerHTML=distBadgeHtml(s); }
+  if(typeof TA_ROWS==='function'){ const s2=distSummary(t,'ta',TA_ROWS(t)); const e2=document.getElementById('dp-jb-ta'); if(e2){ e2.className='dp-jb'; e2.innerHTML=distBadgeHtml(s2); } }
 }
 // After typing in a distributor-only field: refresh flags, counts, conversions — never the input itself.
 function distRefresh(id){
@@ -4184,7 +4198,7 @@ function distRefresh(id){
       const m=el.querySelector('.dp-msgs'); if(m) m.innerHTML=distMsgs(ev);
       if(r.kind==='weight'){ const o=el.querySelector('[data-conv="oz"]'); if(o) o.textContent=distOz(distGet(t).weightG)||'?'; }
       if(r.kind==='size'){ const o=el.querySelector('[data-conv="spine"]'); if(o) o.textContent=distInFromMm(distGet(t).spineMm)||'?'; }
-      if(r.src==='dist' && r.cap){ const c=el.querySelector('.scb-count'); if(c){ const n=distLen(r,distRowValue(t,r)); c.className='scb-count '+(n>r.cap?'red':n>=r.cap*0.9?'amber':'ok'); c.textContent=n.toLocaleString('en-GB')+' / '+r.cap.toLocaleString('en-GB'); } }
+      if(r.src==='dist' && r.cap){ const c=el.querySelector('.scb-count'); if(c){ const n=distLen(r,distRowValue(t,r)); c.className='scb-count '+(n>r.cap?'red':'ok'); c.textContent=n.toLocaleString('en-GB')+' / '+r.cap.toLocaleString('en-GB'); } }
       if(r.mirror){ const mv=el.querySelector('[data-mirror]'); if(mv) mv.textContent=r.get(); }
       if(r.kind==='urls'){ const vv=el.querySelector('.dp-val'); if(vv) vv.innerHTML=distUrlsHtml(t); }
     });
@@ -4223,7 +4237,9 @@ function distCodeValueHtml(t,r){
   let help='';
   if(r.help==='thema') help=`<div class="dp-sub">Find Thema codes: <a href="${THEMA_URL}" target="_blank" rel="noopener">ns.editeur.org/thema</a></div>`;
   if(r.help==='bic') help=`<div class="dp-sub">BIC reference (David’s PDF): <span class="dp-path">${esc(BIC_PDF_PATH)}</span></div>`;
-  return `<div class="dist-edit dist-code">${sel}${chip}</div><div class="dp-sub">Codes you add here are kept for every title (BPH Sheet, “Codes” tab).</div>${help}`;
+  const curC=cur?codeLookup(r.codes,cur):null;
+  const editDesc=curC?` <button type="button" class="dp-go" onclick="distCodeEditDesc('${id}','${r.codes}','${esc(curC.code)}')">Edit description ✎</button>`:'';
+  return `<div class="dist-edit dist-code">${sel}${chip}</div><div class="dp-sub">Codes you add here are kept for every title (BPH Sheet, “Codes” tab).${editDesc}</div>${help}`;
 }
 async function distCodeSelect(id,dk,list,sel){
   if(sel.value!=='__add_new__'){ distSet(id,dk,sel.value); return; }
@@ -4242,6 +4258,18 @@ async function distCodeSelect(id,dk,list,sel){
     }
   }
   distSet(id,dk,c.code); distRenderKeep();
+}
+// Round 76 (2026-10-15, David-approved) — fix a code's description (blank or misspelt) in place.
+// One shared list, so the change shows on every title. Writes only that one cell (Codes!C<row>).
+async function distCodeEditDesc(id,list,code){
+  const c=codeLookup(list,code); if(!c) return;
+  const v=window.prompt('Description for '+c.code+' ('+codeListName(list)+'). It changes for every title:',c.desc||'');
+  if(v===null) return; const desc=v.trim(); if(desc===c.desc) return;
+  const old=c.desc; c.desc=desc; distRenderKeep();
+  if(devMode) return;
+  if(!c._row){ ctToast('Description changed on this screen only: reload BPH, then edit it again to save it.'); return; }
+  try{ await sheetsPut(CFG.TITLES_SHEET_ID,'Codes!C'+c._row,[desc]); ctToast('Description saved for '+c.code+'.'); }
+  catch(e){ c.desc=old; distRenderKeep(); const auth=isAuthFailure(e); showReconnect(auth?'Description not saved: signed out / token expired. Reconnect, then try again.':'Description not saved ('+e.message+').',auth); console.error(e); }
 }
 function distRenderKeep(){ if(view==='dist') distRender(); }
 // Round 72 — "sent on" dates come from the Production Pipeline (Marketing Detail),
@@ -4356,14 +4384,14 @@ const ORIG_BLOB={
   // original: they're David's own notes, not copy that gets cut for SCB.
 };
 const ORIG_CELL_MAX=45000; // Google Sheets cell limit is 50,000 characters; keep headroom
-function origFrom(blob){ const o=blob&&blob._orig; if(!o||typeof o!=='object') return {}; const r={}; Object.keys(o).forEach(k=>{ const e=o[k]; if(e&&typeof e==='object'&&typeof e.v==='string') r[k]={v:e.v,d:e.d||''}; }); return r; }
+function origFrom(blob){ const o=blob&&blob._orig; if(!o||typeof o!=='object') return {}; const r={}; Object.keys(o).forEach(k=>{ const e=o[k]; if(e&&typeof e==='object'&&typeof e.v==='string'){ r[k]={v:e.v,d:e.d||''}; if(typeof e.pv==='string'&&e.pv){ r[k].pv=e.pv; r[k].pd=e.pd||''; } } }); return r; }
 let origCapWarned={};
 function origJson(t,blobName,obj){
   delete obj._orig;
   const all=t.originals||{};
   const mine=Object.keys(all).filter(k=>ORIG_BLOB[k]===blobName && all[k] && all[k].v);
   if(!mine.length) return JSON.stringify(obj);
-  const o={}; mine.forEach(k=>o[k]={v:all[k].v,d:all[k].d||''});
+  const o={}; mine.forEach(k=>{ o[k]={v:all[k].v,d:all[k].d||''}; if(all[k].pv){ o[k].pv=all[k].pv; o[k].pd=all[k].pd||''; } });
   let out=JSON.stringify(Object.assign({},obj,{_orig:o}));
   if(out.length<=ORIG_CELL_MAX) return out;
   // Too big for one Sheet cell: drop the largest originals from the SAVE
@@ -4399,16 +4427,60 @@ function origInner(titleId,path){
     <div class="orig-body">${body}</div>
     <div class="orig-actions"><button type="button" class="btn btn-sm btn-copy" onclick="origCopy('${titleId}','${path}',this)">Copy</button>
     <button type="button" class="orig-link" title="Save the field's current text as the new original" onclick="origReplace('${titleId}','${path}',false)">Replace original</button></div>
+    ${o.pv?`<details class="orig-d orig-prev"><summary>Previous original (${esc(origDate(o.pd))})</summary><div class="orig-body">${origIsRich(path)?plainToRichHtml(o.pv):o.pv.split('\n').map(l=>`<div>${esc(l)||'&nbsp;'}</div>`).join('')}</div></details>`:''}
   </details>`;
 }
 function origRefresh(titleId,path){ const el=document.getElementById(origElId(titleId,path)); if(el){ const open=!!el.querySelector('details[open]'); el.innerHTML=origInner(titleId,path); if(open){ const d=el.querySelector('details'); if(d) d.open=true; } } }
 function origCurrentValue(titleId,path){ const t=getTitle(titleId); if(!t) return ''; return path.split('.').reduce((o,k)=>o?o[k]:'',t)||''; }
-function origReplace(titleId,path,isNew){
+// Round 76 (2026-10-15, David-approved) — safeguard. Both "Save current text as original" and
+// "Replace original" first re-read this field's original from the Sheet (so one saved by Jen or
+// another tab since the page loaded is caught), then, if an original exists, show it next to the
+// new text with "Keep the existing original" as the default. Overwriting keeps the old one as the
+// "previous original" (one step back), per David 15-10.
+let origPending={};
+async function origReplace(titleId,path,isNew){
+  const t=getTitle(titleId); if(!t) return;
   const cur=origCurrentValue(titleId,path);
   if(!String(cur).replace(/<[^>]+>/g,'').trim()){ ctToast('The field is empty: nothing to save as the original.'); return; }
-  if(!isNew && !confirm('Replace the saved original with the text in the field now? The old original is not kept.')) return;
-  origSet(titleId,path,cur); ctToast(isNew?'Saved as the original.':'Original replaced.');
+  let ex=(t.originals&&t.originals[path]&&t.originals[path].v)?Object.assign({},t.originals[path]):null, elsewhere=false;
+  if(!devMode && t._row){
+    try{
+      const rows=await sheetsGet(CFG.TITLES_SHEET_ID,'Titles!A'+t._row+':'+TITLE_RANGE_LAST_COL+t._row);
+      const row=rows[0]||[];
+      if(row[0]===t.id){ const ci=TITLE_COLS.indexOf(ORIG_BLOB[path]); const fresh=origFrom(safeJson(row[ci],{})||{})[path];
+        if(fresh && fresh.v && (!ex || fresh.v!==ex.v)){ ex=fresh; elsewhere=true; } }
+    }catch(e){ console.warn('BPH: could not re-read the original from the Sheet; using this page’s copy',e); }
+  }
+  if(!ex){ origSet(titleId,path,cur); ctToast('Saved as the original.'); return; }
+  origPending[titleId+'|'+path]={ex,cur};
+  const el=document.getElementById(origElId(titleId,path)); if(!el) return;
+  const show=v=>origIsRich(path)?truncShow(plainToRichHtml(truncHide(v))):truncShow(esc(truncHide(v))).replace(/\n/g,'<br>');
+  const label=(ORIG_LABELS[path]||'This field');
+  el.innerHTML=`<div class="orig-guard" role="alertdialog" aria-label="Overwrite the original?">
+    <div class="og-h">${esc(label)} already has an original</div>
+    <div class="og-sub">${elsewhere?'Saved on another device or tab since you opened this page':'Saved original'} · ${esc(origDate(ex.d))}. Saving now replaces it; the old one is kept as the “previous original”.</div>
+    <div class="og-cmp"><div><b>Existing original (${esc(origDate(ex.d))})</b>${show(ex.v)}</div><div><b>Would replace it with (the field now)</b>${show(cur)}</div></div>
+    <div class="og-acts"><button type="button" class="btn btn-primary btn-sm og-keep" onclick="origGuardKeep('${titleId}','${path}')">Keep the existing original</button>
+    <button type="button" class="btn btn-sm og-over" onclick="origGuardOverwrite('${titleId}','${path}')">Overwrite original</button></div></div>`;
+  const k=el.querySelector('.og-keep'); if(k) k.focus();
 }
+function origGuardKeep(titleId,path){
+  const p=origPending[titleId+'|'+path]; delete origPending[titleId+'|'+path]; const t=getTitle(titleId);
+  // Adopt an original saved elsewhere, so this tab's next save doesn't wipe it.
+  if(p && t){ if(!t.originals) t.originals={}; const mine=t.originals[path]; if(!mine || mine.v!==p.ex.v){ t.originals[path]=Object.assign({},p.ex); debouncedSave(titleId); } }
+  origRefresh(titleId,path); ctToast('Kept the existing original.');
+}
+function origGuardOverwrite(titleId,path){
+  const p=origPending[titleId+'|'+path]; delete origPending[titleId+'|'+path]; const t=getTitle(titleId); if(!p||!t) return;
+  if(!t.originals) t.originals={};
+  t.originals[path]={v:String(p.cur||''),d:origToday(),pv:p.ex.v,pd:p.ex.d||''};
+  debouncedSave(titleId); origRefresh(titleId,path); ctToast('Original replaced. The old one is kept as the previous original.');
+}
+const ORIG_LABELS={'content.jacketBlurb':'Jacket Blurb','content.fullDescription':'Full Description','content.briefDescription':'Brief Description','content.salesHandle':'Sales Handle',
+  'toc.tableOfContents':'Table of Contents','toc.excerpt':'Excerpt','toc.howICameToWriteThis':'How I came to write this','publicity.publicityStatement':'Publicity Statement',
+  'publicity.marketing':'Marketing','publicity.marketingUK':'Marketing Notes UK','publicity.marketingUSA':'Marketing Notes USA','content.sellingPoints':'Selling Points',
+  'content.sellingPointsUK':'Selling Points UK','content.sellingPointsUSA':'Selling Points USA','content.quotes':'Quotes','content.targetAudience':'Target Audience',
+  'authorInfo.bio':'Author Bio','authorInfo.otherContributors':'Other Contributors','authorInfo.socials':'Socials & Societies','authorInfo.previousPublications':'Previous Publications'};
 function origCopy(titleId,path,btn){
   const t=getTitle(titleId); const o=t&&t.originals&&t.originals[path]; if(!o) return;
   if(!origIsRich(path)){ ctCopyText(o.v,btn,'Original copied'); return; }
@@ -4430,7 +4502,7 @@ function scbCopyRich(html,btn,msg){
 
 // ─── Round 65 — live SCB counts on the title page ───
 // SCB counts characters of the HTML it stores, tags included (Evelyn
-// Cross's method, 08-10). Green under 90%, amber 90–100%, red over.
+// Cross's method, 08-10). Green up to the limit, red over (Round 76: no amber "close").
 // Turnaround has no limits.
 const SCB_CAPS={
   'content.jacketBlurb':{cap:2500,label:'Full Description'},
@@ -4469,7 +4541,7 @@ function scbCount(path,value){
   else if(path==='toc.tableOfContents') n=scbTocText(value).length;
   else if(SCB_PLAIN_PATHS[path]) n=String(value||'').replace(/\s?\[TRUNCATED\]/g,'').trim().length;
   else n=scbHtml(value).length;
-  const level = n>c.cap?'red':(n>=c.cap*0.9?'amber':'ok');
+  const level = n>c.cap?'red':'ok'; // Round 76 — no "close to the limit" (David 14-10)
   const fmt=x=>x.toLocaleString('en-GB');
   return {n,cap:c.cap,level,text:(c.each?'longest ':'')+fmt(n)+' / '+fmt(c.cap)+' SCB'+(n>c.cap?' · '+fmt(n-c.cap)+' over':'')};
 }
@@ -4802,9 +4874,30 @@ function undoTidy(editId){
 // Round 73 — Turnaround has no limit: a plain word count under Selling Points UK.
 function spWordsText(v){ const items=String(v||'').split('\n').map(x=>x.trim()).filter(Boolean); const w=items.join(' ').split(/\s+/).filter(Boolean).length; return items.length?`${items.length} point${items.length>1?'s':''} · ${w.toLocaleString('en-GB')} words (Turnaround has no limit)`:''; }
 function spWordsUpdate(id){ const t=getTitle(id), el=document.getElementById('spw-'+id); if(t&&el) el.textContent=spWordsText(t.content.sellingPointsUK); }
+// Round 76 (2026-10-15, David-approved) — "[TRUNCATED]" highlighted on the title page.
+// Rich fields: Chrome's CSS Custom Highlight API paints the marker on screen without adding
+// any markup, so the stored text and auto-clean are untouched. Plain text boxes can't be
+// painted inside, so they get a yellow "[TRUNCATED] in this field" chip instead.
+let truncMarkQueued=false;
+function truncMarkSoon(){ if(truncMarkQueued) return; truncMarkQueued=true; requestAnimationFrame(()=>{ truncMarkQueued=false; truncMark(); }); }
+function truncMark(){
+  try{
+    if(window.CSS && CSS.highlights && window.Highlight){
+      const ranges=[];
+      document.querySelectorAll('.richtext[contenteditable]').forEach(ed=>{ const w=document.createTreeWalker(ed,NodeFilter.SHOW_TEXT); let n;
+        while((n=w.nextNode())){ const re=/\[TRUNCATED\]/g; let m; while((m=re.exec(n.data))){ const r=new Range(); r.setStart(n,m.index); r.setEnd(n,m.index+m[0].length); ranges.push(r); } } });
+      if(ranges.length) CSS.highlights.set('bph-trunc',new Highlight(...ranges)); else CSS.highlights.delete('bph-trunc');
+    }
+    document.querySelectorAll('.trunc-chip[data-for]').forEach(c=>{ const ta=document.getElementById(c.dataset.for); c.hidden=!(ta && /\[TRUNCATED\]/.test(ta.value||'')); });
+  }catch(e){ console.warn('truncMark',e); }
+}
+(function(){ try{
+  const start=()=>{ const m=document.getElementById('main'); if(m) new MutationObserver(truncMarkSoon).observe(m,{childList:true,subtree:true,characterData:true}); document.addEventListener('input',truncMarkSoon,true); truncMarkSoon(); };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',start); else start();
+}catch(e){} })();
 function tidyBar(editId,titleId,path){
   setTimeout(()=>{ const ta=document.getElementById(editId); if(ta){ ta.dataset.origPath=path; ta.dataset.origTitle=titleId; } },0);
-  return `<div class="tidy-plain-bar"><button type="button" class="rt-btn rt-tidy" title="House style: curly quotes, dashes, spaces. Shows a before/after first." onclick="openTidy('${editId}','${titleId}','${path}','plain')">Tidy</button><span class="rt-status" id="rts-${editId}" role="status"></span><span class="rt-under-r">${ORIG_BLOB[path]?origBlock(titleId,path):''}${scbCountBadge(titleId,path,origCurrentValue(titleId,path))}</span></div><div id="tp-${editId}"></div>`;
+  return `<div class="tidy-plain-bar"><button type="button" class="rt-btn rt-tidy" title="House style: curly quotes, dashes, spaces. Shows a before/after first." onclick="openTidy('${editId}','${titleId}','${path}','plain')">Tidy</button><span class="rt-status" id="rts-${editId}" role="status"></span><span class="trunc-chip" data-for="${editId}" hidden>[TRUNCATED] in this field</span><span class="rt-under-r">${ORIG_BLOB[path]?origBlock(titleId,path):''}${scbCountBadge(titleId,path,origCurrentValue(titleId,path))}</span></div><div id="tp-${editId}"></div>`;
 }
 function richTa(titleId,fieldKey,path,val,ph){
   const editId=`f-${titleId}-${fieldKey}`;

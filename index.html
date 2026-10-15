@@ -1988,6 +1988,27 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 .dp-badge.amber{color:#7a4a12;background:var(--amber-bg);border-color:var(--amber-border)}
 .dp-badge.ok{color:var(--sage-border);background:var(--sage-bg);border-color:var(--sage-border)}
 .dp-sechead-status>.dp-badge{align-self:flex-start;font-size:.8rem}
+/* Round 76 (2026-10-15) — both counts on the badges; [TRUNCATED] highlight; default chip; original safeguard */
+.dp-badges{display:flex;gap:6px;flex-wrap:wrap;align-self:flex-start}
+.dp-sechead-status .dp-badges .dp-badge{font-size:.8rem}
+.dp-jb{display:inline-flex;gap:4px}
+mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;letter-spacing:.03em;border:1px solid #c9a800;border-radius:3px;padding:0 4px;white-space:nowrap}
+::highlight(bph-trunc){background-color:#FFE14D;color:#5a2a00}
+.trunc-chip{font-size:.72rem;font-weight:700;color:#5a2a00;background:#FFF6C2;border:1px solid #c9a800;border-radius:999px;padding:0 8px;margin-left:8px;white-space:nowrap}
+.trunc-chip[hidden]{display:none}
+.dp-chip.dp-def{color:var(--sage-border);background:var(--sage-bg);border-color:var(--sage-border)}
+.dp-chip.dp-def[hidden]{display:none}
+.orig-guard{margin-top:6px;border:2px solid var(--terra-border);border-radius:var(--r8);background:#FFF8F5;padding:10px 12px;color:var(--text);font-size:.8rem}
+.og-h{font-weight:700;color:#8a1d0e;font-size:.86rem}
+.og-sub{color:var(--text3);margin-top:2px}
+.og-cmp{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:8px 0}
+.og-cmp>div{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r4);padding:6px 8px;max-height:200px;overflow:auto;line-height:1.45;overflow-wrap:anywhere}
+.og-cmp b{display:block;font-size:.66rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:4px}
+.og-cmp p{margin-bottom:.5em}
+.og-acts{display:flex;gap:8px;flex-wrap:wrap}
+.og-over{background:var(--terra-bg);color:#8a1d0e;border-color:var(--terra-border);font-weight:600}
+.orig-prev{margin-top:6px}
+@media (max-width:640px){.og-cmp{grid-template-columns:1fr}}
 .dp-keytotal{font-size:.82rem}.dp-keytotal.red{color:#8a1d0e}.dp-keytotal.ok{color:var(--sage-border)}
 .dp-issues summary{cursor:pointer;font-size:.82rem;font-weight:600}
 .dp-issues ul{margin:6px 0 0 18px;font-size:.8rem;columns:2;column-gap:24px}
@@ -2454,7 +2475,7 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r75"></script>
+<script src="app.js?v=r76"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
