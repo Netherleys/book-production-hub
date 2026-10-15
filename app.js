@@ -4868,7 +4868,12 @@ function openTidy(editId,titleId,path,kind){
     <div class="tidy-ba"><div><div class="tidy-pane-h">Before</div><div class="tidy-rendered">${r.beforeView}</div></div><div><div class="tidy-pane-h">After</div><div class="tidy-rendered">${r.afterView}</div></div></div>
     <div class="tidy-actions"><button type="button" class="btn btn-primary btn-sm" onclick="applyTidy('${editId}','${titleId}','${path}','${kind}')">Apply</button><button type="button" class="btn btn-sm" onclick="document.getElementById('tp-${editId}').innerHTML=''">Cancel</button><span class="tidy-key"><mark class="d">red</mark> goes, <mark class="a">green</mark> comes in. Nothing changes until you press Apply.</span></div>
   </div>`;
+  tidyShow(box);
 }
+// Round 79 (2026-10-16) — the preview used to open BELOW a rich field's text, so on a long field
+// (BBT Marketing Notes UK/USA: ~900px) it opened off-screen and Tidy looked dead. The rich slot now
+// sits right under the toolbar, and the page scrolls the preview into view if it is still off-screen.
+function tidyShow(box){ try{ const r=box.getBoundingClientRect(); if(r.top<70 || r.top>innerHeight-160) window.scrollBy({top:r.top-160,behavior:'smooth'}); }catch(e){} }
 function applyTidy(editId,titleId,path,kind){
   const el=document.getElementById(editId); if(!el) return;
   if(kind==='plain'){
@@ -4934,13 +4939,13 @@ function richTa(titleId,fieldKey,path,val,ph){
       <button type="button" class="rt-btn rt-tidy" title="House style: curly quotes, closed em dashes, spaces. Shows a before/after first." onclick="openTidy('${editId}','${titleId}','${path}','rich')">Tidy</button>
       <span class="rt-status" id="rts-${editId}" role="status"></span>
     </div>
+    <div id="tp-${editId}"></div>
     <div id="${editId}" class="richtext" contenteditable="true" data-placeholder="${esc(ph)}" data-empty="${isEmpty?'1':'0'}" data-dirty="0"
       oninput="richTaOnInput(this,'${titleId}','${path}')"
       onpaste="richTaPaste(event,this,'${titleId}','${path}')"
       onfocus="this.dataset.wasEmpty=this.dataset.empty;try{document.execCommand('defaultParagraphSeparator',false,'p')}catch(e){}" onblur="richTaBlur(this,'${titleId}','${path}')"
       >${displayHtml}</div>
     <div class="rt-under">${ORIG_BLOB[path]?origBlock(titleId,path):''}${scbCountBadge(titleId,path,val)}</div>
-    <div id="tp-${editId}"></div>
   </div>`;
 }
 
