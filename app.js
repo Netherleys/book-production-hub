@@ -4401,7 +4401,9 @@ const ORIG_BLOB={
   'toc.tableOfContents':'editorial_json','toc.excerpt':'editorial_json','toc.howICameToWriteThis':'editorial_json',
   'publicity.publicityStatement':'publicity_json','publicity.marketing':'publicity_json','publicity.marketingUK':'publicity_json','publicity.marketingUSA':'publicity_json',
   'content.sellingPoints':'publicity_json','content.sellingPointsUK':'publicity_json','content.sellingPointsUSA':'publicity_json','content.quotes':'publicity_json','content.targetAudience':'publicity_json',
-  'authorInfo.bio':'authorInfo_json','authorInfo.otherContributors':'authorInfo_json','authorInfo.socials':'authorInfo_json','authorInfo.previousPublications':'authorInfo_json'
+  'authorInfo.bio':'authorInfo_json','authorInfo.otherContributors':'authorInfo_json','authorInfo.socials':'authorInfo_json','authorInfo.previousPublications':'authorInfo_json',
+  // Round 81 — Pages: the old TEXT a number replaced (see pagesBoxHtml). Kept in the production-notes cell.
+  'commercial.pages':'productionNotes_json'
   // Internal notes fields (print, PO, production, future edition) have no
   // original: they're David's own notes, not copy that gets cut for SCB.
 };
@@ -4502,7 +4504,7 @@ const ORIG_LABELS={'content.jacketBlurb':'Jacket Blurb','content.fullDescription
   'toc.tableOfContents':'Table of Contents','toc.excerpt':'Excerpt','toc.howICameToWriteThis':'How I came to write this','publicity.publicityStatement':'Publicity Statement',
   'publicity.marketing':'Marketing','publicity.marketingUK':'Marketing Notes UK','publicity.marketingUSA':'Marketing Notes USA','content.sellingPoints':'Selling Points',
   'content.sellingPointsUK':'Selling Points UK','content.sellingPointsUSA':'Selling Points USA','content.quotes':'Quotes','content.targetAudience':'Target Audience',
-  'authorInfo.bio':'Author Bio','authorInfo.otherContributors':'Other Contributors','authorInfo.socials':'Socials & Societies','authorInfo.previousPublications':'Previous Publications'};
+  'authorInfo.bio':'Author Bio','authorInfo.otherContributors':'Other Contributors','authorInfo.socials':'Socials & Societies','authorInfo.previousPublications':'Previous Publications','commercial.pages':'Pages'};
 function origCopy(titleId,path,btn){
   const t=getTitle(titleId); const o=t&&t.originals&&t.originals[path]; if(!o) return;
   if(!origIsRich(path)){ ctCopyText(o.v,btn,'Original copied'); return; }
@@ -5019,7 +5021,7 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
     ${frow('Cover Price EBK',inp(`f-${id}-ebkUSD`,p.ebkUSD,'','fc(\''+id+'\',\'price.ebkUSD\',this.value)'))}
     ${frow('Cover Price HBK',inp(`f-${id}-hbkGBP`,p.hbkGBP,'','fc(\''+id+'\',\'price.hbkGBP\',this.value)'))}
     ${frow('Trim Size',inp(`f-${id}-trimSize`,c.trimSize,'e.g. 198x129mm','fc(\''+id+'\',\'commercial.trimSize\',this.value)'))}
-    ${frow('Pages',`<input type="number" id="f-${id}-pages" value="${esc(c.pages)}" min="0" oninput="fc('${id}','commercial.pages',this.value)">`)}
+    ${frow('Pages',pagesBoxHtml(t))}
     ${/* Round 11, item 4c — free-text reference field, purely for David's
         own notes (e.g. "front matter i-iv; body of book 1-172"), sat next
         to Pages. Stored as productionNotes_json.pagesBreakdown, same
@@ -5030,6 +5032,52 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
     ${frow('Nielsen Notified',`<label class="field-row"><input type="checkbox" ${c.nielsenNotified?'checked':''} onchange="fc('${id}','commercial.nielsenNotified',this.checked)"> Notified</label>`)}
     ${frow('Illustrations',inp(`f-${id}-illustrationsText`,c.illustrationsText,'e.g. black and white images: 10, colour images: 20, posters and photographs','fc(\''+id+'\',\'commercial.illustrationsText\',this.value)'),'full')}
   </div></div>`;}
+
+// ─── Round 81 (2026-10-16, David-approved hotfix) — Pages guard ───
+// 51 of 84 titles hold TEXT in Pages (mostly back-catalogue notes such as
+// "[NEEDS REVIEW] i-vi + 1-390 (Total = 396)"). The number-only box showed
+// them blank, and typing replaced the text with no warning. Now: the stored
+// text is shown under the box; typing a number asks first; "Replace" keeps
+// the old text as the field's original (productionNotes_json._orig), shown
+// under the box with Copy. Nothing is migrated: the text stays until David
+// replaces it himself.
+function pagesIsNum(v){ return /^\s*\d+\s*$/.test(String(v==null?'':v)); }
+function pagesStoredText(t){ const v=String((t&&t.commercial&&t.commercial.pages)||''); return (v.trim()&&!pagesIsNum(v))?v:''; }
+function pagesBoxHtml(t){ const id=t.id, c=t.commercial, txt=pagesStoredText(t);
+  return `<input type="number" id="f-${id}-pages" value="${txt?'':esc(c.pages)}" min="0" oninput="pagesInput('${id}',this)"${txt?` aria-describedby="pages-note-${id}"`:''}>`
+    +`<div id="pages-guard-${id}"></div><div class="pages-note-wrap" id="pages-note-${id}">${pagesNoteInner(t)}</div>`; }
+function pagesNoteInner(t){
+  const txt=pagesStoredText(t), o=t.originals&&t.originals['commercial.pages']; let h='';
+  if(txt) h+=`<div class="pages-note"><b>The Sheet has text here:</b> <span class="pages-raw">${esc(txt)}</span><div class="pages-note-sub">This box takes numbers only, so it looks empty. Typing a number asks first, and the text is kept as the original.</div></div>`;
+  if(o&&o.v) h+=`<details class="orig-d pages-orig"><summary>Old Pages text (${esc(origDate(o.d))})</summary><div class="orig-body">${esc(o.v)}</div><div class="orig-actions"><button type="button" class="btn btn-sm btn-copy" onclick="pagesOrigCopy('${t.id}',this)">Copy</button></div></details>`;
+  return h; }
+function pagesNoteRefresh(id){ const t=getTitle(id), el=document.getElementById('pages-note-'+id); if(t&&el) el.innerHTML=pagesNoteInner(t); }
+function pagesOrigCopy(id,btn){ const t=getTitle(id), o=t&&t.originals&&t.originals['commercial.pages']; if(o) ctCopyText(o.v,btn,'Copied'); }
+function pagesInput(id,el){
+  const t=getTitle(id); if(!t) return;
+  const txt=pagesStoredText(t);
+  if(!txt){ fc(id,'commercial.pages',el.value); if(typeof pagesTbcRefresh==='function') pagesTbcRefresh(id); return; }
+  const g=document.getElementById('pages-guard-'+id); if(!g) return;
+  const v=String(el.value||'').trim();
+  if(!v){ g.innerHTML=''; return; } // blank / not a number: the stored text is untouched
+  g.innerHTML=`<div class="orig-guard" role="alertdialog" aria-label="Replace the text in Pages?">
+    <div class="og-h">Pages holds text. Replace it with ${esc(v)}?</div>
+    <div class="og-sub">The text is kept as the original (“Old Pages text” under the box), so nothing is lost.</div>
+    <div class="og-cmp"><div><b>In the Sheet now</b>${esc(txt)}</div><div><b>Would become</b>${esc(v)}</div></div>
+    <div class="og-acts"><button type="button" class="btn btn-primary btn-sm og-keep" onclick="pagesGuardKeep('${id}')">Keep the text</button>
+    <button type="button" class="btn btn-sm og-over" onclick="pagesGuardReplace('${id}')">Replace with the number</button></div></div>`;
+}
+function pagesGuardKeep(id){ const el=document.getElementById('f-'+id+'-pages'); if(el) el.value=''; const g=document.getElementById('pages-guard-'+id); if(g) g.innerHTML=''; ctToast('Kept the text in Pages.'); }
+function pagesGuardReplace(id){
+  const t=getTitle(id), el=document.getElementById('f-'+id+'-pages'); if(!t||!el) return;
+  const v=String(el.value||'').trim(), txt=pagesStoredText(t); if(!v||!pagesIsNum(v)){ pagesGuardKeep(id); return; }
+  if(txt){ if(!t.originals) t.originals={}; const ex=t.originals['commercial.pages'];
+    t.originals['commercial.pages']=Object.assign({v:txt,d:origToday()}, ex&&ex.v&&ex.v!==txt?{pv:ex.v,pd:ex.d||''}:{}); }
+  fc(id,'commercial.pages',v);
+  const g=document.getElementById('pages-guard-'+id); if(g) g.innerHTML='';
+  el.removeAttribute('aria-describedby'); pagesNoteRefresh(id); if(typeof pagesTbcRefresh==='function') pagesTbcRefresh(id);
+  ctToast('Pages set to '+v+'. The old text is kept under the box.');
+}
 
 function renderContent(t){const id=t.id;const c=t.content;
   return `<div class="field-grid">
