@@ -1128,7 +1128,11 @@ function rowToTitle(row){
   // full list of affected titles/notes and a possible Sheet version-history
   // recovery route, which is beyond this fix's scope.
   const quickNotes = (safeJson(c.quickNotes_json, []) || []).map(n=>({
-    id: n.id || uid(), ts: n.ts, text: n.text, author: n.author||'', archived: !!n.archived, archivedTs: n.archivedTs||''
+    id: n.id || uid(), ts: n.ts, text: n.text, author: n.author||'', archived: !!n.archived, archivedTs: n.archivedTs||'',
+    // Round 78 (2026-10-15) — MUST be carried here or a reload wipes them (same trap as `author`, 09-10).
+    // self: true = note to self, false = to the other person, absent = older note (read from its "Name >" prefix).
+    ...((n.self===true||n.self===false)?{self:n.self}:{}),
+    replies: Array.isArray(n.replies) ? n.replies.filter(r=>r && r.text).map(r=>({id:r.id||uid(), ts:r.ts||'', author:r.author||'', text:String(r.text)})) : []
   }));
   // Round 57 (2026-09-10) — promoCalendar_json: {"<emailIndex>":{"sent":bool,
   // "notes":str}}, one blob per title (same pattern as quickNotes_json).
@@ -5004,8 +5008,8 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
         (kept in the data since Round 11, hidden until now). Combined
         "£ / $" values were split in the Sheet; anything that didn't parse
         cleanly was left as it was and is flagged here. */''}
-    ${frow('Cover Price PBK (UK £)',inp(`f-${id}-pbkGBP`,p.pbkGBP,'e.g. £14.99','fc(\''+id+'\',\'price.pbkGBP\',this.value);priceWarnUpdate(\''+id+'\')')+`<div class="price-warn" id="pw-${id}-pbkGBP">${priceWarn(p.pbkGBP,'uk')}</div>`)}
-    ${frow('Cover Price PBK (US $)',inp(`f-${id}-pbkUSD`,p.pbkUSD,'e.g. $19.95','fc(\''+id+'\',\'price.pbkUSD\',this.value);priceWarnUpdate(\''+id+'\')')+`<div class="price-warn" id="pw-${id}-pbkUSD">${priceWarn(p.pbkUSD,'us')}</div>`)}
+    ${frow('<span class="flag-uk">UK</span>Cover Price PBK (UK £)',inp(`f-${id}-pbkGBP`,p.pbkGBP,'e.g. £14.99','fc(\''+id+'\',\'price.pbkGBP\',this.value);priceWarnUpdate(\''+id+'\')')+`<div class="price-warn" id="pw-${id}-pbkGBP">${priceWarn(p.pbkGBP,'uk')}</div>`)}
+    ${frow('<span class="flag-usa">USA</span>Cover Price PBK (US $)',inp(`f-${id}-pbkUSD`,p.pbkUSD,'e.g. $19.95','fc(\''+id+'\',\'price.pbkUSD\',this.value);priceWarnUpdate(\''+id+'\')')+`<div class="price-warn" id="pw-${id}-pbkUSD">${priceWarn(p.pbkUSD,'us')}</div>`,'usa')}
     ${frow('Cover Price EBK',inp(`f-${id}-ebkUSD`,p.ebkUSD,'','fc(\''+id+'\',\'price.ebkUSD\',this.value)'))}
     ${frow('Cover Price HBK',inp(`f-${id}-hbkGBP`,p.hbkGBP,'','fc(\''+id+'\',\'price.hbkGBP\',this.value)'))}
     ${frow('Trim Size',inp(`f-${id}-trimSize`,c.trimSize,'e.g. 198x129mm','fc(\''+id+'\',\'commercial.trimSize\',this.value)'))}
@@ -5015,8 +5019,8 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
         to Pages. Stored as productionNotes_json.pagesBreakdown, same
         no-new-Sheet-column pattern as illustrationsText just below. */''}
     ${frow('Pages Breakdown',inp(`f-${id}-pagesBreakdown`,c.pagesBreakdown,'e.g. front matter i-iv; body of book 1-172','fc(\''+id+'\',\'commercial.pagesBreakdown\',this.value)'))}
-    ${frow('Category UK',inp(`f-${id}-categoryUK`,c.categoryUK,'','fc(\''+id+'\',\'commercial.categoryUK\',this.value)'))}
-    ${frow('Category USA',inp(`f-${id}-categoryUSA`,c.categoryUSA,'','fc(\''+id+'\',\'commercial.categoryUSA\',this.value)'))}
+    ${frow('<span class="flag-uk">UK</span>Category UK',inp(`f-${id}-categoryUK`,c.categoryUK,'','fc(\''+id+'\',\'commercial.categoryUK\',this.value)'))}
+    ${frow('<span class="flag-usa">USA</span>Category USA',inp(`f-${id}-categoryUSA`,c.categoryUSA,'','fc(\''+id+'\',\'commercial.categoryUSA\',this.value)'),'usa')}
     ${frow('Nielsen Notified',`<label class="field-row"><input type="checkbox" ${c.nielsenNotified?'checked':''} onchange="fc('${id}','commercial.nielsenNotified',this.checked)"> Notified</label>`)}
     ${frow('Illustrations',inp(`f-${id}-illustrationsText`,c.illustrationsText,'e.g. black and white images: 10, colour images: 20, posters and photographs','fc(\''+id+'\',\'commercial.illustrationsText\',this.value)'),'full')}
   </div></div>`;}
@@ -5027,8 +5031,8 @@ function renderContent(t){const id=t.id;const c=t.content;
     ${frow('Jacket Blurb',richTa(id,'jacketBlurb','content.jacketBlurb',c.jacketBlurb,'Back cover blurb…'),'full')}
     ${frow('Brief Description',richTa(id,'briefDesc','content.briefDescription',c.briefDescription,'Short description…'),'full')}
     ${frow('Sales Handle',taLine(`f-${id}-salesHandle`,c.salesHandle,'One-line sales handle…',`fc('${id}','content.salesHandle',this.value)`,true)+tidyBar(`f-${id}-salesHandle`,id,'content.salesHandle'),'full')}
-    ${frow('Selling Points UK (one per line) <span class="field-label-note">Turnaround · no limit</span>',taAuto(`f-${id}-sellingPointsUK`,c.sellingPointsUK,'One selling point per line, for the UK (Turnaround)…',`fc('${id}','content.sellingPointsUK',this.value)`)+tidyBar(`f-${id}-sellingPointsUK`,id,'content.sellingPointsUK')+`<div class="sp-words" id="spw-${id}">${spWordsText(c.sellingPointsUK)}</div>`,'full')}
-    ${frow('Selling Points USA (one per line) <span class="field-label-note">SCB</span>',taAuto(`f-${id}-sellingPointsUSA`,c.sellingPointsUSA,'One selling point per line, for the USA (SCB)…',`fc('${id}','content.sellingPointsUSA',this.value)`)+tidyBar(`f-${id}-sellingPointsUSA`,id,'content.sellingPointsUSA'),'full')}
+    ${frow('<span class="flag-uk">UK</span>Selling Points UK (one per line) <span class="field-label-note">Turnaround · no limit</span>',taAuto(`f-${id}-sellingPointsUK`,c.sellingPointsUK,'One selling point per line, for the UK (Turnaround)…',`fc('${id}','content.sellingPointsUK',this.value)`)+tidyBar(`f-${id}-sellingPointsUK`,id,'content.sellingPointsUK')+`<div class="sp-words" id="spw-${id}">${spWordsText(c.sellingPointsUK)}</div>`,'full')}
+    ${frow('<span class="flag-usa">USA</span>Selling Points USA (one per line) <span class="field-label-note">SCB</span>',taAuto(`f-${id}-sellingPointsUSA`,c.sellingPointsUSA,'One selling point per line, for the USA (SCB)…',`fc('${id}','content.sellingPointsUSA',this.value)`)+tidyBar(`f-${id}-sellingPointsUSA`,id,'content.sellingPointsUSA'),'full usa')}
     ${frow('Quotes (one per line)',taAuto(`f-${id}-quotes`,c.quotes,'Online and print quotes, one per line…',`fc('${id}','content.quotes',this.value)`)+tidyBar(`f-${id}-quotes`,id,'content.quotes'),'full')}
     ${frow('Target Audience',taLine(`f-${id}-targetAud`,c.targetAudience,'',`fc('${id}','content.targetAudience',this.value)`,false)+tidyBar(`f-${id}-targetAud`,id,'content.targetAudience'))}
     ${frow('Keywords / Metadata',taLine(`f-${id}-keywords`,c.keywords,'',`fc('${id}','content.keywords',this.value)`,true)+`<div class="field-help">Enter doesn't add a line break. Keywords stay one semicolon-separated line. ${scbCountBadge(id,'content.keywords',c.keywords)}</div>`)}
@@ -6292,8 +6296,8 @@ function renderPublicity(t){const id=t.id;const p=t.publicity;
   // easy to pick a different label if this reads as confusing once live.
   return `<div class="field-grid">
     ${frow('Selling Points',richTa(id,'pubStmt','publicity.publicityStatement',p.publicityStatement,''),'full')}
-    ${frow('Marketing Notes UK <span class="field-label-note">Turnaround</span>',richTa(id,'marketingUK','publicity.marketingUK',p.marketingUK,'Marketing plan for the UK (Turnaround)…'),'full')}
-    ${frow('Marketing Notes USA <span class="field-label-note">SCB</span>',richTa(id,'marketingUSA','publicity.marketingUSA',p.marketingUSA,'Marketing plan for the USA (SCB)…'),'full')}
+    ${frow('<span class="flag-uk">UK</span>Marketing Notes UK <span class="field-label-note">Turnaround</span>',richTa(id,'marketingUK','publicity.marketingUK',p.marketingUK,'Marketing plan for the UK (Turnaround)…'),'full')}
+    ${frow('<span class="flag-usa">USA</span>Marketing Notes USA <span class="field-label-note">SCB</span>',richTa(id,'marketingUSA','publicity.marketingUSA',p.marketingUSA,'Marketing plan for the USA (SCB)…'),'full usa')}
     <p style="grid-column:1/-1;font-size:.78rem;color:var(--text3)">Amazon A+, PLS.ORG, Newsletter and Promo Film status now live in the Production Pipeline section above (they were duplicated in both places in the original app) — use each stage's Notes field for detail.</p>
   </div>`;}
 
@@ -6468,66 +6472,83 @@ function setQnListMode(mode){ qnListMode=mode; renderQuickNotesList(); }
 // Defensive throughout: a note with no `author` (or a genuinely malformed
 // entry from Jen's raw-Sheet Editor access — see jen_wallis_book_
 // production_hub_access memory) renders as "Unknown" rather than breaking.
+// ─── Round 78 (2026-10-15, David-approved) — Quick Notes, simple ───
+// Every note goes to the other person (David → Jen, Jen → David) unless it's posted with
+// "Note to self". Notes to self are shown ONLY to whoever wrote them (hidden in BPH; they still
+// sit in the shared Sheet cell — David 15-10: "good enough as is"). Reply = a thread under the
+// note (not for notes to self); a reply never resolves a note on its own. Filter: All / Notes to self.
+let qnFilter='all';
+function qnOther(a){ return a==='Jen'?'David':(a==='David'?'Jen':'the other person'); }
+function qnIsSelf(n){
+  if(!n) return false;
+  if(n.self===true) return true; if(n.self===false) return false;
+  const m=/^\s*(David|Jen)\s*>/i.exec(String(n.text||'')); const a=String(n.author||'').trim();
+  return !!(m && a && m[1].toLowerCase()===a.toLowerCase());
+}
+function qnCanSee(n,me){ return !qnIsSelf(n) || !me || String(n.author||'')===me; }
+function setQnFilter(f){ qnFilter=f; renderQuickNotesList(); }
 function renderQuickNotesList(){
   const main=document.getElementById('main');
-  const mode=qnListMode;
+  const mode=qnListMode, me=getUserIdentity();
+  const inMode=n=> n && (mode==='archived' ? n.archived : !n.archived) && qnCanSee(n,me);
+  const allVis=[]; data.titles.forEach(t=>(t.quickNotes||[]).forEach(n=>{ if(inMode(n)) allVis.push(n); }));
+  const selfCount=allVis.filter(qnIsSelf).length;
   const groups = data.titles
-    .map(t=>({ t, notes:(t.quickNotes||[]).filter(n=> n && (mode==='archived' ? n.archived : !n.archived)) }))
+    .map(t=>({ t, notes:(t.quickNotes||[]).filter(n=> inMode(n) && (qnFilter==='all' || qnIsSelf(n))) }))
     .filter(g=>g.notes.length);
-  const toggleHtml = `<div class="qn-mode-toggle">
-    <button type="button" class="qn-mode-btn ${mode==='active'?'active':''}" onclick="setQnListMode('active')">Open</button>
-    <button type="button" class="qn-mode-btn ${mode==='archived'?'active':''}" onclick="setQnListMode('archived')">Resolved</button>
-  </div>`;
+  const toggleHtml = `<div class="qn-tools">
+    <div class="qn-mode-toggle">
+      <button type="button" class="qn-mode-btn ${mode==='active'?'active':''}" onclick="setQnListMode('active')">Open</button>
+      <button type="button" class="qn-mode-btn ${mode==='archived'?'active':''}" onclick="setQnListMode('archived')">Resolved</button>
+    </div>
+    <div class="qn-mode-toggle">
+      <button type="button" class="qn-mode-btn ${qnFilter==='all'?'active':''}" onclick="setQnFilter('all')">All <span class="qn-c">${allVis.length}</span></button>
+      <button type="button" class="qn-mode-btn qn-self-btn ${qnFilter==='self'?'active':''}" onclick="setQnFilter('self')">Notes to self <span class="qn-c">${selfCount}</span></button>
+    </div></div>`;
   const headingHtml = `<h2 style="font-family:var(--serif);font-weight:600;font-size:1.3rem;color:var(--text-oncream);margin-bottom:6px">Quick Notes</h2>
-    <p style="font-size:.85rem;color:var(--text-oncream-dim);margin-bottom:14px;max-width:640px;line-height:1.5">Per-book channel between David and Jen. A note stays Open until whoever it's addressed to clicks Mark Resolved — a reply on its own doesn't clear it.</p>`;
+    <p style="font-size:.85rem;color:var(--text-oncream-dim);margin-bottom:14px;max-width:680px;line-height:1.5">Per-book channel between David and Jen. Every note goes to the other person unless it's a Note to self, which only its writer sees. A note stays Open until someone clicks Mark Resolved. A reply on its own doesn't clear it.</p>`;
   const composeHtml = renderQnComposeHtml();
   if(!groups.length){
-    const emptyMsg = mode==='archived'
-      ? 'Nothing resolved yet — clicking Mark Resolved on an open note moves it here.'
-      : 'Jot one against any title using the &#128221; button (bottom-right), or the box below — it\'ll show up here, grouped by title.';
+    const emptyMsg = qnFilter==='self' ? 'No notes to self here.' : (mode==='archived'
+      ? 'Nothing resolved yet. Clicking Mark Resolved on an open note moves it here.'
+      : 'Jot one against any title using the &#128221; button (bottom-right), or the box below. It\'ll show up here, grouped by title.');
     main.innerHTML=headingHtml+toggleHtml+`<div class="empty-state"><h3>No ${mode==='archived'?'resolved':'open'} notes</h3><p>${emptyMsg}</p></div>`+composeHtml;
     updateQuickNotesBadge();
     return;
   }
-  // Groups ordered by their most-recently-noted item first (same
-  // most-recent-first ordering Round 2 already established). groups is
-  // already filtered to non-empty .notes arrays above, so this is always
-  // safe to compute.
   const latestTs = g => Math.max.apply(null, g.notes.map(n=>new Date(n.ts).getTime()||0));
   groups.sort((a,b)=> latestTs(b) - latestTs(a));
   const authorClass = a => a==='David' ? 'david' : (a==='Jen' ? 'jen' : 'unknown');
   const authorInitial = a => a==='David' ? 'D' : (a==='Jen' ? 'JW' : '?');
+  const fmtD = ts => { const d=new Date(ts); return isNaN(d)?'':d.toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'}); };
   const groupsHtml = groups.map(({t,notes})=>{
     const sortedNotes = notes.slice().sort((a,b)=>new Date(b.ts)-new Date(a.ts));
-    const allNotes = t.quickNotes||[];
-    const openCount = allNotes.filter(n=>n && !n.archived).length;
-    const resolvedCount = allNotes.filter(n=>n && n.archived).length;
-    const countLabel = `${openCount} open &middot; ${resolvedCount} resolved`;
+    const vis = (t.quickNotes||[]).filter(n=>n && qnCanSee(n,me));
+    const countLabel = `${vis.filter(n=>!n.archived).length} open &middot; ${vis.filter(n=>n.archived).length} resolved`;
     const noteRows = sortedNotes.map(n=>{
-      const when = new Date(n.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short',year:'numeric'});
-      const author = n.author || '';
-      const aCls = authorClass(author);
-      const aLabel = author || 'Unknown';
+      const author = n.author || '', aCls = authorClass(author), self = qnIsSelf(n);
       const avatar = `<div class="qn2-avatar ${aCls}">${esc(authorInitial(author))}</div>`;
-      const statusPill = mode==='active'
-        ? `<span class="qn-note-status open">Open</span>`
-        : `<span class="qn-note-status resolved">Resolved</span>`;
-      const actionBtn = mode==='active'
-        ? `<button type="button" class="qn-resolve-btn" onclick="event.stopPropagation();archiveQuickNote('${t.id}','${n.id}')">Mark Resolved</button>`
+      const who = self ? `<span class="qn-self-tag">Note to self</span>` : (author?`<span class="qn-to">&rarr; ${esc(qnOther(author))}</span>`:'');
+      const statusPill = mode==='active' ? `<span class="qn-note-status open">Open</span>` : `<span class="qn-note-status resolved">Resolved</span>`;
+      const replies = (n.replies||[]);
+      const thread = replies.length ? `<div class="qn-thread">${replies.map(r=>`<div class="qn-reply"><div class="qn2-avatar ${authorClass(r.author)}">${esc(authorInitial(r.author))}</div><div class="qn-reply-b"><span class="qn-note-author ${authorClass(r.author)}">${esc(r.author||'Unknown')}</span><span class="qn-note-date">${esc(fmtD(r.ts))}</span><div class="qn-reply-text">${esc(r.text)}</div></div></div>`).join('')}</div>` : '';
+      const actions = mode==='active'
+        ? `${self?'':`<button type="button" class="qn-reply-btn" onclick="event.stopPropagation();qnOpenReply('${t.id}','${n.id}')">&#8617; Reply${replies.length?' ('+replies.length+')':''}</button>`}<button type="button" class="qn-resolve-btn" onclick="event.stopPropagation();archiveQuickNote('${t.id}','${n.id}')">Mark Resolved</button>`
         : `<button type="button" class="qn-restore-btn" onclick="event.stopPropagation();restoreQuickNote('${t.id}','${n.id}')">&#8635; Reopen</button>`;
-      return `<div class="qn-note-row${mode==='archived'?' archived':''}">
+      return `<div class="qn-note-row${mode==='archived'?' archived':''}${self?' qn-is-self':''}" id="qn-row-${n.id}">
           ${avatar}
           <div class="qn-note-text-wrap">
-            <div class="qn-note-top"><span class="qn-note-author ${aCls}">${esc(aLabel)}</span><span class="qn-note-date">${esc(when)}</span>${statusPill}</div>
+            <div class="qn-note-top"><span class="qn-note-author ${aCls}">${esc(author||'Unknown')}</span>${who}<span class="qn-note-date">${esc(fmtD(n.ts))}</span>${statusPill}</div>
             <span class="qn-note-text">${esc(n.text)}</span>
-            <div style="margin-top:6px">${actionBtn}</div>
+            ${thread}<div id="qn-rb-${n.id}"></div>
+            <div class="qn-acts">${actions}</div>
           </div>
         </div>`;
     }).join('');
     return `<div class="qn-group">
       <div class="qn-group-header" onclick="gotoDetail('${t.id}')">
         <span class="qn-list-title">${esc(t.title)}</span>
-        <span class="qn-list-count${openCount>0?' has-open':''}">${countLabel}</span>
+        <span class="qn-list-count has-open">${countLabel}</span>
       </div>
       <div class="qn-group-notes">${noteRows}</div>
     </div>`;
@@ -6535,11 +6556,22 @@ function renderQuickNotesList(){
   main.innerHTML=headingHtml+toggleHtml+groupsHtml+composeHtml;
   updateQuickNotesBadge();
 }
-// Round 53 (2026-09-10) — same title-select + textarea the FAB panel already
-// uses, just inline on the tab itself (per the approved mockup's compose
-// box). Reuses saveQuickNote()'s exact logic/identity-gating rather than a
-// second save path — the FAB and this box are two entry points into the
-// same function, not two systems.
+function qnOpenReply(titleId,noteId){
+  if(!getUserIdentity()){ ensureUserIdentity(()=>qnOpenReply(titleId,noteId)); return; }
+  const box=document.getElementById('qn-rb-'+noteId); if(!box) return;
+  box.innerHTML=`<div class="qn-reply-box"><textarea id="qn-rt-${noteId}" placeholder="Reply…"></textarea><div class="qn-reply-acts"><button type="button" class="btn btn-sm" onclick="renderQuickNotesList()">Cancel</button><button type="button" class="btn btn-primary btn-sm" onclick="qnSendReply('${titleId}','${noteId}')">Reply</button></div></div>`;
+  const ta=document.getElementById('qn-rt-'+noteId); if(ta) ta.focus();
+}
+function qnSendReply(titleId,noteId){
+  const ta=document.getElementById('qn-rt-'+noteId); if(!ta) return; const text=ta.value.trim(); if(!text) return;
+  const t=getTitle(titleId); if(!t||!t.quickNotes) return; const n=t.quickNotes.find(x=>x.id===noteId); if(!n) return;
+  if(!Array.isArray(n.replies)) n.replies=[];
+  n.replies.push({id:uid(),ts:new Date().toISOString(),author:getUserIdentity()||'',text});
+  saveTitle(titleId); // immediate, like posting a note
+  renderQuickNotesList();
+}
+function qnNewNote(text,self){ return {id:uid(),ts:new Date().toISOString(),text,author:getUserIdentity(),archived:false,archivedTs:'',self:!!self,replies:[]}; }
+// Round 53 compose box, Round 78: two buttons — "Post to <other>" and "Note to self".
 function renderQnComposeHtml(){
   const titleOpts = data.titles.slice().sort((a,b)=>a.title.localeCompare(b.title)).map(t=>`<option value="${t.id}">${esc(t.title)}</option>`).join('');
   const who=getUserIdentity();
@@ -6553,11 +6585,11 @@ function renderQnComposeHtml(){
       <span style="font-size:.76rem;color:var(--text3)">${idLine}</span>
     </div>
     <textarea id="qn-tab-text" placeholder="Write a note…" style="width:100%;min-height:60px;margin-bottom:8px"></textarea>
-    <div style="text-align:right"><button class="btn btn-primary btn-sm" onclick="saveQnTabNote()">Post Note</button></div>
+    <div class="qn-post-row"><button class="btn btn-sm qn-btn-self" onclick="saveQnTabNote(true)">Note to self</button><button class="btn btn-primary btn-sm" onclick="saveQnTabNote(false)">Post to ${esc(who?qnOther(who):'the other person')}</button></div>
   </div>`;
 }
-function saveQnTabNote(){
-  if(!getUserIdentity()){ ensureUserIdentity(saveQnTabNote); return; }
+function saveQnTabNote(self){
+  if(!getUserIdentity()){ ensureUserIdentity(()=>saveQnTabNote(self)); return; }
   const sel=document.getElementById('qn-tab-title-select');
   const textEl=document.getElementById('qn-tab-text');
   if(!sel||!textEl)return;
@@ -6565,7 +6597,7 @@ function saveQnTabNote(){
   if(!text)return;
   const t=getTitle(sel.value);if(!t)return;
   if(!t.quickNotes)t.quickNotes=[];
-  t.quickNotes.push({id:uid(),ts:new Date().toISOString(),text,author:getUserIdentity(),archived:false,archivedTs:''});
+  t.quickNotes.push(qnNewNote(text,self));
   saveTitle(t.id);
   renderQuickNotesList();
 }
@@ -7282,6 +7314,7 @@ function renderIdentityLine(){
   el.innerHTML = who
     ? `Posting as <b style="color:var(--text2)">${esc(who)}</b> <button type="button" class="qn-identity-link" onclick="showIdentityModal()">change</button>`
     : `<button type="button" class="qn-identity-link" style="margin-left:0" onclick="showIdentityModal()">Set who's posting…</button>`;
+  const pb=document.getElementById('qn-post-btn'); if(pb) pb.textContent='Post to '+(who?qnOther(who):'the other person');
 }
 function renderQuickNoteRecent(){
   const sel=document.getElementById('qn-title-select');
@@ -7293,17 +7326,17 @@ function renderQuickNoteRecent(){
   // it now shows ACTIVE notes only — an addressed/archived note dropping
   // out of this quick preview too is the expected read-through of "archived
   // = dealt with", consistent with it also leaving the main Quick Notes list.
-  const active=(t&&t.quickNotes)?t.quickNotes.filter(n=>!n.archived):[];
+  const me=getUserIdentity(); const active=(t&&t.quickNotes)?t.quickNotes.filter(n=>!n.archived && qnCanSee(n,me)):[];
   if(!active.length){ box.innerHTML='<em>No quick notes yet for this title.</em>'; return; }
   box.innerHTML=active.slice().reverse().slice(0,5).map(n=>`<div class="qn-recent-item"><b>${esc(new Date(n.ts).toLocaleDateString('en-GB',{day:'numeric',month:'short'}))}</b> — ${esc(n.text)}</div>`).join('');
 }
-function saveQuickNote(){
+function saveQuickNote(self){
   // Round 53 (2026-09-10) — every note now needs an author (David/Jen) to
   // render in the per-book channel view. If this browser hasn't been told
   // who's using it yet, gate on the identity modal and re-call ourselves
   // once it's set — the textarea/select values are still sitting in the DOM
   // untouched, so nothing typed is lost while the modal is up.
-  if(!getUserIdentity()){ ensureUserIdentity(saveQuickNote); return; }
+  if(!getUserIdentity()){ ensureUserIdentity(()=>saveQuickNote(self)); return; }
   const sel=document.getElementById('qn-title-select');
   const textEl=document.getElementById('qn-text');
   if(!sel||!textEl)return;
@@ -7311,7 +7344,7 @@ function saveQuickNote(){
   if(!text)return;
   const t=getTitle(sel.value);if(!t)return;
   if(!t.quickNotes)t.quickNotes=[];
-  t.quickNotes.push({id:uid(),ts:new Date().toISOString(),text,author:getUserIdentity(),archived:false,archivedTs:''});
+  t.quickNotes.push(qnNewNote(text,self===true));
   textEl.value='';
   saveTitle(t.id); // immediate, not debounced — a quick note should feel saved instantly
   renderQuickNoteRecent();
@@ -7332,9 +7365,9 @@ function saveQuickNote(){
 // silently dropped or throwing.
 function qnWaitingOn(n,me){
   if(!me || !n) return true;
-  const a=String(n.author||'').trim(); if(!a || a!==me) return true;
-  const m=/^\s*(David|Jen)\s*>/i.exec(String(n.text||''));
-  return !!(m && m[1].toLowerCase()===me.toLowerCase());
+  const a=String(n.author||'').trim();
+  if(qnIsSelf(n)) return a===me;      // my notes to self count for me; others' are hidden
+  return !a || a!==me;                 // notes from the other person (or unknown) wait on me
 }
 function updateQuickNotesBadge(){
   const badge=document.getElementById('qn-tab-badge');if(!badge)return;

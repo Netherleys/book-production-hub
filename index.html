@@ -2009,6 +2009,43 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 .og-over{background:var(--terra-bg);color:#8a1d0e;border-color:var(--terra-border);font-weight:600}
 .orig-prev{margin-top:6px}
 @media (max-width:640px){.og-cmp{grid-template-columns:1fr}}
+/* Round 78 (2026-10-15, David-approved) — title page breathing space (every section), quieter Tidy,
+   blue USA panel on every UK/USA pair, Quick Notes: notes to self + replies + filter */
+.accord-body .field-grid{row-gap:28px}
+.accord-body .field-grid-3{row-gap:24px}
+.accord-body .field-group{gap:6px}
+.accord-body .field-grid>.field-group.full+.field-group.full:not(.usa){border-top:1px solid var(--border);padding-top:20px;margin-top:-8px}
+.rt-btn.rt-tidy{background:var(--surface);color:var(--text2);border-color:var(--border2);font-weight:600}
+.rt-btn.rt-tidy:hover{background:var(--bg2);color:var(--text)}
+.field-group.usa{background:#EEF2FB;border:1px solid #9DB0D6;border-left:5px solid #3D5A99;border-radius:var(--r8);padding:10px 12px 12px}
+/* half-width panels: same padding pulled out with negative margins, so the field still lines up with its row */
+.field-group.usa:not(.full){padding:6px 8px 8px;margin:-7px -9px -9px -13px}
+.field-group.usa label.field-label{color:#3D5A99}
+.field-group.usa .field-label-note{background:#3D5A99;color:#fff;border-color:#3D5A99}
+.field-group.usa input,.field-group.usa textarea,.field-group.usa .richtext{border-color:#9DB0D6}
+.flag-uk,.flag-usa{display:inline-block;font-size:.62rem;font-weight:800;letter-spacing:.04em;border-radius:3px;padding:0 5px;margin-right:6px;vertical-align:1px}
+.flag-uk{background:#14130F;color:#F1EAD9}
+.flag-usa{background:#3D5A99;color:#fff}
+.qn-tools{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:16px}
+.qn-tools .qn-mode-toggle{margin-bottom:0}
+.qn-c{font-size:.66rem;background:rgba(255,255,255,.18);border-radius:999px;padding:0 6px;margin-left:4px}
+.qn-mode-btn.qn-self-btn.active{background:var(--amber-border)}
+.qn-to{font-size:.78rem;color:var(--text3)}
+.qn-self-tag{font-size:.64rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;padding:2px 8px;border-radius:999px;background:var(--amber-border);color:#fff}
+.qn-note-row.qn-is-self{background:#FFF7E6;border-left:5px solid var(--amber-border);padding-left:9px}
+.qn-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.qn-reply-btn{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r4);color:var(--text2);cursor:pointer;padding:4px 11px;font-size:.76rem;font-weight:600}
+.qn-reply-btn:hover{background:var(--bg2)}
+.qn-thread{margin-top:6px;display:flex;flex-direction:column;gap:6px;border-left:2px solid var(--border2);padding-left:10px}
+.qn-reply{display:flex;gap:8px;align-items:flex-start}
+.qn-reply .qn2-avatar{width:20px;height:20px;font-size:.55rem}
+.qn-reply-b{background:var(--surface);border:1px solid var(--border);border-radius:var(--r8);padding:6px 10px;font-size:.86rem;color:var(--text2);line-height:1.4;flex:1;min-width:0}
+.qn-reply-b .qn-note-date{margin-left:6px}
+.qn-reply-box{margin-top:6px;display:flex;flex-direction:column;gap:6px}
+.qn-reply-box textarea{min-height:50px}
+.qn-reply-acts,.qn-post-row{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+.qn-btn-self{background:var(--amber-bg);color:#7a4a12;border-color:var(--amber-border);font-weight:600}
+.qn-btn-self:hover{background:#f6e2c2}
 /* Round 77 (2026-10-15, David-approved) — distributor page text at the main book-page size, + issue table */
 .dp-page .dp-val{font-size:1.05rem}
 .dp-page .dp-label{font-size:.92rem}
@@ -2382,7 +2419,8 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
   <textarea id="qn-text" placeholder="Jot it down — saved straight to that title's record…"></textarea>
   <div style="display:flex;gap:8px;justify-content:flex-end">
     <button class="btn btn-sm" onclick="toggleQuickNote()">Close</button>
-    <button class="btn btn-primary btn-sm" onclick="saveQuickNote()">Save Note</button>
+    <button class="btn btn-sm qn-btn-self" onclick="saveQuickNote(true)">Note to self</button>
+    <button class="btn btn-primary btn-sm" id="qn-post-btn" onclick="saveQuickNote(false)">Post</button>
   </div>
   <div id="qn-recent" class="qn-recent"></div>
 </div>
@@ -2520,7 +2558,7 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r77"></script>
+<script src="app.js?v=r78"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
