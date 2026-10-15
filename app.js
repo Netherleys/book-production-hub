@@ -4127,10 +4127,32 @@ function distRowHtml(t,sec,r,i){
   </div>`;
 }
 function distMsgs(ev){ return ev.R.map(m=>`<div class="dp-msg red">✕ ${esc(m)}</div>`).join('')+ev.A.map(m=>`<div class="dp-msg amber">⚠ ${esc(m)}</div>`).join(''); }
+// Round 77 (2026-10-15, David-approved) — one LINE per problem (a field with two problems
+// gives two lines); the badges count lines, so they always match the issue table.
 function distSummary(t,sec,rows){
-  let red=0,amber=0; const items=[];
-  rows.forEach(r=>{ if(r.h) return; const e=distEval(t,r); if(e.level==='red'){ red++; items.push({r,lvl:'red',m:e.R[0]}); } else if(e.level==='amber'){ amber++; items.push({r,lvl:'amber',m:e.A[0]}); } });
-  return {red,amber,items};
+  const fix=[],chk=[];
+  rows.forEach(r=>{ if(r.h) return; const e=distEval(t,r); e.R.forEach(m=>fix.push({r,lvl:'red',m})); e.A.forEach(m=>chk.push({r,lvl:'amber',m})); });
+  return {red:fix.length,amber:chk.length,items:fix.concat(chk)};
+}
+// Where to fix one line: the exact title-page field, the SCB row a Turnaround mirror reads, or this row.
+function distIssueGo(t,sec,r,m){
+  // A message that says "…here" (e.g. Spine on row 36) is fixed on this page, even on a mixed row.
+  const go=/\bhere\.?$/.test(String(m||''))?null:distGoFor(t,r);
+  if(go) return {lab:'Title page: '+(r.how||r.label)+' ✎',js:`distEditOnTitle('${t.id}','${go.sec}','${go.el}')`,title:'Open the title page at this field'};
+  if(r.mirror){ const n=r.jump||(r.n==='16'?'36':'37'); return {lab:'In SCB: row '+n+' ↑',js:`distJump('dp-scb-${n}')`,here:1,title:'Fill it in the SCB section'}; }
+  return {lab:'Here: row '+r.n+' ↓',js:`distJump('dp-${sec}-${r.n}')`,here:1,title:'Show this row on the distributor page'};
+}
+const DIST_TABLE_KEY='bph_dist_table_hidden_';
+function distTableHidden(sec){ try{ return localStorage.getItem(DIST_TABLE_KEY+sec)==='1'; }catch(e){ return false; } }
+function distTableToggle(id,sec){ try{ localStorage.setItem(DIST_TABLE_KEY+sec,distTableHidden(sec)?'0':'1'); }catch(e){} distRefresh(id); }
+function distIssueTableHtml(t,sec,s){
+  if(!s.items.length) return '<div class="dp-it"><div class="dp-it-ok">Nothing to fix or check ✓</div></div>';
+  const hid=distTableHidden(sec);
+  const head=`<div class="dp-it-head"><b>${s.items.length} to sort</b><span class="dp-it-sub">${s.red?s.red+' to fix · ':''}${s.amber} to check · click a line to go to it</span><button type="button" class="dp-it-tog" onclick="distTableToggle('${t.id}','${sec}')">${hid?'Show table':'Hide table'}</button></div>`;
+  if(hid) return `<div class="dp-it">${head}</div>`;
+  const rows=s.items.map(x=>{ const g=distIssueGo(t,sec,x.r,x.m); const lvl=x.lvl==='red'?'fix':'check';
+    return `<tr class="${lvl}" onclick="${g.js}" title="${esc(g.title)}"><td class="dp-it-n">${esc(x.r.n)}</td><td class="dp-it-f">${esc(x.r.label)}</td><td><span class="dp-lvl ${lvl}">${lvl==='fix'?'Fix':'Check'}</span></td><td class="dp-it-m">${truncShow(esc(truncHide(x.m||'')))}</td><td><button type="button" class="dp-it-go${g.here?' here':''}" onclick="event.stopPropagation();${g.js}">${esc(g.lab)}</button></td></tr>`; }).join('');
+  return `<div class="dp-it">${head}<table class="dp-it-t"><thead><tr><th>Row</th><th>Field</th><th></th><th>What's wrong</th><th>Where to fix it</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 // Round 76 (2026-10-15, David-approved) — show both numbers, so the badge matches
 // the list underneath ("3 to fix · 3 to check", not just "3 to fix").
@@ -4141,13 +4163,8 @@ function distSectionHeadHtml(t,sec,rows){
   const badge=`<div class="dp-badges">${distBadgeHtml(s)}</div>`;
   let extra='';
   if(sec==='scb'){ const kt=distKeyTotal(t,rows); extra=`<div class="dp-keytotal ${kt>=800?'ok':'red'}">Key fields (Full Description, Quote #1, Marketing, Author #1 Bio) together: <b>${kt.toLocaleString('en-GB')}</b> characters. SCB needs 800+ ${kt>=800?'✓':'✕'}</div>`; }
-  // Round 71 — a field that lives on the title page links straight to it (exact field, section opened);
-  // "row ↓" still jumps to the row on this page. Distributor-only fields are fixed here, so they jump here.
-  const list=s.items.length?`<details class="dp-issues"${s.red?' open':''}><summary>${s.items.length} field${s.items.length>1?'s':''} to fix or check</summary><ul>${s.items.map(x=>{
-    const go=distGoFor(t,x.r);
-    const main=go?`<a href="#" class="dp-tolink" onclick="event.preventDefault();distEditOnTitle('${t.id}','${go.sec}','${go.el}')" title="Open the title page at this field">${esc(x.r.n)}. ${esc(x.r.label)} ✎</a> <a href="#dp-${sec}-${x.r.n}" class="dp-rowlink" onclick="event.preventDefault();distJump('dp-${sec}-${x.r.n}')" title="Show this row on the distributor page">row ↓</a>`
-      :`<a href="#dp-${sec}-${x.r.n}" onclick="event.preventDefault();distJump('dp-${sec}-${x.r.n}')">${esc(x.r.n)}. ${esc(x.r.label)}</a>`;
-    return `<li class="${x.lvl}">${main}: ${esc(x.m||'')}</li>`; }).join('')}</ul></details>`:'';
+  // Round 77 — the issue table replaces the Round 71 two-column list (each line links to its field).
+  const list=distIssueTableHtml(t,sec,s);
   return `<div class="dp-sechead-status" id="dp-status-${sec}">${badge}${extra}${list}</div>`;
 }
 function distRender(){
@@ -7313,11 +7330,21 @@ function saveQuickNote(){
 // jen_wallis_book_production_hub_access memory) — a malformed/missing
 // `archived` value is treated as still-open (unresolved) rather than
 // silently dropped or throwing.
+function qnWaitingOn(n,me){
+  if(!me || !n) return true;
+  const a=String(n.author||'').trim(); if(!a || a!==me) return true;
+  const m=/^\s*(David|Jen)\s*>/i.exec(String(n.text||''));
+  return !!(m && m[1].toLowerCase()===me.toLowerCase());
+}
 function updateQuickNotesBadge(){
   const badge=document.getElementById('qn-tab-badge');if(!badge)return;
+  // Round 77 (2026-10-15, David-approved) — count only notes waiting on the viewer: open notes
+  // from the other person (or of unknown author), plus your own "David > …" / "Jen > …" notes to
+  // yourself. Your own notes to the other person don't count. No identity set yet = count all.
+  const me=getUserIdentity();
   let count=0;
   (data.titles||[]).forEach(t=>{
-    (t.quickNotes||[]).forEach(n=>{ if(!n || !n.archived) count++; });
+    (t.quickNotes||[]).forEach(n=>{ if(n && n.archived) return; if(qnWaitingOn(n,me)) count++; });
   });
   badge.textContent=String(count);
   badge.style.display = count>0 ? '' : 'none';

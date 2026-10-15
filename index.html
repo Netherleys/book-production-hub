@@ -2009,6 +2009,51 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 .og-over{background:var(--terra-bg);color:#8a1d0e;border-color:var(--terra-border);font-weight:600}
 .orig-prev{margin-top:6px}
 @media (max-width:640px){.og-cmp{grid-template-columns:1fr}}
+/* Round 77 (2026-10-15, David-approved) — distributor page text at the main book-page size, + issue table */
+.dp-page .dp-val{font-size:1.05rem}
+.dp-page .dp-label{font-size:.92rem}
+.dp-page .dp-n{font-size:.88rem}
+.dp-page .dp-src,.dp-page .dp-go,.dp-page .dp-ref{font-size:.82rem}
+.dp-page .dp-msg,.dp-page .dp-sub{font-size:.88rem}
+.dp-page .dp-secnote,.dp-page .dp-keytotal{font-size:.9rem}
+.dp-page .dp-chip{font-size:.74rem}
+.dp-page .scb-count{font-size:.82rem}
+.dp-page .dist-edit input,.dp-page .dist-edit textarea,.dp-page .dist-code select{font-size:1.02rem}
+.dp-page .dp-check{font-size:1rem}
+.dp-page .dp-unit,.dp-page .dp-conv{font-size:.88rem}
+.dp-page .dp-h{font-size:.8rem}
+.dp-page .btn-copy{font-size:.82rem}
+.dp-it{border:1.5px solid var(--card-border);border-radius:var(--r8);overflow:hidden;margin-top:4px}
+.dp-it-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:8px 12px;background:var(--surface2);border-bottom:1px solid var(--border2)}
+.dp-it-head b{font-size:.98rem}
+.dp-it-sub{font-size:.86rem;color:var(--text3)}
+.dp-it-tog{margin-left:auto;font-size:.86rem;border:none;background:none;text-decoration:underline;cursor:pointer;color:var(--text2);font-family:var(--sans)}
+.dp-it-ok{padding:10px 12px;font-size:.95rem;color:var(--sage-border)}
+.dp-it-t{width:100%;border-collapse:collapse;font-size:.95rem}
+.dp-it-t th{text-align:left;font-size:.74rem;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);background:#FBF9F3;padding:6px 10px;border-bottom:1px solid var(--border2)}
+.dp-it-t td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:top}
+.dp-it-t tr:last-child td{border-bottom:none}
+.dp-it-t tbody tr{cursor:pointer}
+.dp-it-t tbody tr:hover td{background:#FFFBEF}
+.dp-it-t tr.fix td:first-child{box-shadow:inset 4px 0 #c0392b}
+.dp-it-t tr.check td:first-child{box-shadow:inset 4px 0 var(--amber-border)}
+.dp-it-n{font-weight:700;color:var(--text3);white-space:nowrap}
+.dp-it-f{font-weight:700}
+.dp-lvl{font-size:.72rem;font-weight:800;text-transform:uppercase;letter-spacing:.04em;border-radius:999px;padding:1px 8px;border:1px solid;white-space:nowrap}
+.dp-lvl.fix{color:#8a1d0e;background:var(--terra-bg);border-color:var(--terra-border)}
+.dp-lvl.check{color:#7a4a12;background:var(--amber-bg);border-color:var(--amber-border)}
+.dp-it-go{border:1px solid #9DB0D6;background:#E6EEF8;color:#2B5AA8;border-radius:var(--r4);padding:3px 9px;font-size:.84rem;font-weight:700;cursor:pointer;white-space:nowrap;font-family:var(--sans)}
+.dp-it-go:hover{background:#d8e4f5}
+.dp-it-go.here{background:#fff;color:var(--text2);border-color:var(--border2)}
+@media (max-width:760px){
+  .dp-it-t thead{display:none}
+  .dp-it-t,.dp-it-t tbody,.dp-it-t tr,.dp-it-t td{display:block;width:100%}
+  .dp-it-t tr{border-bottom:1px solid var(--border);padding:6px 0}
+  .dp-it-t td{border:none;padding:2px 10px}
+  .dp-it-t tr.fix td:first-child,.dp-it-t tr.check td:first-child{box-shadow:none}
+  .dp-it-t tr.fix{box-shadow:inset 4px 0 #c0392b}.dp-it-t tr.check{box-shadow:inset 4px 0 var(--amber-border)}
+  .dp-it-go{white-space:normal}
+}
 .dp-keytotal{font-size:.82rem}.dp-keytotal.red{color:#8a1d0e}.dp-keytotal.ok{color:var(--sage-border)}
 .dp-issues summary{cursor:pointer;font-size:.82rem;font-weight:600}
 .dp-issues ul{margin:6px 0 0 18px;font-size:.8rem;columns:2;column-gap:24px}
@@ -2475,7 +2520,7 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r76"></script>
+<script src="app.js?v=r77"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
