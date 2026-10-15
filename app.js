@@ -2141,7 +2141,8 @@ function getSectionStatus(t,key){
     }
     case 'print':return t.print.printEstimate?'complete':'partial';
     case 'poTracker': return (t.commercial.isbnPbk||t.commercial.isbnHbk||t.poTrackerTitleOverride)?'complete':'partial';
-    case 'publicity':return t.publicity.publicityStatement?'complete':'partial';
+    // Round 80 — the old statement box is hidden, so the visible Marketing Notes count too.
+    case 'publicity':return (t.publicity.marketingUK||t.publicity.marketingUSA||t.publicity.publicityStatement)?'complete':'partial';
     case 'toc':return t.toc.tableOfContents?'complete':'partial';
     case 'productionNotes':return t.productionNotes.checklist.every(c=>c.checked)?'complete':'partial';
     case 'futureEdition':return t.futureEdition.printReadyFilesStatus==='Submitted'?'complete':'partial';
@@ -6300,7 +6301,9 @@ function renderPublicity(t){const id=t.id;const p=t.publicity;
   // boxes. Built exactly as asked since the brief was explicit and literal;
   // easy to pick a different label if this reads as confusing once live.
   return `<div class="field-grid">
-    ${frow('Selling Points',richTa(id,'pubStmt','publicity.publicityStatement',p.publicityStatement,''),'full')}
+    ${/* Round 80 (2026-10-16): the R12 'Selling Points' box (data = publicity.publicityStatement)
+       duplicated the real Selling Points UK/USA in Content & Marketing, so it is no longer shown.
+       Data untouched: still loaded, saved and round-tripped in publicity_json. */''}
     ${frow('<span class="flag-uk">UK</span>Marketing Notes UK <span class="field-label-note">Turnaround</span>',richTa(id,'marketingUK','publicity.marketingUK',p.marketingUK,'Marketing plan for the UK (Turnaround)…'),'full')}
     ${frow('<span class="flag-usa">USA</span>Marketing Notes USA <span class="field-label-note">SCB</span>',richTa(id,'marketingUSA','publicity.marketingUSA',p.marketingUSA,'Marketing plan for the USA (SCB)…'),'full usa')}
     <p style="grid-column:1/-1;font-size:.78rem;color:var(--text3)">Amazon A+, PLS.ORG, Newsletter and Promo Film status now live in the Production Pipeline section above (they were duplicated in both places in the original app) — use each stage's Notes field for detail.</p>
@@ -7542,7 +7545,7 @@ function getSectionExportFields(t,key,blockNameById){
       // Round 12, item 1 — label matched to the renamed UI field (see
       // renderPublicity() above) so exports read the same, same pattern as
       // the Contributor(s) rename precedent (item 7, Round 11) above.
-      ['Selling Points','html', t.publicity.publicityStatement],
+      // Round 80 — hidden old statement box dropped from exports (Selling Points UK/USA export from Content & Marketing).
       ['Marketing Notes UK','html', t.publicity.marketingUK],['Marketing Notes USA','html', t.publicity.marketingUSA]
     ];
     case 'toc': return [
