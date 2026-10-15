@@ -1093,7 +1093,7 @@ function rowToTitle(row){
   // Links field (see t.authorBookkeepingLink below) even though, like
   // releaseNote, it physically lives in this blob rather than its own
   // column.
-  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',combinedNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',printStatusOverride:'',releaseNote:'',authorBookkeepingLink:''}, safeJson(c.productionNotes_json, {}));
+  const pn = Object.assign({checklist:[],proofingNotes:'',typesettingNotes:'',combinedNotes:'',lsiNotes:'',scbEbookCover:'1400px on shortest side / RGB',printerEstimates:'',futureEditionNotes:'',printReadyFiles:'Not Ready',illustrations:false,illustrationCount:0,illustrationsText:'',poManualNotes:'',pagesBreakdown:'',pagesTbc:false,illustrationsTbc:false,printStatusOverride:'',releaseNote:'',authorBookkeepingLink:''}, safeJson(c.productionNotes_json, {}));
   let illustrationsText = pn.illustrationsText;
   if(!illustrationsText && pn.illustrations && pn.illustrationCount) illustrationsText = String(pn.illustrationCount)+' illustrations';
   let checklist = pn.checklist && pn.checklist.length ? pn.checklist.map(x=>({text:x.item||x.text||'',checked:!!x.checked})) : PROD_CHECKLIST.map(t=>({text:t,checked:false}));
@@ -1194,7 +1194,9 @@ function rowToTitle(row){
       trimSize: c.trim||'', pages: c.pages||'', categoryUK: c.categoryUK||'', categoryUSA: c.categoryUSA||'',
       nielsenNotified: toBool(c.nielsenNotified),
       illustrationsText: illustrationsText||'',
-      pagesBreakdown: pn.pagesBreakdown||''
+      pagesBreakdown: pn.pagesBreakdown||'',
+      // Round 82 — TBC ticks (estimates). true/false in productionNotes_json.
+      pagesTbc: pn.pagesTbc===true, illustrationsTbc: pn.illustrationsTbc===true
     },
     price,
     content: { keywords: c.keywords||'', fullDescription: editorial.fullDescription, jacketBlurb: editorial.jacketBlurb, briefDescription: editorial.briefDescription, salesHandle: editorial.salesHandle, sellingPoints: (publicity.sellingPoints||[]).join('\n'),
@@ -1295,7 +1297,7 @@ function titleToRow(t){
     lsiNotes: t.print.forLsiNotes||'', scbEbookCover: t.print.scbEbookCoverSpec||'', printerEstimates: t.print.printEstimate||'',
     futureEditionNotes: t.futureEdition.infoAndChanges||'', printReadyFiles: t.futureEdition.printReadyFilesStatus||'Not Ready',
     illustrationsText: t.commercial.illustrationsText||'', poManualNotes: t.poManualNotes||'',
-    pagesBreakdown: t.commercial.pagesBreakdown||'', printStatusOverride: t.dates.printStatusOverride||'',
+    pagesBreakdown: t.commercial.pagesBreakdown||'', pagesTbc: t.commercial.pagesTbc===true, illustrationsTbc: t.commercial.illustrationsTbc===true, printStatusOverride: t.dates.printStatusOverride||'',
     releaseNote: t.dates.releaseNote||'', authorBookkeepingLink: t.authorBookkeepingLink||'',
     distributor: t.dist||{}
   });
@@ -1364,7 +1366,7 @@ function defTitle(o={}){
     statusAuto:true,
     planningSheet:'', bookBiblePresent:false, lastUpdated:'', blockId:'',
     dates:{releaseBlock:'',softDate:'',streetDate:'',printDate:'',autoPrintDate:false,printStatusOverride:'',releaseNote:''},
-    commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:'',pagesBreakdown:''},
+    commercial:{isbnPbk:'',isbnHbk:'',isbnEbk:'',_backupIsbnPbkRaw:'',_backupIsbnEbkRaw:'',trimSize:'',pages:'',categoryUK:'',categoryUSA:'',nielsenNotified:false,illustrationsText:'',pagesBreakdown:'',pagesTbc:false,illustrationsTbc:false},
     // Round 11, item 4a (2026-08-11) — pbkUSD kept in the data model (still
     // read/written round-trip) even though its UI field is gone — see the
     // long comment above renderCommercial()'s price rows for why: 9 of 26
@@ -3854,7 +3856,9 @@ const DIST_DEFAULTS={
   // shared by SCB + Turnaround (one value); bisac1 is SCB only from Round 72 (Turnaround uses BIC)
   bisac1:'',weightG:'',spineMm:'',
   // Turnaround only (Round 70)
-  thema:'',bic:'',rights:'',origin:'',productUrl:'',taCover:false,taAi:false,taImages:false,taSpreads:false,taSent:''
+  thema:'',bic:'',rights:'',origin:'',productUrl:'',taCover:false,taAi:false,taImages:false,taSpreads:false,taSent:'',
+  // Round 82 — when the Build sales kit button was last clicked (shown on K2 for everyone)
+  kitAskedAt:'',kitAskedBy:''
 };
 const DIST_INCH_STEP=8; // nearest 1/8 inch
 let distOpenId=null;
@@ -3986,11 +3990,11 @@ function SCB_ROWS(t){
   {h:'Book Specs'},
   {n:'33',label:'Price $',req:1,kind:'line',src:'derived',how:'Cover Price PBK (US $), number only',go:ed('commercial','pbkUSD'),get:()=>{ const m=String(t.price.pbkUSD||'').match(/\d+(?:\.\d{1,2})?/); return m?m[0]:''; },chk:(v,R,A)=>{ if(/£|\//.test(t.price.pbkUSD||'')) A.push('The US price field holds “'+t.price.pbkUSD+'”. Check it on the title page.'); }},
   {n:'34',label:'Binding',req:1,kind:'line',src:'derived',how:pbk?'paperback ISBN':'no paperback ISBN, so hardback',get:()=>pbk?'Paperback':(hbk?'Hardback':'')},
-  {n:'35',label:'Number of Pages',req:1,kind:'line',src:'main',go:ed('commercial','pages'),get:()=>String(t.commercial.pages||''),chk:(v,R)=>{ if(v && !/^\d+$/.test(v.trim())) R.push('Number only'); }},
+  {n:'35',label:'Number of Pages',req:1,kind:'line',src:'main',go:ed('commercial','pages'),get:()=>String(t.commercial.pages||''),chk:(v,R,A)=>{ if(v && !/^\d+$/.test(v.trim())) R.push('Number only'); if(t.commercial.pagesTbc) A.push(TBC_CHECK_PAGES); }},
   {n:'36',label:'Size (inches): Width / Height / Thickness',req:1,kind:'size',src:'mixed',dk:'spineMm',go:ed('commercial','trimSize')},
   {n:'37',label:'Weight (ounces)',req:1,kind:'weight',src:'dist',dk:'weightG',shared:1},
   {n:'38',label:'Content Information',kind:'line',src:'dist',dk:'contentInfo',ph:'e.g. Introduction, Foreword, Afterword, Index'},
-  {n:'39',label:'Illustration/Graphics Information',kind:'line',src:'main',go:ed('commercial','illustrationsText'),get:()=>t.commercial.illustrationsText},
+  {n:'39',label:'Illustration/Graphics Information',kind:'line',src:'main',go:ed('commercial','illustrationsText'),get:()=>illusOut(t),chk:(v,R,A)=>{ if(t.commercial.illustrationsTbc) A.push(TBC_CHECK_ILLUS); }},
   {n:'40',label:'Media/packaging Information',kind:'line',src:'dist',dk:'media'},
   {n:'41',label:'Print Run',kind:'line',src:'dist',dk:'printRun'},
   {n:'42',label:'Ship Date (YYYY-MM-DD)',req:1,kind:'line',src:'dist',dk:'ship',ship:1,ph:'YYYY-MM-DD',chk:(v,R)=>{ if(v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) R.push('Must be YYYY-MM-DD'); }},
@@ -4083,7 +4087,7 @@ function distValueHtml(t,sec,r){
   if(r.kind==='urls') return distUrlsHtml(t);
   if(r.kind==='rights') return distRightsHtml(t,r);
   if(r.src==='dist' && r.kind==='code') return distCodeValueHtml(t,r);
-  if(r.src==='dist' && r.kind==='check'){ return `<label class="dp-check dist-edit"><input type="checkbox" ${d[r.dk]?'checked':''} onchange="distSet('${id}','${r.dk}',this.checked)"> Done <span class="dp-chip">${esc(r.chip||'Turnaround only')}</span>${r.opt?' <span class="dp-sub">if the title has them</span>':''}</label>`; }
+  if(r.src==='dist' && r.kind==='check'){ return `<label class="dp-check dist-edit"><input type="checkbox" ${d[r.dk]?'checked':''} onchange="distSet('${id}','${r.dk}',this.checked)"> Done <span class="dp-chip">${esc(r.chip||'Turnaround only')}</span>${r.opt?' <span class="dp-sub">if the title has them</span>':''}</label>${r.dk==='taAi'?kitK2Html(t):''}`; }
   if(r.src==='dist' && r.kind==='date'){ return `<div class="dist-edit"><input type="date" value="${esc(d[r.dk]||'')}" onchange="distSet('${id}','${r.dk}',this.value)" style="flex:0 1 180px"><span class="dp-chip">${esc(r.chip||'Turnaround only')}</span></div>`; }
   if(r.src==='dist'){
     const chip=`<span class="dp-chip">${esc(r.chip||(r.shared?'SCB + Turnaround':'SCB only'))}</span>`;
@@ -4206,7 +4210,7 @@ function distRender(){
 }
 // Round 75 — the sticky bar says which title this is: ISBN · binding · pages.
 function distBarMeta(t){ const c=t.commercial||{}; const isbn=c.isbnPbk||c.isbnHbk||'';
-  return [isbn?'ISBN '+isbn:'No ISBN yet', c.isbnPbk?'Paperback':(c.isbnHbk?'Hardback':''), c.pages?c.pages+' pp':''].filter(Boolean).join(' · '); }
+  return [isbn?'ISBN '+isbn:'No ISBN yet', c.isbnPbk?'Paperback':(c.isbnHbk?'Hardback':''), pagesOut(t,'pp')].filter(Boolean).join(' · '); }
 function distJumpBadges(t){
   const s=distSummary(t,'scb',SCB_ROWS(t)); const el=document.getElementById('dp-jb-scb'); if(el){ el.className='dp-jb'; el.innerHTML=distBadgeHtml(s); }
   if(typeof TA_ROWS==='function'){ const s2=distSummary(t,'ta',TA_ROWS(t)); const e2=document.getElementById('dp-jb-ta'); if(e2){ e2.className='dp-jb'; e2.innerHTML=distBadgeHtml(s2); } }
@@ -4351,8 +4355,8 @@ function TA_ROWS(t){
   {n:'7',label:'Price US',req:1,kind:'line',src:'derived',how:'Cover Price PBK (US $)',go:ed('commercial','pbkUSD'),get:()=>{ const p=distPrice(t.price.pbkUSD,'$'); return p?'US '+p:''; }},
   {n:'8',label:'ISBN (paperback)',req:1,kind:'line',src:'main',go:ed('commercial','isbnPbk'),get:()=>t.commercial.isbnPbk,chk:(v,R)=>{ if(v && ctIsbnStatus(v)!=='ok13') R.push('Not a valid ISBN-13'); }},
   {n:'9',label:'eBook ISBN + price (Digital version only)',kind:'line',src:'derived',how:'never on the Turnaround print version',go:ed('commercial','isbnEbk'),get:()=>t.commercial.isbnEbk?(t.commercial.isbnEbk+(t.price.ebkUSD?' · US '+distPrice(t.price.ebkUSD,'$'):'')):'',chk:(v,R,A)=>{ if(v && !t.price.ebkUSD) A.push('No eBook price in BPH'); if(/£/.test(t.price.ebkUSD||'')) A.push('eBook price “'+t.price.ebkUSD+'” is in £ but the field is US $.'); }},
-  {n:'10',label:'Format',req:1,kind:'line',src:'derived',how:'trim · binding · pages',go:ed('commercial','trimSize'),get:()=>[tr?Math.round(tr.hMm)+' × '+Math.round(tr.wMm)+' mm':'',t.commercial.isbnPbk?'Paperback':(t.commercial.isbnHbk?'Hardback':''),t.commercial.pages?t.commercial.pages+' pages':''].filter(Boolean).join(' · '),chk:(v,R)=>{ if(!t.commercial.pages) R.push('No page count in BPH'); if(!tr) R.push('No trim size BPH can read'); }},
-  {n:'11',label:'Illustrations',req:1,kind:'line',src:'main',how:'buyers want this stated, even “None”',go:ed('commercial','illustrationsText'),get:()=>t.commercial.illustrationsText},
+  {n:'10',label:'Format',req:1,kind:'line',src:'derived',how:'trim · binding · pages',go:ed('commercial','trimSize'),get:()=>[tr?Math.round(tr.hMm)+' × '+Math.round(tr.wMm)+' mm':'',t.commercial.isbnPbk?'Paperback':(t.commercial.isbnHbk?'Hardback':''),pagesOut(t,'pages')].filter(Boolean).join(' · '),chk:(v,R,A)=>{ if(!t.commercial.pages) R.push('No page count in BPH'); if(!tr) R.push('No trim size BPH can read'); if(t.commercial.pages && t.commercial.pagesTbc) A.push(TBC_CHECK_PAGES); }},
+  {n:'11',label:'Illustrations',req:1,kind:'line',src:'main',how:'buyers want this stated, even “None”',go:ed('commercial','illustrationsText'),get:()=>illusOut(t),chk:(v,R,A)=>{ if(v && t.commercial.illustrationsTbc) A.push(TBC_CHECK_ILLUS); }},
   // Round 74 — Dean's kit now prints SCB's Content Information as a "Contents" row under Illustrations.
   {n:'11a',label:'Contents (Content Information)',kind:'line',src:'derived',mirror:1,jump:'38',how:'set in the SCB section; left off the sheet if empty',get:()=>d.contentInfo||''},
   {n:'12',label:'Subject / category',kind:'line',src:'main',how:'Category UK',go:ed('commercial','categoryUK'),get:()=>t.commercial.categoryUK||''},
@@ -4383,9 +4387,81 @@ function TA_ROWS(t){
   distStageRow(t,'K5','Kit sent to Turnaround on','Info Turnaround')
   ];
 }
+// ─── Round 82 (2026-10-16, David GO) — "Build sales kit" button ───
+// Calls Marcus Webb's launcher job: pka-run://turnaround-kit/<title_id>. It runs
+// Dean's builder on David's PC (next version number, never overwrites, never sends);
+// results show there in the PKA Run window + a toast. BPH gets nothing back.
+// Shown only on a device flagged "can build kits" (localStorage, per browser):
+// David's PC has the launcher; the laptop, Chromebook and Jen's machine don't.
+const KIT_URL_RE=/^pka-run:\/\/turnaround-kit\/[a-z0-9]+(-[a-z0-9]+)*\/?$/; // Marcus's contract (case-sensitive)
+const KIT_DEVICE_KEY='bph_kit_device';
+// Titles with their own entry in Dean's TITLE_CFG (build_turnaround_ai_kit.py). Others build
+// with the default setup (cover folder named after the title), so the button says "first".
+const KIT_CFG_IDS=['british-horror-films-2000-2019','is-this-real','mathesontennial','conspiracy-cinema'];
+function kitDeviceOn(){ try{ return localStorage.getItem(KIT_DEVICE_KEY)==='1'; }catch(e){ return false; } }
+function kitDeviceSet(on){ try{ if(on) localStorage.setItem(KIT_DEVICE_KEY,'1'); else localStorage.removeItem(KIT_DEVICE_KEY); }catch(e){}
+  const cb=document.getElementById('kit-device-cb'); if(cb) cb.checked=kitDeviceOn();
+  ctToast(kitDeviceOn()?'This device can now build sales kits.':'Sales kit button turned off on this device.');
+  if(view==='dist') distRender(); }
+function kitUrl(id){ return 'pka-run://turnaround-kit/'+String(id||''); }
+function kitLabel(t){ return KIT_CFG_IDS.includes(t.id)?'Build sales kit':'Build first sales kit'; }
+function kitBtnHtml(t,small){ if(!kitDeviceOn()) return '';
+  const first=!KIT_CFG_IDS.includes(t.id);
+  return `<button type="button" class="${small?'dp-go kit-link':'btn btn-sm kit-btn'}" onclick="kitBuild('${t.id}')" title="${first?'First kit for this title: uses the default setup (cover folder named after the title). ':''}Runs Dean’s kit builder on this PC. Saves your edits first.">${small?'Build ▸':esc(kitLabel(t))}</button>`; }
+function kitAskedText(t){ const d=distGet(t); if(!d.kitAskedAt) return '';
+  const dt=new Date(d.kitAskedAt); if(isNaN(dt)) return '';
+  const p=n=>String(n).padStart(2,'0');
+  return 'Kit build asked for '+p(dt.getDate())+'-'+p(dt.getMonth()+1)+' '+p(dt.getHours())+':'+p(dt.getMinutes())+(d.kitAskedBy?' by '+d.kitAskedBy:''); }
+function kitK2Html(t){ const a=kitAskedText(t), b=kitBtnHtml(t,true); if(!a&&!b) return '';
+  return `<div class="dp-sub kit-k2">${b}${a?`<span class="kit-asked" id="kit-asked-${t.id}">${esc(a)}. Tick Done once you’ve checked the PDFs.</span>`:`<span class="kit-asked" id="kit-asked-${t.id}"></span>`}${!KIT_CFG_IDS.includes(t.id)&&b?' <span class="kit-first">First kit for this title: default setup.</span>':''}</div>`; }
+function kitLaunch(url){ window.location.href=url; } // opens the pka-run handler (Chrome asks once: tick "Always allow")
+async function kitSaveNow(id){
+  if(devMode) return true;
+  if(saveTimers[id]){ clearTimeout(saveTimers[id]); delete saveTimers[id]; }
+  if(pendingSaveTitleIds.has(id)) await saveTitle(id);
+  return !pendingSaveTitleIds.has(id);
+}
+function kitDialog(html,okLabel,cancelLabel){ return new Promise(res=>{
+  const o=document.createElement('div'); o.className='modal-overlay kit-modal'; o.setAttribute('role','dialog'); o.setAttribute('aria-modal','true');
+  o.innerHTML=`<div class="modal" style="max-width:520px">${html}<div class="kit-acts"><button type="button" class="btn kit-cancel">${esc(cancelLabel)}</button><button type="button" class="btn btn-primary kit-ok">${esc(okLabel)}</button></div></div>`;
+  const done=v=>{ o.remove(); document.removeEventListener('keydown',key); res(v); };
+  const key=e=>{ if(e.key==='Escape') done(false); };
+  o.querySelector('.kit-ok').onclick=()=>done(true); o.querySelector('.kit-cancel').onclick=()=>done(false);
+  o.addEventListener('click',e=>{ if(e.target===o) done(false); });
+  document.addEventListener('keydown',key); document.body.appendChild(o); o.querySelector('.kit-cancel').focus(); }); }
+let kitBusy=false;
+async function kitBuild(id){
+  const t=getTitle(id); if(!t||kitBusy) return;
+  const url=kitUrl(t.id);
+  if(!KIT_URL_RE.test(url)){ ctToast('This title’s key (“'+t.id+'”) can’t be sent to the kit builder. Ask Mia/Marcus.'); return; }
+  kitBusy=true;
+  try{
+    // 1. Save edits still waiting: the kit reads the Sheet, not this page.
+    if(!(await kitSaveNow(id))){
+      if(!(await kitDialog('<h3 class="kit-h">Your latest edits haven’t saved</h3><p class="kit-p">The kit is built from the Sheet, so it won’t include them. Check you’re signed in (the sync light), or build from what the Sheet has now.</p>','Build anyway','Cancel'))) return;
+    }
+    // 2. "To fix" lines: warn, but allow (David 16-10). "To check" (incl. TBC) never stops a build.
+    const s=distSummary(t,'ta',TA_ROWS(t)); const fix=s.items.filter(x=>x.lvl==='red');
+    if(fix.length){
+      const li=fix.slice(0,8).map(x=>`<li><b>${esc(x.r.n)}</b> ${esc(x.r.label)}: ${esc(x.m)}</li>`).join('')+(fix.length>8?`<li>…and ${fix.length-8} more</li>`:'');
+      if(!(await kitDialog(`<h3 class="kit-h">Build the sales kit anyway?</h3><p class="kit-p">Turnaround still has <b>${fix.length} to fix</b>. The kit will show yellow “[… not in BPH]” chips for these:</p><ul class="kit-ul">${li}</ul><p class="kit-p kit-small">“To check” lines, including TBC, never stop a build.</p>`,'Build a draft anyway','Fix first'))) return;
+    }
+    // 3. Record the ask (Jen sees it on K2), save, then call the launcher.
+    const d=distGet(t); d.kitAskedAt=new Date().toISOString(); d.kitAskedBy=(typeof getUserIdentity==='function'&&getUserIdentity())||'';
+    if(!devMode) await saveTitle(id);
+    kitLaunch(url);
+    ctToast('Building… results will pop up on your PC.');
+    if(view==='dist') distRender();
+  } finally { kitBusy=false; }
+}
+// One-time device setup: open BPH with #kit-device-on (or tick the box in "Who's posting?").
+function kitHashCheck(){ const h=(location.hash||'').toLowerCase();
+  if(h==='#kit-device-on'||h==='#kit-device-off'){ kitDeviceSet(h==='#kit-device-on'); try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){} } }
+window.addEventListener('hashchange',kitHashCheck);
+if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',kitHashCheck); else kitHashCheck();
 function distTaSectionHtml(t){
   const rows=TA_ROWS(t);
-  return `<div class="dp-sechead"><h2>Turnaround <span class="dp-h2-title">· ${esc(t.title||'Untitled')}</span></h2><span class="dp-secnote">In the AI-sheet order (Dean’s kit builder). Turnaround has no character limits; word counts are for the sheet’s layout. Build the kit itself with Dean’s script.</span></div>
+  return `<div class="dp-sechead"><h2>Turnaround <span class="dp-h2-title">· ${esc(t.title||'Untitled')}</span></h2>${kitBtnHtml(t,false)}<span class="dp-secnote">In the AI-sheet order (Dean’s kit builder). Turnaround has no character limits; word counts are for the sheet’s layout.${kitDeviceOn()?' “Build sales kit” runs Dean’s builder on this PC.':''}</span></div>
     ${distSectionHeadHtml(t,'ta',rows)}
     <div class="dp-rows">${rows.map((r,i)=>distRowHtml(t,'ta',r,i)).join('')}</div>`;
 }
@@ -5030,7 +5106,7 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
     ${frow('<span class="flag-uk">UK</span>Category UK',inp(`f-${id}-categoryUK`,c.categoryUK,'','fc(\''+id+'\',\'commercial.categoryUK\',this.value)'))}
     ${frow('<span class="flag-usa">USA</span>Category USA',inp(`f-${id}-categoryUSA`,c.categoryUSA,'','fc(\''+id+'\',\'commercial.categoryUSA\',this.value)'),'usa')}
     ${frow('Nielsen Notified',`<label class="field-row"><input type="checkbox" ${c.nielsenNotified?'checked':''} onchange="fc('${id}','commercial.nielsenNotified',this.checked)"> Notified</label>`)}
-    ${frow('Illustrations',inp(`f-${id}-illustrationsText`,c.illustrationsText,'e.g. black and white images: 10, colour images: 20, posters and photographs','fc(\''+id+'\',\'commercial.illustrationsText\',this.value)'),'full')}
+    ${frow('Illustrations',`<div class="tbc-wrap${c.illustrationsTbc?' tbc-on':''}" id="tbcw-${id}-illustrations">`+inp(`f-${id}-illustrationsText`,c.illustrationsText,'e.g. black and white images: 10, colour images: 20, posters and photographs','fc(\''+id+'\',\'commercial.illustrationsText\',this.value);tbcNoteRefresh(\''+id+'\')')+tbcTickHtml(t,'illustrations')+`</div><div class="tbc-note" id="tbcn-${id}-illustrations">${tbcNoteText(t,'illustrations')}</div>`,'full')}
   </div></div>`;}
 
 // ─── Round 81 (2026-10-16, David-approved hotfix) — Pages guard ───
@@ -5044,13 +5120,34 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
 function pagesIsNum(v){ return /^\s*\d+\s*$/.test(String(v==null?'':v)); }
 function pagesStoredText(t){ const v=String((t&&t.commercial&&t.commercial.pages)||''); return (v.trim()&&!pagesIsNum(v))?v:''; }
 function pagesBoxHtml(t){ const id=t.id, c=t.commercial, txt=pagesStoredText(t);
-  return `<input type="number" id="f-${id}-pages" value="${txt?'':esc(c.pages)}" min="0" oninput="pagesInput('${id}',this)"${txt?` aria-describedby="pages-note-${id}"`:''}>`
-    +`<div id="pages-guard-${id}"></div><div class="pages-note-wrap" id="pages-note-${id}">${pagesNoteInner(t)}</div>`; }
+  return `<div class="tbc-wrap${c.pagesTbc?' tbc-on':''}" id="tbcw-${id}-pages"><input type="number" id="f-${id}-pages" value="${txt?'':esc(c.pages)}" min="0" oninput="pagesInput('${id}',this)"${txt?` aria-describedby="pages-note-${id}"`:''}>${tbcTickHtml(t,'pages')}</div>`
+    +`<div class="tbc-note" id="tbcn-${id}-pages">${tbcNoteText(t,'pages')}</div><div id="pages-guard-${id}"></div><div class="pages-note-wrap" id="pages-note-${id}">${pagesNoteInner(t)}</div>`; }
 function pagesNoteInner(t){
   const txt=pagesStoredText(t), o=t.originals&&t.originals['commercial.pages']; let h='';
   if(txt) h+=`<div class="pages-note"><b>The Sheet has text here:</b> <span class="pages-raw">${esc(txt)}</span><div class="pages-note-sub">This box takes numbers only, so it looks empty. Typing a number asks first, and the text is kept as the original.</div></div>`;
   if(o&&o.v) h+=`<details class="orig-d pages-orig"><summary>Old Pages text (${esc(origDate(o.d))})</summary><div class="orig-body">${esc(o.v)}</div><div class="orig-actions"><button type="button" class="btn btn-sm btn-copy" onclick="pagesOrigCopy('${t.id}',this)">Copy</button></div></details>`;
   return h; }
+// ─── Round 82 (2026-10-16, David-approved option A) — TBC ticks on Pages + Illustrations ───
+// The number/text stays as typed; the tick marks it as an estimate. Distributor
+// page: a "to check" line (never "to fix"). Kit / exports: "c. 320 pp (TBC)".
+// "c." only when the value starts with a number. Nothing migrated: David's own
+// typed "TBC" words stay where he put them.
+function tbcTickHtml(t,k){ const id=t.id, on=!!t.commercial[k+'Tbc'];
+  return `<label class="tbc-tick" title="Estimate: tick until the real figure is in"><input type="checkbox" id="f-${id}-${k}Tbc" ${on?'checked':''} onchange="tbcSet('${id}','${k}',this.checked)"> TBC</label>`; }
+function tbcNoteText(t,k){ if(!t.commercial[k+'Tbc']) return '';
+  const out=k==='pages'?pagesOut(t,'pp'):illusOut(t);
+  return out?`Estimate. Prints as “${esc(out)}”.`:'Estimate (TBC). Fill in your best guess.'; }
+function tbcNoteRefresh(id){ const t=getTitle(id); if(!t) return; ['pages','illustrations'].forEach(k=>{ const n=document.getElementById('tbcn-'+id+'-'+k); if(n) n.innerHTML=tbcNoteText(t,k); const w=document.getElementById('tbcw-'+id+'-'+k); if(w) w.classList.toggle('tbc-on',!!t.commercial[k+'Tbc']); }); }
+function pagesTbcRefresh(id){ tbcNoteRefresh(id); }
+function tbcSet(id,k,on){ fc(id,'commercial.'+k+'Tbc',!!on); tbcNoteRefresh(id); }
+function tbcC(v){ return /^\d/.test(v)?'c. '+v:v; }
+// Pages for printing: "320 pp", or "c. 320 pp (TBC)" when ticked. unit '' = bare.
+function pagesOut(t,unit){ const p=String((t.commercial&&t.commercial.pages)||'').trim(); if(!p) return ''; const u=unit?' '+unit:'';
+  return t.commercial.pagesTbc ? tbcC(p)+u+' (TBC)' : p+u; }
+function illusOut(t){ const v=String((t.commercial&&t.commercial.illustrationsText)||'').trim(); if(!v) return '';
+  return t.commercial.illustrationsTbc ? tbcC(v)+' (TBC)' : v; }
+const TBC_CHECK_PAGES='Estimate (TBC): confirm the page count before the final sheet goes.';
+const TBC_CHECK_ILLUS='Estimate (TBC): confirm the illustrations before the final sheet goes.';
 function pagesNoteRefresh(id){ const t=getTitle(id), el=document.getElementById('pages-note-'+id); if(t&&el) el.innerHTML=pagesNoteInner(t); }
 function pagesOrigCopy(id,btn){ const t=getTitle(id), o=t&&t.originals&&t.originals['commercial.pages']; if(o) ctCopyText(o.v,btn,'Copied'); }
 function pagesInput(id,el){
@@ -5448,7 +5545,7 @@ function buildDefaultPrinterRequestText(t){
   return `Title: ${titleLine}
 Trim: ${trim||'***'}
 Bleeds: ***
-Page count: ${pages||'***'}
+Page count: ${pages?(t.commercial.pagesTbc?tbcC(pages)+' (TBC)':pages):'***'}
 Insides: ***
 Images: Colour *** / b&w ***
 Binding: Paperback
@@ -7347,6 +7444,7 @@ function ensureUserIdentity(onReady){
   if(modal) modal.classList.remove('hidden');
 }
 function showIdentityModal(){
+  const cb=document.getElementById('kit-device-cb'); if(cb) cb.checked=kitDeviceOn(); // Round 82
   const modal=document.getElementById('identity-modal');
   if(modal) modal.classList.remove('hidden');
 }
@@ -7520,10 +7618,10 @@ function getSectionExportFields(t,key,blockNameById){
       return [
         ['ISBN (PBK)','text', c.isbnPbk],['ISBN (HBK)','text', c.isbnHbk],['ISBN (EBK)','text', c.isbnEbk],
         ['Cover Price PBK (UK)','text', p.pbkGBP],['Cover Price PBK (US)','text', p.pbkUSD],['Cover Price EBK','text', p.ebkUSD],['Cover Price HBK','text', p.hbkGBP],
-        ['Trim Size','text', c.trimSize],['Pages','text', c.pages],['Pages Breakdown','text', c.pagesBreakdown],
+        ['Trim Size','text', c.trimSize],['Pages','text', pagesOut(t,'')],['Pages Breakdown','text', c.pagesBreakdown],
         ['Category UK','text', c.categoryUK],['Category USA','text', c.categoryUSA],
         ['Nielsen Notified','text', c.nielsenNotified?'Yes':'No'],
-        ['Illustrations','text', c.illustrationsText]
+        ['Illustrations','text', illusOut(t)]
       ];
     }
     case 'content':{

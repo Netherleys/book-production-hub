@@ -1998,6 +1998,25 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 .trunc-chip[hidden]{display:none}
 .dp-chip.dp-def{color:var(--sage-border);background:var(--sage-bg);border-color:var(--sage-border)}
 .dp-chip.dp-def[hidden]{display:none}
+.tbc-wrap{display:flex;align-items:center;gap:8px}
+.tbc-wrap>input[type=number],.tbc-wrap>input[type=text]{flex:1 1 0;width:0;min-width:0}
+.tbc-wrap.tbc-on>input{border:1.5px dashed #c98a1b;background:#FFF9EC}
+.tbc-tick{display:inline-flex;align-items:center;gap:4px;font-size:.78rem;color:var(--text2);white-space:nowrap;cursor:pointer}
+.tbc-note{font-size:.74rem;color:#8a5a00;margin-top:3px}
+.tbc-note:empty{display:none}
+.kit-btn{margin-left:auto;background:#1f6f43;color:#fff;border-color:#1f6f43}
+.kit-btn:hover{background:#185a36}
+.kit-k2{margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.kit-asked{color:var(--text3)}
+.kit-first{color:var(--text3);font-style:italic}
+.kit-h{font-family:var(--serif);font-weight:normal;margin-bottom:6px}
+.kit-p{font-size:.86rem;color:var(--text2);margin:6px 0}
+.kit-small{font-size:.76rem;color:var(--text3)}
+.kit-ul{font-size:.82rem;margin:6px 0 6px 18px;max-height:220px;overflow:auto}
+.kit-ul li{color:var(--text2);opacity:1;list-style:disc}
+.kit-acts{display:flex;justify-content:flex-end;gap:8px;margin-top:14px;flex-wrap:wrap}
+.kit-device-row{display:flex;gap:6px;align-items:flex-start;margin-top:14px;font-size:.78rem;color:var(--text2);cursor:pointer}
+.kit-device-row span{color:var(--text3)}
 .pages-note{margin-top:6px;border:1px dashed #c98a1b;border-radius:var(--r4);background:#FFF9EC;padding:6px 8px;font-size:.78rem;color:var(--text);overflow-wrap:anywhere}
 .pages-note-sub{color:var(--text3);margin-top:2px}
 .pages-orig{margin-top:6px;font-size:.78rem}
@@ -2294,6 +2313,8 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
       <button class="btn btn-primary" style="flex:1" onclick="setUserIdentity('David')">I'm David</button>
       <button class="btn btn-primary" style="flex:1" onclick="setUserIdentity('Jen')">I'm Jen</button>
     </div>
+    <!-- Round 82 (2026-10-16) — one-time per device: shows the "Build sales kit" button (David's PC only, it has the launcher) -->
+    <label class="kit-device-row"><input type="checkbox" id="kit-device-cb" onchange="kitDeviceSet(this.checked)"> This device can build Turnaround sales kits <span>(David's PC only)</span></label>
   </div>
 </div>
 
@@ -2561,7 +2582,7 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js"></script>
-<script src="app.js?v=r81"></script>
+<script src="app.js?v=r82"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
