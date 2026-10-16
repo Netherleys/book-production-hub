@@ -109,23 +109,58 @@
       tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: cfg.GOOGLE_CLIENT_ID,
         scope: cfg.GOOGLE_OAUTH_SCOPE || "https://www.googleapis.com/auth/spreadsheets",
-        callback: "", // overridden per-call in signIn()
+        callback: dispatchToken,       // Round 84: one fixed callback, see waiters below
+        error_callback: dispatchError, // popup closed / blocked: fail now, not hang
       });
     }
     return tokenClient;
   }
 
-  function onTokenResponse(resp, onSuccess, onError) {
-    if (resp.error) {
-      onError && onError(resp);
-      return;
-    }
+  /*
+   * Round 84 (2026-10-16, Mia Chen) — token race fix.
+   * GIS has ONE token client with ONE callback. Before this, every signIn()/silentRefresh()
+   * overwrote client.callback, so when two token requests overlapped (two Sheet calls needing a
+   * refresh at once, or a stuck background refresh and then David signing in on the overlay)
+   * the earlier caller never heard back, timed out after 8s and reported "signed out / token
+   * expired" AFTER a successful sign-in (once per caller, so the error could show twice).
+   * Now every caller waits in `waiters`; any token response answers all of them, and a silent
+   * refresh already in flight is joined rather than started again.
+   */
+  let waiters = [];       // {ok, fail, timer}
+  let silentInFlight = false;
+  function settleAll(fn) {
+    const list = waiters; waiters = []; silentInFlight = false;
+    list.forEach((w) => { if (w.timer) clearTimeout(w.timer); try { fn(w); } catch (e) {} });
+  }
+  function dispatchToken(resp) {
+    if (resp && resp.error) { settleAll((w) => w.fail(resp)); return; }
     accessToken = resp.access_token;
     // expires_in is in seconds; keep a small safety margin.
     tokenExpiresAt = Date.now() + (Number(resp.expires_in || 3600) - 60) * 1000;
     scheduleKeepAlive();
-    onSuccess && onSuccess(accessToken);
+    settleAll((w) => w.ok(accessToken));
   }
+  function dispatchError(err) {
+    const type = (err && err.type) || "unknown";
+    const e = new Error(type === "popup_closed" ? "The Google sign-in window was closed before finishing (popup_closed)."
+      : type === "popup_failed_to_open" ? "Chrome blocked the Google sign-in window (popup_failed_to_open). Allow pop-ups for this site and try again."
+      : "Google sign-in error (" + type + ").");
+    e.type = type;
+    settleAll((w) => w.fail(e));
+  }
+  function addWaiter(onSuccess, onError, timeoutMs) {
+    const w = { ok: (t) => onSuccess && onSuccess(t), fail: (e) => onError && onError(e), timer: null };
+    if (timeoutMs) {
+      w.timer = setTimeout(() => {
+        waiters = waiters.filter((x) => x !== w);
+        if (!waiters.length) silentInFlight = false;
+        w.fail(new Error("Silent token refresh timed out after " + (timeoutMs / 1000) +
+          "s — Google never responded (likely a suppressed silent popup). Interactive sign-in required."));
+      }, timeoutMs);
+    }
+    waiters.push(w);
+  }
+
 
   /**
    * Triggers the Google Sign-In popup/consent flow. On success, the access
@@ -134,7 +169,7 @@
   function signIn(onSuccess, onError) {
     try {
       const client = ensureTokenClient();
-      client.callback = (resp) => onTokenResponse(resp, onSuccess, onError);
+      addWaiter(onSuccess, onError, 0); // interactive: no timeout (David may take a while)
       client.requestAccessToken({ prompt: accessToken ? "" : "consent" });
     } catch (e) {
       onError && onError(e);
@@ -175,23 +210,11 @@
   function silentRefresh(onSuccess, onError) {
     try {
       const client = ensureTokenClient();
-      let settled = false;
       const SILENT_TIMEOUT_MS = 8000;
-      const timer = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        onError && onError(new Error(
-          "Silent token refresh timed out after " + (SILENT_TIMEOUT_MS / 1000) +
-          "s — Google never responded (likely a suppressed silent popup). " +
-          "Interactive sign-in required."
-        ));
-      }, SILENT_TIMEOUT_MS);
-      client.callback = (resp) => {
-        if (settled) return; // timeout already fired — ignore a late response
-        settled = true;
-        clearTimeout(timer);
-        onTokenResponse(resp, onSuccess, onError);
-      };
+      addWaiter(onSuccess, onError, SILENT_TIMEOUT_MS);
+      // Round 84: join a silent refresh that is already on its way instead of starting another.
+      if (silentInFlight) return;
+      silentInFlight = true;
       client.requestAccessToken({ prompt: "" });
     } catch (e) {
       onError && onError(e);
@@ -267,6 +290,8 @@
       onError && onError(new Error("No active session — interactive sign-in required."));
       return;
     }
+    // Round 84: a token that is still fresh (e.g. David just signed in) needs no refresh.
+    if (accessToken && Date.now() < tokenExpiresAt - SAFE_MARGIN_MS) { onSuccess && onSuccess(accessToken); return; }
     silentRefresh(onSuccess, onError);
   }
 

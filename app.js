@@ -1504,20 +1504,39 @@ function doSignIn(){
         btn.disabled = false; btn.textContent = 'Sign in with Google';
         document.getElementById('auth-overlay').classList.add('hidden');
         setWhoami(true);
-        await loadAllData();
+        // Round 84 — already loaded (this is a re-sign-in after a failed reconnect): keep what's
+        // in memory and retry the unsaved edits, as the banner promises. Reloading would drop them.
+        if(data.titles.length || data.blocks.length){
+          document.getElementById('reconnect-banner').classList.add('hidden');
+          await retryPendingSaves();
+        } else {
+          await loadAllData();
+        }
       },
       (err) => {
         btn.disabled = false; btn.textContent = 'Sign in with Google';
+        const m = 'Sign-in failed: ' + (err && err.message ? err.message : (err && err.type) ? err.type : JSON.stringify(err));
+        bphErrNote(m);
         errEl.style.display = 'block';
-        errEl.textContent = 'Sign-in failed: ' + (err && err.message ? err.message : JSON.stringify(err));
+        errEl.innerHTML = esc(m) + ' <button type="button" class="btn-ghost err-copy" onclick="bphCopyErrors(this)">Copy error</button>';
       }
     );
   }catch(e){
     btn.disabled = false; btn.textContent = 'Sign in with Google';
+    bphErrNote('Sign-in failed: '+e.message);
     errEl.style.display = 'block';
     errEl.textContent = e.message;
   }
 }
+// Round 84 — lightweight error log so the exact text can be sent to the team next time.
+// Last 20 messages (time + text) in this browser only; never contains a token.
+const BPH_ERR_KEY='bph_err_log';
+function bphErrLog(){ try{ return JSON.parse(localStorage.getItem(BPH_ERR_KEY)||'[]')||[]; }catch(e){ return []; } }
+function bphErrNote(msg){ try{ const l=bphErrLog(); l.push({at:new Date().toISOString(),m:String(msg||'').slice(0,600)}); localStorage.setItem(BPH_ERR_KEY,JSON.stringify(l.slice(-20))); }catch(e){} }
+function bphErrText(){ const p=n=>String(n).padStart(2,'0');
+  const l=bphErrLog().slice(-8).map(x=>{ const d=new Date(x.at); return (isNaN(d)?x.at:p(d.getDate())+'-'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()))+'  '+x.m; });
+  return 'BPH error log (r84, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
+function bphCopyErrors(btn){ ctCopyText(bphErrText(),btn,'Error text copied: paste it to Thomas'); }
 async function loadAllData(){
   setSyncStatus('saving'); // reused as "loading" visual — amber pulsing dot
   try{
@@ -1562,6 +1581,7 @@ async function loadAllData(){
     render();
   }catch(e){
     setSyncStatus('error');
+    if(isAuthFailure(e)){ showReconnect('Could not load data: signed out / token expired. Click Reconnect.'); console.error(e); return; }
     showReconnect('Could not load data: ' + e.message + ' — if this is a 403, ask David to share the Sheet with your Google account.');
     console.error(e);
   }
@@ -1572,8 +1592,14 @@ function findRowIndex(arr, item){ return arr.indexOf(item); }
 // button is shown — no point offering it for a non-auth error (e.g. a 403
 // "not shared with you" or a genuine network outage) where retrying the
 // same request will just fail the same way again.
+let lastReconnect={m:'',n:0,at:0};
 function showReconnect(msg, authFailure){
-  document.getElementById('reconnect-msg').textContent = msg;
+  bphErrNote(msg);
+  // Round 84 — the same message again within a minute says so, instead of silently re-showing.
+  const now=Date.now(), banner=document.getElementById('reconnect-banner');
+  if(msg===lastReconnect.m && now-lastReconnect.at<60000 && !banner.classList.contains('hidden')) lastReconnect.n++; else lastReconnect={m:msg,n:1,at:now};
+  lastReconnect.at=now;
+  document.getElementById('reconnect-msg').textContent = msg + (lastReconnect.n>1?' (×'+lastReconnect.n+')':'');
   const btn = document.getElementById('reconnect-retry-btn');
   if(btn) btn.style.display = (authFailure===false) ? 'none' : '';
   document.getElementById('reconnect-banner').classList.remove('hidden');
@@ -3858,8 +3884,8 @@ const DIST_DEFAULTS={
   bisac1:'',weightG:'',spineMm:'',
   // Turnaround only (Round 70)
   thema:'',bic:'',rights:'',origin:'',productUrl:'',taCover:false,taAi:false,taImages:false,taSpreads:false,taSent:'',
-  // Round 82 — when the Build sales kit button was last clicked (shown on K2 for everyone)
-  kitAskedAt:'',kitAskedBy:''
+  // Round 84 (16-10, David): the R82 kit-click stamp (kitAskedAt/kitAskedBy) is no longer written or
+  // shown. Stamps already stored in productionNotes_json.distributor stay as they are (round-tripped).
 };
 const DIST_INCH_STEP=8; // nearest 1/8 inch
 let distOpenId=null;
@@ -4396,28 +4422,21 @@ function TA_ROWS(t){
 // David's PC has the launcher; the laptop, Chromebook and Jen's machine don't.
 const KIT_URL_RE=/^pka-run:\/\/turnaround-kit\/[a-z0-9]+(-[a-z0-9]+)*\/?$/; // Marcus's contract (case-sensitive)
 const KIT_DEVICE_KEY='bph_kit_device';
-// Titles with their own entry in Dean's TITLE_CFG (build_turnaround_ai_kit.py). Others build
-// with the default setup (cover folder named after the title), so the button says "first".
-const KIT_CFG_IDS=['british-horror-films-2000-2019','is-this-real','mathesontennial','conspiracy-cinema'];
+// Round 84 (16-10, David): one label everywhere, "Build Sales Kit" (no "first" variant).
 function kitDeviceOn(){ try{ return localStorage.getItem(KIT_DEVICE_KEY)==='1'; }catch(e){ return false; } }
 function kitDeviceSet(on){ try{ if(on) localStorage.setItem(KIT_DEVICE_KEY,'1'); else localStorage.removeItem(KIT_DEVICE_KEY); }catch(e){}
   const cb=document.getElementById('kit-device-cb'); if(cb) cb.checked=kitDeviceOn();
   ctToast(kitDeviceOn()?'This device can now build sales kits.':'Sales kit button turned off on this device.');
   if(view==='dist') distRender(); else if(view==='detail') render(); }
 function kitUrl(id){ return 'pka-run://turnaround-kit/'+String(id||''); }
-function kitLabel(t){ return KIT_CFG_IDS.includes(t.id)?'Build sales kit':'Build first sales kit'; }
-// Round 83 (16-10, David): mode false = Turnaround head, true = K2 "Build ▸" link, 'title' = title page (next to Distributor Page). One code path: kitBuild().
+const KIT_LABEL='Build Sales Kit';
+// Round 84 (16-10, David): mode false = Turnaround head, true = K2 link, 'title' = title page.
+// All three say "Build Sales Kit" and run kitBuild(). No "asked for" text or hover.
 function kitBtnHtml(t,small){ if(!kitDeviceOn()) return '';
-  const first=!KIT_CFG_IDS.includes(t.id), onTitle=small==='title', link=small===true;
-  const asked=onTitle?kitAskedText(t):'';
+  const onTitle=small==='title', link=small===true;
   const cls=link?'dp-go kit-link':(onTitle?'btn btn-export kit-btn kit-btn-title':'btn btn-sm kit-btn');
-  return `<button type="button" class="${cls}"${onTitle?` id="kit-title-btn-${t.id}"`:''} onclick="kitBuild('${t.id}')" title="${first?'First kit for this title: uses the default setup (cover folder named after the title). ':''}Runs Dean’s kit builder on this PC. Saves your edits first.${asked?' '+esc(asked)+'.':''}">${link?'Build ▸':esc(kitLabel(t))}</button>`; }
-function kitAskedText(t){ const d=distGet(t); if(!d.kitAskedAt) return '';
-  const dt=new Date(d.kitAskedAt); if(isNaN(dt)) return '';
-  const p=n=>String(n).padStart(2,'0');
-  return 'Kit build asked for '+p(dt.getDate())+'-'+p(dt.getMonth()+1)+' '+p(dt.getHours())+':'+p(dt.getMinutes())+(d.kitAskedBy?' by '+d.kitAskedBy:''); }
-function kitK2Html(t){ const a=kitAskedText(t), b=kitBtnHtml(t,true); if(!a&&!b) return '';
-  return `<div class="dp-sub kit-k2">${b}${a?`<span class="kit-asked" id="kit-asked-${t.id}">${esc(a)}. Tick Done once you’ve checked the PDFs.</span>`:`<span class="kit-asked" id="kit-asked-${t.id}"></span>`}${!KIT_CFG_IDS.includes(t.id)&&b?' <span class="kit-first">First kit for this title: default setup.</span>':''}</div>`; }
+  return `<button type="button" class="${cls}"${onTitle?` id="kit-title-btn-${t.id}"`:''} onclick="kitBuild('${t.id}')" title="Runs Dean’s kit builder on this PC. Saves your edits first.">${KIT_LABEL}</button>`; }
+function kitK2Html(t){ const b=kitBtnHtml(t,true); return b?`<div class="dp-sub kit-k2">${b}</div>`:''; }
 function kitLaunch(url){ window.location.href=url; } // opens the pka-run handler (Chrome asks once: tick "Always allow")
 async function kitSaveNow(id){
   if(devMode) return true;
@@ -4450,12 +4469,9 @@ async function kitBuild(id){
       const li=fix.slice(0,8).map(x=>`<li><b>${esc(x.r.n)}</b> ${esc(x.r.label)}: ${esc(x.m)}</li>`).join('')+(fix.length>8?`<li>…and ${fix.length-8} more</li>`:'');
       if(!(await kitDialog(`<h3 class="kit-h">Build the sales kit anyway?</h3><p class="kit-p">Turnaround still has <b>${fix.length} to fix</b>. The kit will show yellow “[… not in BPH]” chips for these:</p><ul class="kit-ul">${li}</ul><p class="kit-p kit-small">“To check” lines, including TBC, never stop a build.</p>`,'Build a draft anyway','Fix first'))) return;
     }
-    // 3. Record the ask (Jen sees it on K2), save, then call the launcher.
-    const d=distGet(t); d.kitAskedAt=new Date().toISOString(); d.kitAskedBy=(typeof getUserIdentity==='function'&&getUserIdentity())||'';
-    if(!devMode) await saveTitle(id);
+    // 3. Call the launcher. (Round 84: no stamp is recorded any more; nothing read it once K2 stopped showing it.)
     kitLaunch(url);
     ctToast('Building… results will pop up on your PC.');
-    if(view==='dist') distRender(); else if(view==='detail'){ const b=document.getElementById('kit-title-btn-'+t.id); if(b) b.title=b.title.replace(/ Kit build asked for .*$/,'')+' '+kitAskedText(t)+'.'; }
   } finally { kitBusy=false; }
 }
 // One-time device setup: open BPH with #kit-device-on (or tick the box in "Who's posting?").
@@ -4465,7 +4481,7 @@ window.addEventListener('hashchange',kitHashCheck);
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',kitHashCheck); else kitHashCheck();
 function distTaSectionHtml(t){
   const rows=TA_ROWS(t);
-  return `<div class="dp-sechead"><h2>Turnaround <span class="dp-h2-title">· ${esc(t.title||'Untitled')}</span></h2>${kitBtnHtml(t,false)}<span class="dp-secnote">In the AI-sheet order (Dean’s kit builder). Turnaround has no character limits; word counts are for the sheet’s layout.${kitDeviceOn()?' “Build sales kit” runs Dean’s builder on this PC.':''}</span></div>
+  return `<div class="dp-sechead"><h2>Turnaround <span class="dp-h2-title">· ${esc(t.title||'Untitled')}</span></h2>${kitBtnHtml(t,false)}<span class="dp-secnote">In the AI-sheet order (Dean’s kit builder). Turnaround has no character limits; word counts are for the sheet’s layout.${kitDeviceOn()?' “Build Sales Kit” runs Dean’s builder on this PC.':''}</span></div>
     ${distSectionHeadHtml(t,'ta',rows)}
     <div class="dp-rows">${rows.map((r,i)=>distRowHtml(t,'ta',r,i)).join('')}</div>`;
 }

@@ -2009,8 +2009,7 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 .export-actions-row .kit-btn-title{margin-left:0;background:#1f6f43;color:#fff;border-color:#1f6f43}
 .export-actions-row .kit-btn-title:hover{background:#185a36;color:#fff}
 .kit-k2{margin-top:4px;display:flex;flex-wrap:wrap;gap:6px;align-items:center}
-.kit-asked{color:var(--text3)}
-.kit-first{color:var(--text3);font-style:italic}
+.err-copy{font-size:.78rem;text-decoration:underline}
 .kit-h{font-family:var(--serif);font-weight:normal;margin-bottom:6px}
 .kit-p{font-size:.86rem;color:var(--text2);margin:6px 0}
 .kit-small{font-size:.76rem;color:var(--text3)}
@@ -2195,6 +2194,7 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 <div id="reconnect-banner" class="hidden">
   <span id="reconnect-msg">Save failed — see console.</span>
   <button class="btn-ghost" id="reconnect-retry-btn" onclick="onReconnectClick()">Reconnect</button>
+  <button class="btn-ghost err-copy" type="button" onclick="bphCopyErrors(this)" title="Copies the exact error text (and the last few) to paste to Thomas">Copy error</button>
   <button class="btn-ghost" onclick="document.getElementById('reconnect-banner').classList.add('hidden')">&#10005;</button>
 </div>
 
@@ -2583,8 +2583,8 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="google-auth.js"></script>
-<script src="app.js?v=r83"></script>
+<script src="google-auth.js?v=r84"></script>
+<script src="app.js?v=r84"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
