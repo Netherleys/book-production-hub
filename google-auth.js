@@ -132,24 +132,61 @@
     const list = waiters; waiters = []; silentInFlight = false;
     list.forEach((w) => { if (w.timer) clearTimeout(w.timer); try { fn(w); } catch (e) {} });
   }
+  /*
+   * Round 85 (2026-10-16, Mia Chen) — "popup_closed" grace period.
+   * GIS decides the popup was closed by polling the popup window. A popup that closes itself
+   * (a quick already-consented sign-in, or a silent refresh) can be seen as "closed" a moment
+   * BEFORE its token message is handled, so error_callback(popup_closed) fires and the token
+   * then arrives anyway. R84 reported popup_closed at once, which failed every waiter, showed
+   * "Sign-in failed" and left the overlay up even though a token came in.
+   * Now: popup_closed waits CLOSED_GRACE_MS for a token; a token in that window answers
+   * everyone as success and no error is shown. If none comes, the waiters fail with a calm
+   * message. If a token still turns up later (up to LATE_OK_MS), the last interactive sign-in
+   * is completed anyway (its success handler hides the overlay and the message).
+   * popup_failed_to_open (blocked) and other errors still report straight away.
+   */
+  const CLOSED_GRACE_MS = 3000;
+  const LATE_OK_MS = 60 * 1000;
+  let closedGraceTimer = null;
+  let lateOk = null, lateOkUntil = 0;
+  function clearClosedGrace() { if (closedGraceTimer) { clearTimeout(closedGraceTimer); closedGraceTimer = null; } }
   function dispatchToken(resp) {
-    if (resp && resp.error) { settleAll((w) => w.fail(resp)); return; }
+    clearClosedGrace();
+    if (resp && resp.error) { lateOk = null; settleAll((w) => w.fail(resp)); return; }
     accessToken = resp.access_token;
     // expires_in is in seconds; keep a small safety margin.
     tokenExpiresAt = Date.now() + (Number(resp.expires_in || 3600) - 60) * 1000;
     scheduleKeepAlive();
+    if (!waiters.length && lateOk && Date.now() < lateOkUntil) {
+      const ok = lateOk; lateOk = null;
+      try { ok(accessToken); } catch (e) {}
+      return;
+    }
+    lateOk = null;
     settleAll((w) => w.ok(accessToken));
   }
   function dispatchError(err) {
     const type = (err && err.type) || "unknown";
-    const e = new Error(type === "popup_closed" ? "The Google sign-in window was closed before finishing (popup_closed)."
+    const e = new Error(type === "popup_closed" ? "The Google sign-in window closed before sign-in finished. Nothing is lost: click Sign in with Google to try again. (popup_closed)"
       : type === "popup_failed_to_open" ? "Chrome blocked the Google sign-in window (popup_failed_to_open). Allow pop-ups for this site and try again."
       : "Google sign-in error (" + type + ").");
     e.type = type;
+    if (type === "popup_closed") {
+      if (closedGraceTimer) return; // already waiting
+      closedGraceTimer = setTimeout(() => {
+        closedGraceTimer = null;
+        settleAll((w) => {
+          if (w.interactive) { lateOk = w.ok; lateOkUntil = Date.now() + LATE_OK_MS; }
+          w.fail(e);
+        });
+      }, CLOSED_GRACE_MS);
+      return;
+    }
+    clearClosedGrace();
     settleAll((w) => w.fail(e));
   }
   function addWaiter(onSuccess, onError, timeoutMs) {
-    const w = { ok: (t) => onSuccess && onSuccess(t), fail: (e) => onError && onError(e), timer: null };
+    const w = { ok: (t) => onSuccess && onSuccess(t), fail: (e) => onError && onError(e), timer: null, interactive: !timeoutMs };
     if (timeoutMs) {
       w.timer = setTimeout(() => {
         waiters = waiters.filter((x) => x !== w);
@@ -169,6 +206,7 @@
   function signIn(onSuccess, onError) {
     try {
       const client = ensureTokenClient();
+      lateOk = null; // Round 85: a new click replaces any earlier late-token hand-off
       addWaiter(onSuccess, onError, 0); // interactive: no timeout (David may take a while)
       client.requestAccessToken({ prompt: accessToken ? "" : "consent" });
     } catch (e) {

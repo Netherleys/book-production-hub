@@ -1502,6 +1502,8 @@ function doSignIn(){
     window.BookHubAuth.signIn(
       async () => {
         btn.disabled = false; btn.textContent = 'Sign in with Google';
+        // Round 85 — a token can arrive just after a "popup_closed" message: clear it and note it.
+        if(errEl.style.display !== 'none'){ errEl.style.display = 'none'; bphErrNote('Signed in after all (token arrived after the message above, ignore it)'); }
         document.getElementById('auth-overlay').classList.add('hidden');
         setWhoami(true);
         // Round 84 — already loaded (this is a re-sign-in after a failed reconnect): keep what's
@@ -1535,7 +1537,7 @@ function bphErrLog(){ try{ return JSON.parse(localStorage.getItem(BPH_ERR_KEY)||
 function bphErrNote(msg){ try{ const l=bphErrLog(); l.push({at:new Date().toISOString(),m:String(msg||'').slice(0,600)}); localStorage.setItem(BPH_ERR_KEY,JSON.stringify(l.slice(-20))); }catch(e){} }
 function bphErrText(){ const p=n=>String(n).padStart(2,'0');
   const l=bphErrLog().slice(-8).map(x=>{ const d=new Date(x.at); return (isNaN(d)?x.at:p(d.getDate())+'-'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()))+'  '+x.m; });
-  return 'BPH error log (r84, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
+  return 'BPH error log (r85, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
 function bphCopyErrors(btn){ ctCopyText(bphErrText(),btn,'Error text copied: paste it to Thomas'); }
 async function loadAllData(){
   setSyncStatus('saving'); // reused as "loading" visual — amber pulsing dot
