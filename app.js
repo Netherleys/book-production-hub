@@ -3388,6 +3388,7 @@ function renderExportButtons(t){
     <button class="btn btn-export" onclick="openHtmlOutput('${t.id}')">View HTML Output &#8599;</button>
     <button class="btn btn-export" onclick="downloadWordFile('${t.id}')">View Word File &#8681;</button>
     <button class="btn btn-export btn-dist" onclick="gotoDist('${t.id}')">Distributor Page: SCB · Turnaround &#8594;</button>
+    ${kitBtnHtml(t,'title')}
   </div>`;
 }
 
@@ -4402,12 +4403,15 @@ function kitDeviceOn(){ try{ return localStorage.getItem(KIT_DEVICE_KEY)==='1'; 
 function kitDeviceSet(on){ try{ if(on) localStorage.setItem(KIT_DEVICE_KEY,'1'); else localStorage.removeItem(KIT_DEVICE_KEY); }catch(e){}
   const cb=document.getElementById('kit-device-cb'); if(cb) cb.checked=kitDeviceOn();
   ctToast(kitDeviceOn()?'This device can now build sales kits.':'Sales kit button turned off on this device.');
-  if(view==='dist') distRender(); }
+  if(view==='dist') distRender(); else if(view==='detail') render(); }
 function kitUrl(id){ return 'pka-run://turnaround-kit/'+String(id||''); }
 function kitLabel(t){ return KIT_CFG_IDS.includes(t.id)?'Build sales kit':'Build first sales kit'; }
+// Round 83 (16-10, David): mode false = Turnaround head, true = K2 "Build ▸" link, 'title' = title page (next to Distributor Page). One code path: kitBuild().
 function kitBtnHtml(t,small){ if(!kitDeviceOn()) return '';
-  const first=!KIT_CFG_IDS.includes(t.id);
-  return `<button type="button" class="${small?'dp-go kit-link':'btn btn-sm kit-btn'}" onclick="kitBuild('${t.id}')" title="${first?'First kit for this title: uses the default setup (cover folder named after the title). ':''}Runs Dean’s kit builder on this PC. Saves your edits first.">${small?'Build ▸':esc(kitLabel(t))}</button>`; }
+  const first=!KIT_CFG_IDS.includes(t.id), onTitle=small==='title', link=small===true;
+  const asked=onTitle?kitAskedText(t):'';
+  const cls=link?'dp-go kit-link':(onTitle?'btn btn-export kit-btn kit-btn-title':'btn btn-sm kit-btn');
+  return `<button type="button" class="${cls}"${onTitle?` id="kit-title-btn-${t.id}"`:''} onclick="kitBuild('${t.id}')" title="${first?'First kit for this title: uses the default setup (cover folder named after the title). ':''}Runs Dean’s kit builder on this PC. Saves your edits first.${asked?' '+esc(asked)+'.':''}">${link?'Build ▸':esc(kitLabel(t))}</button>`; }
 function kitAskedText(t){ const d=distGet(t); if(!d.kitAskedAt) return '';
   const dt=new Date(d.kitAskedAt); if(isNaN(dt)) return '';
   const p=n=>String(n).padStart(2,'0');
@@ -4451,7 +4455,7 @@ async function kitBuild(id){
     if(!devMode) await saveTitle(id);
     kitLaunch(url);
     ctToast('Building… results will pop up on your PC.');
-    if(view==='dist') distRender();
+    if(view==='dist') distRender(); else if(view==='detail'){ const b=document.getElementById('kit-title-btn-'+t.id); if(b) b.title=b.title.replace(/ Kit build asked for .*$/,'')+' '+kitAskedText(t)+'.'; }
   } finally { kitBusy=false; }
 }
 // One-time device setup: open BPH with #kit-device-on (or tick the box in "Who's posting?").
