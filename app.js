@@ -1537,7 +1537,7 @@ function bphErrLog(){ try{ return JSON.parse(localStorage.getItem(BPH_ERR_KEY)||
 function bphErrNote(msg){ try{ const l=bphErrLog(); l.push({at:new Date().toISOString(),m:String(msg||'').slice(0,600)}); localStorage.setItem(BPH_ERR_KEY,JSON.stringify(l.slice(-20))); }catch(e){} }
 function bphErrText(){ const p=n=>String(n).padStart(2,'0');
   const l=bphErrLog().slice(-8).map(x=>{ const d=new Date(x.at); return (isNaN(d)?x.at:p(d.getDate())+'-'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()))+'  '+x.m; });
-  return 'BPH error log (r85, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
+  return 'BPH error log (r86, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
 function bphCopyErrors(btn){ ctCopyText(bphErrText(),btn,'Error text copied: paste it to Thomas'); }
 async function loadAllData(){
   setSyncStatus('saving'); // reused as "loading" visual — amber pulsing dot
@@ -2512,8 +2512,9 @@ function renderTitles(){
 }
 // Imprint colour-code (item 6) — data attribute + tooltip-only dot, no
 // visible text label anywhere on the card.
-function imprintKey(imprint){ return (imprint||'').toLowerCase().indexOf('oil')===0||(imprint||'').toLowerCase().indexOf('oowp')===0 ? 'oowp' : 'headpress'; }
-function imprintName(imprint){ return imprintKey(imprint)==='oowp' ? 'Oil On Water Press' : 'Headpress'; }
+// Round 86 (2026-10-18, David): Pylon added as a third imprint (David's own fiction imprint; Diane Lives in Cockspur Rye).
+function imprintKey(imprint){ const s=(imprint||'').toLowerCase(); return s.indexOf('oil')===0||s.indexOf('oowp')===0 ? 'oowp' : s.indexOf('pylon')===0 ? 'pylon' : 'headpress'; }
+function imprintName(imprint){ const k=imprintKey(imprint); return k==='oowp' ? 'Oil On Water Press' : k==='pylon' ? 'Pylon' : 'Headpress'; }
 // Item 3 (Round 3) — real editable imprint control for existing titles.
 // Before this, imprint could only ever be set once, at title-creation time
 // (new-imprint select in the Add Title modal, see index.html) — the detail
@@ -2531,6 +2532,7 @@ function imprintEditSelect(t){
   return `<select class="imprint-edit-select" id="f-${t.id}-imprint" data-imprint="${ik}" title="Change imprint" onchange="onImprintChange('${t.id}',this.value)">
     <option value="Headpress" ${ik==='headpress'?'selected':''}>Headpress</option>
     <option value="Oil On Water Press" ${ik==='oowp'?'selected':''}>Oil On Water Press</option>
+    <option value="Pylon" ${ik==='pylon'?'selected':''}>Pylon</option>
   </select>`;
 }
 function onImprintChange(titleId,value){
@@ -8516,7 +8518,7 @@ function renderPromoCalendar(){
     const author = contributorLabel(t);
     return `<div class="pc-title-card">
       <div class="pc-title-head">
-        <div class="imp-bar" style="background:${t.imprint==='Oil On Water Press'?'var(--imprint-oowp)':'var(--imprint-headpress)'}"></div>
+        <div class="imp-bar" style="background:var(--imprint-${imprintKey(t.imprint)})"></div>
         <div class="pc-title-main">
           <button type="button" class="pc-title-link" onclick="gotoDetail('${t.id}')">${esc(t.title)}</button>
           <span class="pc-title-author">${esc(author||'Author TBC')}</span>

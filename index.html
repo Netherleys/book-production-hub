@@ -64,6 +64,7 @@
      dot, never a label. */
   --imprint-headpress:#C9834A;
   --imprint-oowp:#4F9B9B;
+  --imprint-pylon:#6E5A8E;   /* Round 86: Pylon = slate violet (night scene); not used elsewhere, so never read as status/alarm */
 
   /* Calendar date-type colours (Round 32, 2026-08-26) — identifies WHICH of
      a title's three dates a calendar entry is, so multiple date-types
@@ -193,6 +194,7 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .rv-item-accent{width:3px;border-radius:2px;flex-shrink:0;background:var(--imprint-accent,var(--neutral-dot))}
 .rv-item[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
 .rv-item[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
+.rv-item[data-imprint="pylon"]{--imprint-accent:var(--imprint-pylon)}
 .rv-item-body{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .rv-item-title{font-size:.82rem;font-weight:600;color:#fff;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .rv-item-meta{display:flex;justify-content:space-between;gap:8px;font-size:.68rem;color:rgba(255,255,255,.5)}
@@ -427,6 +429,7 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .book-card{border-top:5px solid var(--imprint-accent, var(--card-border))}
 .book-card[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
 .book-card[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
+.book-card[data-imprint="pylon"]{--imprint-accent:var(--imprint-pylon)}
 .imprint-dot{width:11px;height:11px;border-radius:50%;display:inline-block;flex-shrink:0;background:var(--imprint-accent,var(--border2));border:1.5px solid var(--surface);box-shadow:0 0 0 1px var(--border2)}
 /* Item 3 (Round 2) — sanity-checked live before touching this: the CSS here
    was already object-fit:contain (letterbox), not stretch — confirmed by
@@ -569,6 +572,7 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 .detail-imprint-ribbon{position:absolute;top:0;right:0;padding:3px 8px;font-size:.62rem;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:#fff;background:var(--imprint-accent);border-bottom-left-radius:var(--r4);z-index:2}
 .detail-imprint-ribbon[data-imprint="headpress"]{--imprint-accent:var(--imprint-headpress)}
 .detail-imprint-ribbon[data-imprint="oowp"]{--imprint-accent:var(--imprint-oowp)}
+.detail-imprint-ribbon[data-imprint="pylon"]{--imprint-accent:var(--imprint-pylon)}
 /* Round 43 (2026-09-03) — David chose stretch-to-fill (Option A of a
    3-way mockup comparison) over the crop alternative: fixed 140×200 box
    above + object-fit:fill here, so every cover occupies the identical
@@ -671,6 +675,7 @@ input[type=text].detail-author-input:focus{border-color:var(--sage);background:v
 .imprint-edit-select{font-size:.82rem;padding:3px 10px 3px 8px;border-radius:var(--r4);border:1px solid var(--border2);border-left-width:4px;background:var(--surface);color:var(--text2);font-family:var(--sans);cursor:pointer;font-weight:600;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .imprint-edit-select[data-imprint="headpress"]{border-left-color:var(--imprint-headpress)}
 .imprint-edit-select[data-imprint="oowp"]{border-left-color:var(--imprint-oowp)}
+.imprint-edit-select[data-imprint="pylon"]{border-left-color:var(--imprint-pylon)}
 .imprint-edit-select:focus{outline:none;border-color:var(--sage)}
 .status-badge{padding:3px 10px;border-radius:20px;font-size:.78rem;font-weight:600;text-transform:uppercase;letter-spacing:.04em}
 .badge-inprogress{background:var(--amber-bg);color:var(--amber-border)}
@@ -2395,6 +2400,7 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
         <option value="">All Imprints</option>
         <option value="Headpress">Headpress</option>
         <option value="Oil On Water Press">Oil On Water Press</option>
+        <option value="Pylon">Pylon</option>
       </select>
       <!-- Round 44 (2026-09-05), MOCKUP — Status / Print Timing MERGE.
            These used to be two separate filters (Status → t.status,
@@ -2527,6 +2533,7 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
       <select id="new-imprint">
         <option value="Headpress">Headpress</option>
         <option value="Oil On Water Press">Oil On Water Press</option>
+        <option value="Pylon">Pylon</option>
       </select>
     </div>
     <!-- Round 44 (2026-09-05), MOCKUP — options match the merged status
@@ -2583,8 +2590,8 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 
 <script src="config.js"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="google-auth.js?v=r85"></script>
-<script src="app.js?v=r85"></script>
+<script src="google-auth.js?v=r86"></script>
+<script src="app.js?v=r86"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
