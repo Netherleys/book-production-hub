@@ -1537,7 +1537,7 @@ function bphErrLog(){ try{ return JSON.parse(localStorage.getItem(BPH_ERR_KEY)||
 function bphErrNote(msg){ try{ const l=bphErrLog(); l.push({at:new Date().toISOString(),m:String(msg||'').slice(0,600)}); localStorage.setItem(BPH_ERR_KEY,JSON.stringify(l.slice(-20))); }catch(e){} }
 function bphErrText(){ const p=n=>String(n).padStart(2,'0');
   const l=bphErrLog().slice(-8).map(x=>{ const d=new Date(x.at); return (isNaN(d)?x.at:p(d.getDate())+'-'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()))+'  '+x.m; });
-  return 'BPH error log (r86, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
+  return 'BPH error log (r87, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
 function bphCopyErrors(btn){ ctCopyText(bphErrText(),btn,'Error text copied: paste it to Thomas'); }
 async function loadAllData(){
   setSyncStatus('saving'); // reused as "loading" visual — amber pulsing dot
@@ -2220,7 +2220,7 @@ function getSectionStatus(t,key){
 // them subtly (see the toc-sidenav build in renderDetail()) without adding
 // a hard visual divider David didn't ask for.
 const SECTION_KEYS = ['commercial','dates','publicity','content','author','toc','pipeline','print','productionNotes','poTracker','futureEdition'];
-const SECTION_LABEL_TEXT = {commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content & Marketing',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Proofing & Production Notes',futureEdition:'Info & Future Edition'};
+const SECTION_LABEL_TEXT = {commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Proofing & Production Notes',futureEdition:'Info & Future Edition'};
 const SECTION_GROUPS = {commercial:'commercial',dates:'commercial',publicity:'commercial',content:'content',author:'content',toc:'content',pipeline:'production',print:'production',productionNotes:'production',poTracker:'wrapup',futureEdition:'wrapup'};
 const SECTION_LABELS = {};
 SECTION_KEYS.forEach((k,i)=>{ SECTION_LABELS[k] = (i+1)+'. '+SECTION_LABEL_TEXT[k]; });
@@ -7176,7 +7176,7 @@ function openDeleteConfirm(titleId){
   if(body){
     body.innerHTML = `<p>You're about to permanently delete:</p>
       <p class="delete-confirm-title">"${esc(t.title)}"${t.authors?' — '+esc(contributorLabel(t)):''}</p>
-      <p>This removes the ENTIRE title record from the live Sheet: every field on this page for this title — Contents &amp; Marketing text, the production checklist, print/publicity/TOC notes, dates, ISBN values, cover and folder links, quick notes, everything. It does not touch the ISBN pool, the Blocks list, or any other separate tracker sheet — only this one title's row.</p>
+      <p>This removes the ENTIRE title record from the live Sheet: every field on this page for this title — Content text, the production checklist, print/publicity/TOC notes, dates, ISBN values, cover and folder links, quick notes, everything. It does not touch the ISBN pool, the Blocks list, or any other separate tracker sheet — only this one title's row.</p>
       <p><strong>This cannot be undone from inside the app.</strong> To confirm, type the title exactly as shown above:</p>
       <input type="text" id="delete-confirm-input" placeholder="Type the title name to confirm" autocomplete="off" oninput="onDeleteConfirmInput()">`;
   }
