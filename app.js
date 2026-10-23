@@ -1537,7 +1537,7 @@ function bphErrLog(){ try{ return JSON.parse(localStorage.getItem(BPH_ERR_KEY)||
 function bphErrNote(msg){ try{ const l=bphErrLog(); l.push({at:new Date().toISOString(),m:String(msg||'').slice(0,600)}); localStorage.setItem(BPH_ERR_KEY,JSON.stringify(l.slice(-20))); }catch(e){} }
 function bphErrText(){ const p=n=>String(n).padStart(2,'0');
   const l=bphErrLog().slice(-8).map(x=>{ const d=new Date(x.at); return (isNaN(d)?x.at:p(d.getDate())+'-'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()))+'  '+x.m; });
-  return 'BPH error log (r87, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
+  return 'BPH error log (r88, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
 function bphCopyErrors(btn){ ctCopyText(bphErrText(),btn,'Error text copied: paste it to Thomas'); }
 async function loadAllData(){
   setSyncStatus('saving'); // reused as "loading" visual — amber pulsing dot
@@ -6213,14 +6213,34 @@ const OT_MEANINGFUL_COLS = [0,1,2,3,5,6,7,8,9,10,11,12]; // every Tracker!A2:M c
 // contains a dash/semicolon/colon, signals a real short qualifier would
 // never trip. Falls back to the untouched original string otherwise (the
 // normal case — a clean supplier name with no parenthetical at all).
+// Round 88 (2026-10-23, David: "two opposing printer name conventions:
+// Biddles, Biddles Books Ltd") — short printer/supplier names, applied here
+// at the ONE point every PO/invoice row's supplier passes through (title-page
+// PO & Invoice table, Order Tracker table, its Printer/Supplier filter list
+// + counts + chips, and the footer total that follows the filter). The
+// Tracker Sheet holds hand-typed names in mixed forms; the Sheet is left
+// untouched, this is display only. Same table and first-match-wins order as
+// Marcus's Scripts\xero_po_sync.py SHORT list (decided 22-10), so rows from
+// the coming Xero cache read the same. Any name not matched shows in full.
+const SUPPLIER_SHORT_NAMES = [
+  [/biddles/i, 'Biddles'],
+  [/integrated books/i, 'IBI'],
+  [/\bscb\b/i, 'SCB (US)'],
+  [/turnaround/i, 'Turnaround (UK)'],
+];
+function shortSupplierName(name){
+  const s=(name||'').toString().trim();
+  for(const [re,short] of SUPPLIER_SHORT_NAMES){ if(re.test(s)) return short; }
+  return s;
+}
 function cleanSupplierName(raw){
   const s=(raw||'').toString().trim();
   const m=/^(.*?)\s*\(([^()]*)\)\s*$/.exec(s);
-  if(!m) return s;
+  if(!m) return shortSupplierName(s);
   const base=m[1], paren=m[2];
-  if(!base) return s; // nothing before the paren to fall back to — leave as-is
+  if(!base) return shortSupplierName(s); // nothing before the paren to fall back to — leave as-is
   const looksExplanatory = paren.length>20 || /[—\-;:]/.test(paren);
-  return looksExplanatory ? base.trim() : s;
+  return shortSupplierName(looksExplanatory ? base.trim() : s);
 }
 function buildAllOrderRows(rawRows, trackerGid){
   const realRows = rawRows.filter(r => r && OT_MEANINGFUL_COLS.some(i => (r[i]||'').toString().trim()!==''));
