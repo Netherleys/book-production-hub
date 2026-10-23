@@ -5728,7 +5728,9 @@ function xpoPoHtml(r){
 }
 function xpoOldSheetLink(){
   if(!CFG.PO_INVOICE_TRACKER_SHEET_ID) return '';
-  return `<a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">Orders before ${XPO_FIRST_PO}: PO &amp; Invoice Tracker &#8599;</a>`;
+  // R90 (David 23-10): one discreet line saying when Xero records start.
+  // Shared by the title-page PO box and the Order Tracker, so both match.
+  return `<span class="xpo-start">Records start October 2026 (${XPO_FIRST_PO} onwards). Earlier orders: <a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">old PO &amp; Invoice Tracker &#8599;</a></span>`;
 }
 // A title's orders: ISBN join first (any of its ISBNs), title-name match as a
 // fallback for a PO line raised before the ISBN was set.
