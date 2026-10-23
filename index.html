@@ -1693,6 +1693,66 @@ td.po-title .isbn{display:block;font-size:.66rem;font-weight:400;color:var(--tex
 .note-panel b{color:var(--text)}
 .note-panel h3{font-size:.78rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);margin-bottom:6px}
 .note-panel a{color:var(--sage)}
+/* ── Round 89 (2026-10-23): Xero PO screens, from David's approved mockup
+   (Owners Inbox "BPH - PO Tracker Mockup - Mia Chen - 2026-10-22").
+   Title-page box (.xpo-*) + Order Tracker page (.xot-*). No prices. */
+.xpo-box .field-label{margin-bottom:2px}
+.xpo-lines{list-style:none;margin:0;padding:0}
+.xpo-lines li{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;padding:8px 0;border-bottom:1px solid var(--border);font-size:.9rem;color:var(--text)}
+.xpo-lines .d{color:var(--text2);min-width:92px}
+.xpo-lines .q{font-weight:700;color:var(--sage-border);min-width:96px}
+.xpo-lines .route{font-weight:600}
+.xpo-lines .route .to{font-weight:400;color:var(--text2)}
+.xpo-lines .po{margin-left:auto;white-space:nowrap}
+.xpo-total{padding-top:10px;font-size:.9rem;font-weight:700;color:var(--text)}
+.xpo-total .muted,.xot-foot .muted{font-weight:400;color:var(--text3)}
+.xpo-meta,.xot-meta{display:flex;justify-content:space-between;gap:6px 14px;flex-wrap:wrap;margin-top:8px;font-size:.74rem;color:var(--text3)}
+.xpo-meta a{color:var(--sage)}
+.xot-meta{color:#D8CFBB}
+.xot-meta a{color:#D8CFBB;text-decoration:underline}
+.xpo-sync.xpo-stale{color:var(--amber-border);font-weight:600}
+.xot-meta .xpo-sync.xpo-stale{color:var(--amber)}
+a.xpo-link,span.xpo-link{font-weight:700;color:#0E7C95;text-decoration:none}
+a.xpo-link:hover{text-decoration:underline}
+.xpo-tag{padding:1px 7px;border-radius:10px;font-size:.66rem;font-weight:600;margin-left:6px;vertical-align:1px}
+.xpo-tag-ordered{background:var(--amber-bg);color:var(--amber-border)}
+.xpo-tag-billed{background:var(--sage-bg);color:var(--sage-border)}
+.xpo-tag-other{background:var(--bg2);color:var(--text3)}
+.xot-wrap{max-width:1000px;margin:0 auto}
+.xot-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-bottom:12px}
+.xot-head h1{font-family:var(--serif);font-size:1.5rem;font-weight:700;color:var(--text-oncream)}
+.xot-sub{font-size:.85rem;color:#D8CFBB;margin-top:3px}
+.xot-picker{display:flex;align-items:center;gap:8px}
+.xot-picker label{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;font-weight:600;color:#E4DCC9}
+.xot-picker input{width:260px;max-width:60vw;padding:7px 10px;border:1px solid var(--border2);border-radius:var(--r4);font-size:.9rem;color:var(--text);background:var(--surface)}
+.xot-picker input:focus{outline:none;border-color:var(--sage)}
+.xot-picker button{padding:7px 10px;border-radius:var(--r4);border:1px solid var(--border2);background:var(--surface2);color:var(--text2);font-size:.78rem;font-weight:600;cursor:pointer}
+.xot-card{background:var(--surface2);border:1px solid var(--card-border);border-radius:var(--r8);box-shadow:var(--shadow-sm);color:var(--text);overflow:hidden}
+.xot-row{display:grid;grid-template-columns:120px minmax(0,1fr) 80px 110px 150px;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);align-items:baseline;font-size:.86rem}
+.xot-row.xot-th{font-size:.68rem;color:var(--text3);text-transform:uppercase;letter-spacing:.04em;font-weight:600;padding-bottom:8px}
+.xot-row:not(.xot-th):hover{background:rgba(75,110,83,.06)}
+.xot-row .title{font-weight:600;min-width:0;overflow-wrap:break-word}
+.xot-row .title .pono{display:block;font-size:.72rem;font-weight:400;margin-top:2px}
+a.xot-title-link{color:var(--text);text-decoration:none}
+a.xot-title-link:hover{text-decoration:underline}
+.xot-row .qty{font-weight:700;color:var(--sage-border);text-align:right}
+.xot-row.xot-th .qty{color:var(--text3);font-weight:600}
+.xot-row .printer{font-weight:600}
+.xot-none{padding:18px 14px;font-size:.85rem;color:var(--text3)}
+.xot-foot{display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap;padding:10px 14px;font-size:.84rem;font-weight:700;color:var(--text)}
+.xot-foot .muted{font-size:.74rem}
+@media (min-width:721px){ .xot-row .route{display:contents} .xot-row .arr{display:none} }
+@media (max-width:720px){
+  .xot-row.xot-th{display:none}
+  .xot-row{grid-template-columns:minmax(0,1fr) auto;row-gap:2px}
+  .xot-row .title{grid-column:1;grid-row:1}
+  .xot-row .qty{grid-column:2;grid-row:1}
+  .xot-row .date{grid-column:1;grid-row:2;font-size:.76rem;color:var(--text3)}
+  .xot-row .route{grid-column:2;grid-row:2;font-size:.76rem;text-align:right;white-space:nowrap}
+  .xot-picker{width:100%}
+  .xot-picker input{width:100%;max-width:none;flex:1;min-width:0}
+  .xpo-lines .po{margin-left:0}
+}
 @media (max-width:900px){
   .ot-shell{flex-direction:column}
   .ot-sidebar{position:static;width:100%}
@@ -2588,10 +2648,10 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
   <span id="footer-last-saved"></span>
 </footer>
 
-<script src="config.js"></script>
+<script src="config.js?v=r89"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="google-auth.js?v=r88"></script>
-<script src="app.js?v=r88"></script>
+<script src="google-auth.js?v=r89"></script>
+<script src="app.js?v=r89"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>

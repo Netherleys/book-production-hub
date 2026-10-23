@@ -5632,14 +5632,18 @@ function copyPrinterRequest(titleId){
 // open like Pipeline).
 function renderPoTracker(t){const id=t.id;
   const key = t.commercial.isbnPbk || t.commercial.isbnHbk || '';
+  // Round 89 (2026-10-23, David's approved mockup 22-10): the Xero order
+  // lines + "Printed to date" lead the box; the old PO & Invoice table
+  // (prices, bills, paid/unpaid) is gone from here. Print Estimates and the
+  // Manual notes stay as they were.
   return `<div class="field-grid">
+    <div class="field-group full xpo-box" id="po-xero-results-${id}">
+      <div class="po-empty">Loading orders from Xero…</div>
+    </div>
     ${frow('PO Tracker ISBN Key (auto)',`<input type="text" value="${esc(key)}" readonly>`)}
     ${frow('Manual Override (title/tab name)',inp(`f-${id}-poOverride`,t.poTrackerTitleOverride,'Exact PO Log "Book Title" text or tab name — use if no ISBN yet','fc(\''+id+'\',\'poTrackerTitleOverride\',this.value)'))}
     <div class="field-group full" id="po-tracker-results-${id}">
       <label class="field-label">Print Estimates</label>
-      <div class="po-empty">Loading…</div>
-    </div>
-    <div class="field-group full" id="po-invoice-results-${id}">
       <div class="po-empty">Loading…</div>
     </div>
     ${frow('Manual PO/Invoice Notes',richTa(id,'poManual','poManualNotes',t.poManualNotes,'Jot anything here manually — a PO number, a note about an invoice, whatever’s useful, independent of the linked pulls above…'),'full')}
@@ -5647,7 +5651,121 @@ function renderPoTracker(t){const id=t.id;
 
 async function loadPoTrackerFor(titleId){
   loadPrintEstimatesFor(titleId);
-  loadPoInvoiceTrackerFor(titleId);
+  loadXeroPoBoxFor(titleId); // Round 89: replaces loadPoInvoiceTrackerFor (kept below, no longer called)
+}
+
+// ── XERO PO CACHE (Round 89, 2026-10-23) ─────────────────────────────────
+// Reads the private "BPH Xero Cache" Sheet that Marcus Webb's
+// Scripts\xero_po_sync.py fills every 2h from Xero (PO-0014 on, no prices).
+// READ-ONLY: this app never writes to it, and never talks to Xero itself
+// (the browser can't reach Xero, and no Xero secret goes in this repo).
+// Columns are found by header name, so a column added later by the sync job
+// doesn't shift anything. Fetched once per session, shared by the title-page
+// box and the Order Tracker page. Orders before PO-0014 stay in the old
+// "PO & Invoice Tracker" Sheet (untouched, linked from both screens).
+const XPO_FIRST_PO = 'PO-0014';
+let xeroPoCache = null;      // {rows:[...], lastSync:'2026-10-23 10:15'}
+let xeroPoCachePromise = null;
+const XPO_DEV_SAMPLE = { lastSync: '2026-10-23 10:15', rows: [
+  ['PO','Date','Title','ISBN','Qty','Printer','Sent to','Status','Xero link','PO id','Spec'],
+  ['PO-0015','2026-10-02','Trashfield Roadshows','9781915316523','300','Biddles','Turnaround (UK)','Ordered','https://go.xero.com/Accounts/Payable/PurchaseOrders/View/1129b1f2-c1f2-4aee-a338-95b9360e82f2','1129b1f2-c1f2-4aee-a338-95b9360e82f2','268pp (44pp colour), 100gsm Offset'],
+  ['PO-0014','2026-10-02','British Horror Films 2000-2019','9781915316608','500','Biddles','Turnaround (UK)','Ordered','https://go.xero.com/Accounts/Payable/PurchaseOrders/View/7be1f543-9bd0-42aa-b72c-1dc30e3a35ae','7be1f543-9bd0-42aa-b72c-1dc30e3a35ae','248pp mono, 100gsm Offset'],
+]};
+function xpoParse(values, lastSync){
+  const head = (values[0]||[]).map(h=>String(h||'').trim().toLowerCase());
+  const col = name => head.indexOf(name);
+  const c = {po:col('po'),date:col('date'),title:col('title'),isbn:col('isbn'),qty:col('qty'),printer:col('printer'),sentTo:col('sent to'),status:col('status'),link:col('xero link'),spec:col('spec')};
+  const get = (r,i) => i<0 ? '' : String(r[i]==null?'':r[i]).trim();
+  const rows = values.slice(1).map(r=>({
+    po:get(r,c.po), date:get(r,c.date), title:get(r,c.title), isbn:isbnNormalize(get(r,c.isbn)),
+    qty:parseInt(get(r,c.qty).replace(/[^0-9]/g,''),10)||0,
+    printer:shortSupplierName(get(r,c.printer)), sentTo:shortSupplierName(get(r,c.sentTo)),
+    status:get(r,c.status), link:get(r,c.link), spec:get(r,c.spec),
+  })).filter(r=>r.po||r.title);
+  // Newest first (the Sheet already is; sort anyway so a hand-sorted Sheet can't confuse it).
+  rows.sort((a,b)=> (b.date||'').localeCompare(a.date||'') || (b.po||'').localeCompare(a.po||''));
+  return { rows, lastSync: String(lastSync||'').trim() };
+}
+async function loadXeroPoCache(force){
+  if(xeroPoCache && !force) return xeroPoCache;
+  if(devMode){ xeroPoCache = xpoParse(XPO_DEV_SAMPLE.rows, XPO_DEV_SAMPLE.lastSync); return xeroPoCache; }
+  if(!CFG.XERO_CACHE_SHEET_ID) throw new Error('BPH Xero Cache Sheet not configured');
+  if(!xeroPoCachePromise || force){
+    xeroPoCachePromise = (async ()=>{
+      const [values, meta] = await Promise.all([
+        sheetsGet(CFG.XERO_CACHE_SHEET_ID, 'POs!A1:Z2000'),
+        sheetsGet(CFG.XERO_CACHE_SHEET_ID, 'Meta!A1:B2').catch(()=>[]),
+      ]);
+      const syncRow = (meta||[]).find(r=>/last sync/i.test(String(r[0]||'')));
+      xeroPoCache = xpoParse(values||[], syncRow ? syncRow[1] : '');
+      return xeroPoCache;
+    })();
+    xeroPoCachePromise.catch(()=>{ xeroPoCachePromise=null; }); // a failed fetch can be retried
+  }
+  return xeroPoCachePromise;
+}
+// "2026-10-02" -> "2 Oct 2026" (mockup format). Anything unparseable shows as typed.
+function xpoDate(iso){
+  const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||'');
+  return m ? `${+m[3]} ${LOGFORM_MONTHS[+m[2]-1]} ${m[1]}` : (iso||'');
+}
+// "2026-10-23 10:15" -> "23 Oct 2026, 10:15"; flags it if older than 6h
+// (the refresh runs every 2h, so 6h means a few missed runs).
+function xpoSyncHtml(lastSync){
+  if(!lastSync) return '<span class="xpo-sync">Last sync: unknown</span>';
+  const m=/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/.exec(lastSync);
+  if(!m) return `<span class="xpo-sync">Last sync: ${esc(lastSync)}</span>`;
+  const when = new Date(+m[1], +m[2]-1, +m[3], +m[4], +m[5]);
+  const stale = (Date.now()-when.getTime()) > 6*3600*1000;
+  return `<span class="xpo-sync${stale?' xpo-stale':''}" title="Xero is read every 2 hours by the PKA - Dashboard Refresh task">Last sync from Xero: ${xpoDate(lastSync)}, ${m[4]}:${m[5]}${stale?' · older than usual':''}</span>`;
+}
+function xpoPoHtml(r){
+  const st = /billed/i.test(r.status) ? 'billed' : (/order/i.test(r.status) ? 'ordered' : 'other');
+  const po = r.link && /^https:\/\/go\.xero\.com\//.test(r.link)
+    ? `<a class="xpo-link" href="${esc(r.link)}" target="_blank" rel="noopener" title="Opens ${esc(r.po)} in Xero (prices and bills)">${esc(r.po)} &#8599;</a>`
+    : `<span class="xpo-link">${esc(r.po)}</span>`;
+  return `${po}${r.status?`<span class="xpo-tag xpo-tag-${st}">${esc(r.status)}</span>`:''}`;
+}
+function xpoOldSheetLink(){
+  if(!CFG.PO_INVOICE_TRACKER_SHEET_ID) return '';
+  return `<a href="https://docs.google.com/spreadsheets/d/${esc(CFG.PO_INVOICE_TRACKER_SHEET_ID)}/edit" target="_blank" rel="noopener">Orders before ${XPO_FIRST_PO}: PO &amp; Invoice Tracker &#8599;</a>`;
+}
+// A title's orders: ISBN join first (any of its ISBNs), title-name match as a
+// fallback for a PO line raised before the ISBN was set.
+function xpoRowsForTitle(t, rows){
+  const isbns = new Set(['isbnPbk','isbnHbk','isbnEbk'].map(k=>isbnNormalize((t.commercial||{})[k])).filter(Boolean));
+  const name = (t.title||'').trim().toLowerCase();
+  return rows.filter(r => (r.isbn && isbns.has(r.isbn)) || (!r.isbn && name && r.title.toLowerCase()===name));
+}
+function xpoTitleForRow(r){
+  return data.titles.find(t=>r.isbn && ['isbnPbk','isbnHbk','isbnEbk'].some(k=>isbnNormalize((t.commercial||{})[k])===r.isbn))
+      || data.titles.find(t=>(t.title||'').trim().toLowerCase()===r.title.toLowerCase()) || null;
+}
+async function loadXeroPoBoxFor(titleId){
+  const t=getTitle(titleId); if(!t) return;
+  const box=document.getElementById('po-xero-results-'+titleId); if(!box) return;
+  try{
+    const cache = await loadXeroPoCache();
+    const mine = xpoRowsForTitle(t, cache.rows);
+    const total = mine.reduce((s,r)=>s+r.qty,0);
+    const lines = mine.map(r=>`<li><span class="d">${esc(xpoDate(r.date))}</span><span class="q">${r.qty.toLocaleString('en-GB')} copies</span><span class="route">${esc(r.printer||'—')}${r.sentTo?` <span class="to">&#8594; ${esc(r.sentTo)}</span>`:''}</span><span class="po">${xpoPoHtml(r)}</span></li>`).join('');
+    box.innerHTML = `<label class="field-label">Print orders (Xero)</label>
+      ${mine.length ? `<ul class="xpo-lines">${lines}</ul>` : `<div class="po-empty">No orders for this title since ${XPO_FIRST_PO}.</div>`}
+      ${mine.length ? `<div class="xpo-total">Printed to date: ${total.toLocaleString('en-GB')} copies <span class="muted">· from Xero POs, ${XPO_FIRST_PO} on</span></div>` : ''}
+      <div class="xpo-meta">${xpoSyncHtml(cache.lastSync)}<span>${xpoOldSheetLink()}</span></div>`;
+    // Order count on the section header, as in the mockup.
+    const hdr=document.querySelector(`[data-accord-header="${titleId}-poTracker"] .accord-label-group .accord-label`);
+    if(hdr){
+      let b=hdr.parentNode.querySelector('.accord-badge-count');
+      if(!b){ b=document.createElement('span'); b.className='accord-badge-count'; hdr.after(b); }
+      b.textContent = mine.length ? `${mine.length} order${mine.length===1?'':'s'}` : '';
+      b.hidden = !mine.length;
+    }
+  }catch(e){
+    box.innerHTML = `<label class="field-label">Print orders (Xero)</label><div class="po-empty">Could not load orders from the BPH Xero Cache: ${esc(e.message)} <button class="btn btn-sm" onclick="loadXeroPoBoxFor('${titleId}')">Retry</button></div><div class="xpo-meta"><span>${xpoOldSheetLink()}</span></div>`;
+    if(isAuthFailure(e)) showReconnect('Xero order lookup failed: signed out / token expired. Click Reconnect, then use Retry on the section.', true);
+    console.error(e);
+  }
 }
 
 // Round 47 (2026-09-07) — best-effort lookup of a title's own tab in the
@@ -6074,7 +6192,73 @@ let allOrderRowsCache = null;
 let otTrackerGid = null;
 let otFilters = { titles: new Set(), suppliers: new Set(), dateFrom: '', dateTo: '' };
 
+// ── ORDER TRACKER, Xero (Round 89, 2026-10-23) ───────────────────────────
+// David's approved mockup (Owners Inbox "BPH - PO Tracker Mockup - Mia Chen -
+// 2026-10-22", "Good to go" 22-10). Every print run from the BPH Xero Cache,
+// newest first. 5 columns: Date · Title · Qty · Printer · Sent to. PO number
+// + Ordered/Billed tag sit under the title (links to Xero for prices/bills).
+// One Title picker (type to pick, "All titles" clears, remembered on this
+// device). Footer: copies for what's shown. No prices anywhere.
+const OT_PICK_KEY = 'bph-ot-title';
+function otGetPick(){ try{ return localStorage.getItem(OT_PICK_KEY)||''; }catch(e){ return ''; } }
+function otSetPick(v){ try{ v ? localStorage.setItem(OT_PICK_KEY,v) : localStorage.removeItem(OT_PICK_KEY); }catch(e){} }
 function renderOrderTracker(){
+  const main=document.getElementById('main');
+  main.innerHTML = `
+    <div class="xot-wrap">
+      <div class="xot-head">
+        <div><h1>Order Tracker</h1><div class="xot-sub">Every print run, newest first. Click a PO number for prices and bills in Xero.</div></div>
+        <div class="xot-picker">
+          <label for="xot-pick">Title</label>
+          <input id="xot-pick" list="xot-titles" placeholder="All titles — type to pick a book" autocomplete="off" value="${esc(otGetPick())}" oninput="otApply()">
+          <datalist id="xot-titles"></datalist>
+          <button type="button" onclick="otClearPick()">All titles</button>
+        </div>
+      </div>
+      <div class="xot-card">
+        <div class="xot-row xot-th"><span>Date</span><span>Title</span><span class="qty">Qty</span><span>Printer</span><span>Sent to</span></div>
+        <div id="xot-rows"><div class="xot-none">Loading orders from Xero…</div></div>
+        <div class="xot-foot"><span id="xot-foot-l"></span><span class="muted" id="xot-foot-r"></span></div>
+      </div>
+      <div class="xot-meta" id="xot-meta"></div>
+    </div>`;
+  loadXeroPoCache().then(cache=>{
+    if(!document.getElementById('xot-rows')) return; // navigated away while loading
+    const names=[...new Set(cache.rows.map(r=>r.title).filter(Boolean))].sort((a,b)=>a.localeCompare(b));
+    document.getElementById('xot-titles').innerHTML = names.map(n=>`<option value="${esc(n)}">`).join('');
+    document.getElementById('xot-meta').innerHTML = `${xpoSyncHtml(cache.lastSync)}<span>${xpoOldSheetLink()}</span>`;
+    otApply();
+  }).catch(e=>{
+    const el=document.getElementById('xot-rows'); if(!el) return;
+    el.innerHTML = `<div class="xot-none">Could not load orders from the BPH Xero Cache: ${esc(e.message)} <button class="btn btn-sm" onclick="xeroPoCache=null;renderOrderTracker()">Retry</button></div>`;
+    document.getElementById('xot-meta').innerHTML = `<span>${xpoOldSheetLink()}</span>`;
+    if(isAuthFailure(e)) showReconnect('Order Tracker lookup failed: signed out / token expired. Click Reconnect, then use Retry.', true);
+    console.error(e);
+  });
+}
+function otClearPick(){ const i=document.getElementById('xot-pick'); if(i) i.value=''; otApply(); }
+function otApply(){
+  const el=document.getElementById('xot-rows'); if(!el || !xeroPoCache) return;
+  const inp=document.getElementById('xot-pick');
+  const v=(inp?inp.value:'').trim();
+  const known = xeroPoCache.rows.some(r=>r.title===v);
+  // Only remember / filter on a complete title; half-typed text shows everything.
+  const pick = known ? v : '';
+  if(known || !v) otSetPick(pick);
+  const shown = xeroPoCache.rows.filter(r=>!pick || r.title===pick);
+  el.innerHTML = shown.length ? shown.map(r=>{
+    const t = xpoTitleForRow(r);
+    const titleHtml = t ? `<a class="xot-title-link" href="#" onclick="gotoDetail('${esc(t.id)}');return false" title="Open this title in BPH">${esc(r.title)}</a>` : esc(r.title);
+    return `<div class="xot-row"><span class="date">${esc(xpoDate(r.date))}</span><span class="title">${titleHtml}<span class="pono">${xpoPoHtml(r)}</span></span><span class="qty">${r.qty.toLocaleString('en-GB')}</span><span class="route"><span class="printer">${esc(r.printer||'—')}</span><span class="sent"><span class="arr"> &#8594; </span>${esc(r.sentTo||'—')}</span></span></div>`;
+  }).join('') : `<div class="xot-none">${pick?`No orders for this title since ${XPO_FIRST_PO}.`:`No orders in Xero since ${XPO_FIRST_PO} yet.`}</div>`;
+  const q = shown.reduce((s,r)=>s+r.qty,0);
+  document.getElementById('xot-foot-l').textContent = (pick?'Printed to date: ':'Copies ordered: ')+q.toLocaleString('en-GB');
+  document.getElementById('xot-foot-r').textContent = shown.length+(shown.length===1?' order':' orders')+' · '+XPO_FIRST_PO+' on';
+}
+
+// Round 89: the Round 49 Sheet-based page below is retired from the nav
+// (kept, not deleted, for rollback during the side-by-side week).
+function renderOrderTrackerLegacyR49(){
   const main=document.getElementById('main');
   main.innerHTML = `
     <div class="ot-shell">

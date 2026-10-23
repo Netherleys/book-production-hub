@@ -29,6 +29,11 @@ window.BOOK_HUB_CONFIG = {
   // build report for why this is a best-effort Notes-text match, read-only,
   // rather than a strict ISBN join (the Sheet has no title/ISBN column).
   PO_INVOICE_TRACKER_SHEET_ID: "1KAqmUisEtQXdDJTMHFjWQkNOciG4jEDWO9mmidt7Rbs",
+  // Round 89 (2026-10-23): "BPH Xero Cache" (Marcus Webb, 23-10). Private,
+  // David-only Sheet filled every 2h by Scripts\xero_po_sync.py from Xero POs
+  // (PO-0014 on, no prices). Tabs: POs (header row + one row per PO line),
+  // Meta (A1 "Last sync", B1 time). BPH only ever READS it.
+  XERO_CACHE_SHEET_ID: "1iLayE0bcR8Wuuh908ZC8SrBxBHxdwIik7_C4FTDjEv0",
   BOOK_REVEAL_HELPER_URL: "http://127.0.0.1:8744", // local-only companion process, see book_reveal_helper.py
   // Minimal scope: read/write access only to Sheets the signed-in user
   // already has permission to. Deliberately NOT the broad 'drive' scope —
