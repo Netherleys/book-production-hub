@@ -1544,7 +1544,7 @@ function bphErrLog(){ try{ return JSON.parse(localStorage.getItem(BPH_ERR_KEY)||
 function bphErrNote(msg){ try{ const l=bphErrLog(); l.push({at:new Date().toISOString(),m:String(msg||'').slice(0,600)}); localStorage.setItem(BPH_ERR_KEY,JSON.stringify(l.slice(-20))); }catch(e){} }
 function bphErrText(){ const p=n=>String(n).padStart(2,'0');
   const l=bphErrLog().slice(-8).map(x=>{ const d=new Date(x.at); return (isNaN(d)?x.at:p(d.getDate())+'-'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()))+'  '+x.m; });
-  return 'BPH error log (r91, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
+  return 'BPH error log (r92, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
 function bphCopyErrors(btn){ ctCopyText(bphErrText(),btn,'Error text copied: paste it to Thomas'); }
 async function loadAllData(){
   setSyncStatus('saving'); // reused as "loading" visual — amber pulsing dot
@@ -2273,6 +2273,10 @@ function render(){
   const pcTab=document.getElementById('tab-promocal'); if(pcTab) pcTab.classList.toggle('active',view==='promocal');
   const otTab=document.getElementById('tab-ordertracker'); if(otTab) otTab.classList.toggle('active',view==='ordertracker');
   const pjTab=document.getElementById('tab-printer'); if(pjTab) pjTab.classList.toggle('active',view==='printer'); // Round 91
+  // Round 92 — one "Tracker" tab for the three print pages, with its own side menu.
+  const isTrk = TRK_VIEWS.includes(view);
+  const trkTab=document.getElementById('tab-tracker'); if(trkTab) trkTab.classList.toggle('active',isTrk);
+  trkRenderSide(isTrk);
   // Round 15 (2026-08-12) — the old header search/filter row (#search-wrap)
   // moved into the new left-hand filter sidebar (see #filter-panel-wrap in
   // index.html, right after </header>). Same show-only-on-'titles' toggle
@@ -6496,6 +6500,35 @@ async function sheetsPutRows(spreadsheetId, range, rows){
 let pjFilter = 'all', pjFoldDelivered = true, pjFoldLater = true, pjOpenRow = '';
 let pjXeroErr = '';
 function gotoPrinter(openKey){ flushPendingSave(selectedId); view='printer'; if(openKey) pjOpenRow=openKey; render(); }
+// ── TRACKER TAB (Round 92, 2026-10-28, David: "Yes, but change the tab name
+// from PRINT to TRACKER") — To the Printer, Progress Report and Order Tracker
+// under one top tab, switched from a floating side menu (#trk-side, a sibling
+// of #main like the All Titles filter sidebar). Each page and its goto*()
+// function is unchanged, so old links (title page "Edit on To the Printer",
+// Order Tracker title links, gotoReport/gotoCalendar callers) still land
+// correctly. The tab reopens the page last used on this device.
+const TRK_VIEWS = ['printer','report','ordertracker'];
+const TRK_ITEMS = [
+  {v:'printer', label:'To the Printer', sub:'Estimates, POs, proofs, delivery', go:'gotoPrinter()'},
+  {v:'report', label:'Progress Report', sub:'Where every title stands', go:'gotoReport()'},
+  {v:'ordertracker', label:'Order Tracker', sub:'Every print run, from Xero', go:'gotoOrderTracker()'}
+];
+const TRK_LAST_KEY = 'bph-trk-last';
+function gotoTracker(){
+  let v=''; try{ v=localStorage.getItem(TRK_LAST_KEY)||''; }catch(e){}
+  if(!TRK_VIEWS.includes(v)) v='printer';
+  if(v==='printer') gotoPrinter(); else if(v==='report') gotoReport(); else gotoOrderTracker();
+}
+function trkRenderSide(show){
+  const el=document.getElementById('trk-side'); if(!el) return;
+  if(!show || isPopoutReport){ el.style.display='none'; return; }
+  try{ localStorage.setItem(TRK_LAST_KEY, view); }catch(e){}
+  // Red badge = To the Printer lines due or late (same count as its strip).
+  let red=0; try{ red=pjRows().filter(r=>r.st==='r').length; }catch(e){}
+  el.innerHTML = '<div class="trk-side-h">Tracker</div>' + TRK_ITEMS.map(it=>
+    `<a href="#" class="${view===it.v?'on':''}" onclick="${it.go};return false">${it.label}${it.v==='printer'&&red?`<span class="trk-badge" title="Lines due or late">${red}</span>`:''}<small>${it.sub}</small></a>`).join('');
+  el.style.display='flex';
+}
 function pjRows(){
   const out = [];
   data.titles.filter(pjInScope).forEach(t=>{
@@ -6649,6 +6682,7 @@ function pjRenderBoardBody(){
   const meta = document.getElementById('pj-xero-meta');
   if(meta) meta.innerHTML = pjXeroErr ? `<span class="xpo-sync xpo-stale">Xero orders not loaded: ${esc(pjXeroErr)}</span>` : (xeroPoCache ? xpoSyncHtml(xeroPoCache.lastSync) : 'Checking Xero…');
   pjRenderLeads();
+  if(view==='printer') trkRenderSide(true); // Round 92 — keep the menu badge in step
 }
 function pjRenderLeads(){
   const el = document.getElementById('pj-leads-body'); if(!el) return;

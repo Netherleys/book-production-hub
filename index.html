@@ -2344,6 +2344,25 @@ a.pj-title:hover{text-decoration:underline}
 .pj-line-due,.pj-line-next{color:var(--text3)}
 @media (max-width:860px){.pj-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.pj-ed-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.pj-xero-meta{margin-left:0;width:100%}}
 @media (max-width:520px){.pj-ed-steps{grid-template-columns:1fr}}
+
+/* ── Round 92 (2026-10-28): "Tracker" tab = To the Printer + Progress Report +
+   Order Tracker under one floating side menu (David-approved mockup "BPH - One
+   Print Tab Mockup", renamed Tracker). Same look as the title-page section menu. */
+.trk-side{position:sticky;top:calc(var(--hh) + 16px);z-index:40;width:200px;flex-shrink:0;background:#111;border-radius:var(--r8);padding:10px;flex-direction:column;gap:6px;box-shadow:var(--shadow-md)}
+.trk-side-h{font-size:.66rem;text-transform:uppercase;letter-spacing:.08em;color:#B9AF9B;padding:2px 4px 4px}
+.trk-side a{display:block;padding:8px 10px;border-radius:var(--r4);border:1px solid rgba(241,234,217,.18);color:var(--text-oncream);text-decoration:none;font-size:.86rem;background:#1f1d17}
+.trk-side a:hover{border-color:rgba(241,234,217,.45)}
+.trk-side a.on{background:#fff;color:#111;font-weight:700;border-color:#fff}
+.trk-side a small{display:block;font-size:.7rem;color:#B9AF9B;font-weight:400;margin-top:2px}
+.trk-side a.on small{color:var(--text3)}
+.trk-badge{float:right;background:var(--terra);color:#fff;border-radius:999px;font-size:.66rem;font-weight:700;padding:1px 7px;margin-left:6px}
+body.popout-mode .trk-side{display:none!important}
+@media (max-width:900px){
+  .trk-side{width:auto;max-width:100%;flex-direction:row!important;overflow-x:auto;top:calc(var(--hh) + 6px);align-self:stretch}
+  .trk-side-h,.trk-side a small{display:none}
+  .trk-side a{white-space:nowrap;flex:0 0 auto}
+}
+@media print{.trk-side{display:none!important}}
 </style>
 </head>
 <body>
@@ -2380,7 +2399,11 @@ a.pj-title:hover{text-decoration:underline}
          now a view toggle INSIDE this Progress Report page (see
          renderReport()/setReportMode() in app.js) rather than its own
          top-level nav destination. -->
-    <button class="h-tab" id="tab-report" onclick="gotoReport()">Progress Report</button>
+    <!-- Round 92 (2026-10-28, David: "Yes, but change the tab name from PRINT to TRACKER") —
+         Progress Report, To the Printer and Order Tracker now live under ONE
+         "Tracker" tab (button below), switched with a floating side menu
+         (#trk-side). Their own goto* functions are unchanged, so every
+         existing link into them still lands on the right page. -->
     <!-- Round 53 (2026-09-10, David-approved mockup: _mockups/
          newsletter_promo_calendar_mockup_2026-09-10.html — "All good. Let's
          go!") — new Promo Calendar tab, per-title 6-email newsletter drip
@@ -2403,8 +2426,7 @@ a.pj-title:hover{text-decoration:underline}
          Mockup") - UK/US print + eBook lines per title, order-by dates from
          per-printer lead times. Between Promo Calendar and Order Tracker, as
          mocked. -->
-    <button class="h-tab" id="tab-printer" onclick="gotoPrinter()">To the Printer</button>
-    <button class="h-tab" id="tab-ordertracker" onclick="gotoOrderTracker()">Order Tracker</button>
+    <button class="h-tab" id="tab-tracker" onclick="gotoTracker()">Tracker</button>
   </nav>
   <!-- Round 20 (2026-08-19, David-approved mockup: _mockups/
        recently_viewed_nav_mockup_2026-08-19.html) — "Recently Viewed" nav
@@ -2500,6 +2522,7 @@ a.pj-title:hover{text-decoration:underline}
      in that sequence) are now ONE merged filter-status control; see its
      own comment just below for why. -->
 <div class="layout-wrap">
+  <nav class="trk-side" id="trk-side" style="display:none" aria-label="Tracker pages"></nav>
   <div id="filter-panel-wrap">
     <input type="checkbox" id="filtersToggle" class="filters-toggle-input">
     <label for="filtersToggle" class="filters-toggle-btn">&#9776; Filters</label>
@@ -2745,10 +2768,10 @@ a.pj-title:hover{text-decoration:underline}
   <span id="footer-last-saved"></span>
 </footer>
 
-<script src="config.js?v=r91"></script>
+<script src="config.js?v=r92"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="google-auth.js?v=r91"></script>
-<script src="app.js?v=r91"></script>
+<script src="google-auth.js?v=r92"></script>
+<script src="app.js?v=r92"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
