@@ -63,6 +63,12 @@ const TITLE_COLS = [
   'promoCalendar_json'
 ];
 const TITLE_RANGE_LAST_COL = 'AR'; // keep in lockstep with TITLE_COLS.length (44)
+// Round 91 (2026-10-28) — To the Printer data lives in its own column, AZ
+// (header printJobs_json), read and written as a SEPARATE range so the main
+// A:AR row write never touches it, and older open tabs can never wipe it.
+// AS:AY are skipped on purpose: a few rows hold stray TRUE cells there of
+// unknown origin, left exactly as they are.
+const PJ_COL = 'AZ', PJ_COL_INDEX = 51;
 const ISBN_COLS = ['isbn','format','assignedToTitleId','assignedToTitleName','nielsenNotified','legacyArchived'];
 
 // Pipeline stages, grouped for the reworked chained/boxed layout (items
@@ -1244,6 +1250,7 @@ function rowToTitle(row){
     filesLinks: { links: filesLinks.links||[] },
     quickNotes,
     promoCalendar,
+    printJobs: pjNormalize(safeJson(row[PJ_COL_INDEX], {})), // Round 91 (col AZ)
     poManualNotes: pn.poManualNotes||'',
     // Round 69 — distributor-only fields (SCB / Turnaround), edited on the distributor page.
     dist: Object.assign({}, DIST_DEFAULTS, (pn.distributor && typeof pn.distributor==='object') ? pn.distributor : {}),
@@ -1383,7 +1390,7 @@ function defTitle(o={}){
     productionNotes:{checklist:PROD_CHECKLIST.map(t=>({text:t,checked:false})),notes:'',proofingNotes:'',typesettingNotes:''},
     futureEdition:{infoAndChanges:'',printReadyFilesStatus:'Not Ready'},
     filesLinks:{links:[]},
-    quickNotes:[], promoCalendar:{}, poManualNotes:'', originals:{}, dist:Object.assign({},DIST_DEFAULTS),
+    quickNotes:[], promoCalendar:{}, printJobs:pjNormalize({}), poManualNotes:'', originals:{}, dist:Object.assign({},DIST_DEFAULTS),
     imagesFolderLink:'', workingFolderLink:'', coverThumbnailFile:DEFAULT_COVER_PLACEHOLDER, authorBookkeepingLink:'', poTrackerIsbnKey:'', poTrackerTitleOverride:'',
     _row: null
   };
@@ -1537,12 +1544,13 @@ function bphErrLog(){ try{ return JSON.parse(localStorage.getItem(BPH_ERR_KEY)||
 function bphErrNote(msg){ try{ const l=bphErrLog(); l.push({at:new Date().toISOString(),m:String(msg||'').slice(0,600)}); localStorage.setItem(BPH_ERR_KEY,JSON.stringify(l.slice(-20))); }catch(e){} }
 function bphErrText(){ const p=n=>String(n).padStart(2,'0');
   const l=bphErrLog().slice(-8).map(x=>{ const d=new Date(x.at); return (isNaN(d)?x.at:p(d.getDate())+'-'+p(d.getMonth()+1)+' '+p(d.getHours())+':'+p(d.getMinutes())+':'+p(d.getSeconds()))+'  '+x.m; });
-  return 'BPH error log (r88, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
+  return 'BPH error log (r91, '+navigator.userAgent.replace(/^.*(Chrome\/[\d.]+).*$/,'$1')+')\n'+(l.length?l.join('\n'):'(no errors logged)'); }
 function bphCopyErrors(btn){ ctCopyText(bphErrText(),btn,'Error text copied: paste it to Thomas'); }
 async function loadAllData(){
   setSyncStatus('saving'); // reused as "loading" visual — amber pulsing dot
   try{
-    const titleRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Titles!A2:'+TITLE_RANGE_LAST_COL+'2000');
+    // Round 91: read through AZ (printJobs_json); AS:AY are read but ignored.
+    const titleRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Titles!A2:'+PJ_COL+'2000');
     const isbnRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'ISBNs!A2:F2000');
     // Round 4 — Blocks tab (block_id/block_name/sortOrder/notes), loaded
     // once here alongside titles/isbns and read synchronously off
@@ -1550,7 +1558,7 @@ async function loadAllData(){
     const blockRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Blocks!A2:D200');
     data.titles = titleRows
       .filter(r => r[0] && r[0] !== 'EXAMPLE-DELETE-ME')
-      .map((r,i) => { const t = rowToTitle(r); t._row = findRowIndex(titleRows, r) + 2; return t; });
+      .map((r,i) => { const t = rowToTitle(r); t._row = findRowIndex(titleRows, r) + 2; if(r[PJ_COL_INDEX]) t._pjSaved = JSON.stringify(t.printJobs); return t; });
     // Round 10, item 2 — Street Date is a calendar fact, not a user action,
     // so there's no click/onchange handler to hook it onto the way item 1
     // hooks into cycleStage(). Instead it's re-checked here, once per load
@@ -1578,9 +1586,14 @@ async function loadAllData(){
       const codeRows = await sheetsGet(CFG.TITLES_SHEET_ID, 'Codes!A2:E2000');
       data.codes = codeRowsToObjs(codeRows);
     }catch(e){ data.codes = []; console.warn('Codes tab not loaded:', e && e.message); }
+    await loadPrintSettings(); // Round 91 — lead times (defaults if the tab can't be read)
     setSyncStatus('saved');
     document.getElementById('footer-sync-label').textContent = 'Connected — Book Production Titles';
     render();
+    // Round 91 — the card ribbon needs PO numbers from the Xero cache. Until it
+    // answers, no ribbon fires (never a false alarm); then the current view
+    // redraws once with the real state.
+    loadXeroPoCache().then(()=>{ if(view==='titles') renderTitles(); else if(view==='detail' && selectedId) pjFillDetail(selectedId); }).catch(e=>console.warn('Xero cache not loaded for ribbons:', e && e.message));
   }catch(e){
     setSyncStatus('error');
     if(isAuthFailure(e)){ showReconnect('Could not load data: signed out / token expired. Click Reconnect.'); console.error(e); return; }
@@ -1696,6 +1709,12 @@ async function saveTitle(titleId){
     } else {
       const assignedRow = await sheetsAppend(CFG.TITLES_SHEET_ID, 'Titles', row);
       if(assignedRow) t._row = assignedRow;
+    }
+    // Round 91 — To the Printer data, own cell (AZ), only once it holds something.
+    const pjJson = JSON.stringify(pjNormalize(t.printJobs||{}));
+    if(t._row && (t._pjSaved!==pjJson) && (pjHasData(t) || t._pjSaved)){
+      await sheetsPut(CFG.TITLES_SHEET_ID, 'Titles!'+PJ_COL+t._row, [pjJson]);
+      t._pjSaved = pjJson;
     }
     pendingSaveTitleIds.delete(titleId);
     setSyncStatus('saved');
@@ -1820,13 +1839,14 @@ function hasAttention(t){
   // the merge added more override values (Not Scheduled/In Progress/
   // Published/Cancelled) that must NOT flag attention — only Delayed/On
   // Hold still has attention:true there.
-  if(t.dates.printStatusOverride){
-    const cfg=PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride];
-    return !!(cfg && cfg.attention);
-  }
-  const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
-  if(pd){const d=daysUntil(pd);if(d!==null&&d<=60&&!isPublished(t))return true;}
-  return false;
+  // Round 91 (2026-10-28, David's brief) — the ribbon no longer counts down
+  // from street −60. It fires ONLY when a print territory (UK/US) has no PO
+  // and is past its order-by date (per-printer lead times, To the Printer).
+  // Delayed/On Hold still shows ON HOLD; Cancelled / Out of Print never alarm.
+  const ov=t.dates.printStatusOverride;
+  if(ov && PRINT_STATUS_OVERRIDES[ov] && PRINT_STATUS_OVERRIDES[ov].attention) return true;
+  if(ov==='Cancelled' || ov==='Out of Print') return false;
+  return pjLateTerritories(t).length > 0;
 }
 // Round 38 (2026-08-28) — David: the red ribbon is a flat alarm colour with
 // no urgency level shown, floated a "-60 days"-style countdown. Genuinely
@@ -1857,9 +1877,10 @@ function attentionLabel(t){
   // reading the flag keeps this in lockstep automatically if that ever
   // changes, rather than needing a second hand-maintained string compare.
   if(t.dates.printStatusOverride && PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride] && PRINT_STATUS_OVERRIDES[t.dates.printStatusOverride].attention) return 'ON HOLD';
-  const info=computeDayInfo(t);
-  if(info.kind==='overdue'){ const n=Math.abs(info.days); return n+(n===1?' DAY LATE':' DAYS LATE'); }
-  if(info.kind==='counting') return info.days+(info.days===1?' DAY':' DAYS');
+  // Round 91 — "US 91 DAYS LATE" / "UK+US 9 DAYS LATE": the territory with no
+  // PO, and how far past its order-by date the latest one is.
+  const late=pjLateTerritories(t);
+  if(late.length){ const n=Math.max(...late.map(l=>l.days)); return late.map(l=>PJ_LABEL[l.terr]).join('+')+' '+n+(n===1?' DAY LATE':' DAYS LATE'); }
   return 'ATTENTION'; // safety net only — hasAttention()'s own branches should make this unreachable
 }
 // 2026-07-26 (items 13/14/15) — single source of truth for the
@@ -2251,6 +2272,7 @@ function render(){
   const rptTab=document.getElementById('tab-report'); if(rptTab) rptTab.classList.toggle('active',view==='report');
   const pcTab=document.getElementById('tab-promocal'); if(pcTab) pcTab.classList.toggle('active',view==='promocal');
   const otTab=document.getElementById('tab-ordertracker'); if(otTab) otTab.classList.toggle('active',view==='ordertracker');
+  const pjTab=document.getElementById('tab-printer'); if(pjTab) pjTab.classList.toggle('active',view==='printer'); // Round 91
   // Round 15 (2026-08-12) — the old header search/filter row (#search-wrap)
   // moved into the new left-hand filter sidebar (see #filter-panel-wrap in
   // index.html, right after </header>). Same show-only-on-'titles' toggle
@@ -2281,6 +2303,7 @@ function render(){
   else if(view==='report')renderReport();
   else if(view==='promocal')renderPromoCalendar();
   else if(view==='ordertracker')renderOrderTracker();
+  else if(view==='printer')renderPrinterBoard(); // Round 91
   else if(view==='dist')distRender(); // Round 69
   if(typeof distReturnChipSync==='function') distReturnChipSync(); // Round 71
   populateQuickNoteTitles();
@@ -2740,7 +2763,8 @@ function renderCard(t){
   let attn='';
   if(hasAttention(t)){
     const attnLbl=attentionLabel(t);
-    attn=`<div class="card-attention" title="Needs attention — ${esc(attnLbl)}">${esc(attnLbl)}</div>`;
+    const attnTip=pjBannerText(t)||attnLbl; // Round 91 — tooltip names the territory + order-by date
+    attn=`<div class="card-attention" title="Needs attention — ${esc(attnTip)}">${esc(attnLbl)}</div>`;
   }
   // Real thumbnails, 2026-07-15 — investigated three options (see build
   // report): (A) Microsoft Graph API OAuth integration, (B) OneDrive's
@@ -2948,6 +2972,7 @@ function renderDetail(){
           </div>
           <div class="detail-dashed-divider"></div>
           ${renderLinksStrip(t)}
+          ${pjInScope(t)?pjDetailHtml(t):''}
         </div>
         ${renderExportButtons(t)}
         ${renderKeyContacts(t)}
@@ -2962,6 +2987,7 @@ function renderDetail(){
   // e.g. navigating away and back) and hasn't been fetched yet; the normal
   // first-open case is handled by toggleAccord() itself.
   if(isOpen(t.id,'poTracker') && !poTrackerLoadedFor[t.id]){ poTrackerLoadedFor[t.id]=true; loadPoTrackerFor(t.id); }
+  if(pjInScope(t)) loadXeroPoCache().then(()=>pjFillDetail(t.id)).catch(()=>{}); // Round 91
   // Round 13 (2026-08-12) — was SECTION_KEYS[0] ('dates'); the detail view
   // actually opens scrolled to the top box, not "Dates & Scheduling", so
   // 'top' is the correct initial highlight now that it's a real sidebar
@@ -6256,6 +6282,421 @@ function otApply(){
   const q = shown.reduce((s,r)=>s+r.qty,0);
   document.getElementById('xot-foot-l').textContent = (pick?'Printed to date: ':'Copies ordered: ')+q.toLocaleString('en-GB');
   document.getElementById('xot-foot-r').textContent = shown.length+(shown.length===1?' order':' orders')+' · '+XPO_FIRST_PO+' on';
+}
+
+// ── TO THE PRINTER (Round 91, 2026-10-28, David GO on Mia's mockup) ─────────
+// Spec: Owners Inbox\_Files\BPH - To the Printer Mockup - Mia Chen - 2026-10-28\
+// "BPH - To the Printer Mockup.html" (v2: eBook rows, 4 weeks on all printers).
+// One row per title per territory: UK print, US print, eBook. Each row has four
+// dated steps (print: Estimate · PO · Proof OK · Delivered; eBook: Files sent ·
+// Conversion · Proof OK · Live), worked back from the street date with
+// per-printer lead times (PrintSettings tab), replacing street −60 for the
+// card ribbon. Per-title data = Titles!AS printJobs_json (new column, appended
+// last, so older open tabs that write A:AR never touch it). PO numbers come
+// from the BPH Xero Cache (territory inferred from Sent to / printer); a manual
+// PO field covers orders before PO-0014 (PO-0001/0002, old PO tracker).
+const PJ_TERRS = ['uk','us','ebook'];
+const PJ_LABEL = {uk:'UK', us:'US', ebook:'eBook'};
+const PJ_STEPS = {
+  print: [['est','Estimate'],['po','PO'],['proof','Proof OK'],['deliv','Delivered']],
+  ebook: [['files','Files sent'],['conv','Conversion'],['proof','Proof OK'],['live','Live']]
+};
+const PJ_DEFAULT_PRINTER = {uk:'Biddles', us:'IBI', ebook:''};
+// David 28-10: "Say 4 weeks on all printers, sometimes it is slightly more, or
+// less. Other info - correct." est/proof = days before PO / before proof OK;
+// print = from proof OK; transit = to the warehouse (IBI +1 week freight).
+const PRINT_LEAD_DEFAULTS = {
+  'Biddles.est':7, 'Biddles.proof':7, 'Biddles.print':28, 'Biddles.transit':3,
+  'IBI.est':7, 'IBI.proof':7, 'IBI.print':28, 'IBI.transit':7,
+  'Other.est':7, 'Other.proof':7, 'Other.print':28, 'Other.transit':7,
+  'whBuffer':45, 'xmasDays':14
+};
+let printLeads = Object.assign({}, PRINT_LEAD_DEFAULTS);
+let printLeadsFromSheet = false;
+function pjStep(o){ o=(o&&typeof o==='object')?o:{}; return Object.assign({}, o, {d:o.d||'', done:o.done===true, note:o.note||''}); }
+function pjNormalize(raw){
+  raw = (raw && typeof raw==='object') ? raw : {};
+  const out = Object.assign({}, raw);
+  ['uk','us'].forEach(k=>{
+    const r = (raw[k] && typeof raw[k]==='object') ? raw[k] : {};
+    const po = (r.po && typeof r.po==='object') ? r.po : {};
+    out[k] = Object.assign({}, r, {
+      printer: ('printer' in r) ? (r.printer||'') : PJ_DEFAULT_PRINTER[k],
+      skip: r.skip===true, next: r.next||'',
+      est: pjStep(r.est), proof: pjStep(r.proof),
+      po: Object.assign({}, po, {no:po.no||'', d:po.d||'', qty:po.qty||'', note:po.note||''}),
+      deliv: Object.assign(pjStep(r.deliv), {approx: !!(r.deliv&&r.deliv.approx)})
+    });
+  });
+  const e = (raw.ebook && typeof raw.ebook==='object') ? raw.ebook : {};
+  out.ebook = Object.assign({}, e, { by: e.by||'', skip: e.skip===true, next: e.next||'',
+    files: pjStep(e.files), conv: pjStep(e.conv), proof: pjStep(e.proof), live: pjStep(e.live) });
+  return out;
+}
+function pjOf(t){ if(!t.printJobs || !t.printJobs.uk) t.printJobs = pjNormalize(t.printJobs); return t.printJobs; }
+function pjHasData(t){
+  const j = pjOf(t);
+  const stepHas = s => !!(s && (s.d || s.done || s.note));
+  return ['uk','us'].some(k=>{ const r=j[k]; return stepHas(r.est)||stepHas(r.proof)||stepHas(r.deliv)||!!(r.po.no||r.po.d)||!!r.next; })
+      || ['files','conv','proof','live'].some(s=>stepHas(j.ebook[s])) || !!j.ebook.next;
+}
+// Which titles the board (and the card ribbon) look at: anything with print
+// data recorded, plus anything whose street date is no more than 30 days gone.
+// Long-published back-catalogue titles with nothing recorded stay off.
+function pjInScope(t){
+  if(/cancel/i.test(t.status||'')) return false;
+  if(pjHasData(t)) return true;
+  const sd = t.dates && t.dates.streetDate; if(!sd) return false;
+  const n = daysUntil(sd); return n!==null && n >= -30;
+}
+function pjLeadKey(printer){ if(/biddles/i.test(printer||'')) return 'Biddles'; if(/\bibi\b|integrated/i.test(printer||'')) return 'IBI'; return 'Other'; }
+function pjLead(key, part){ const v = Number(printLeads[key+'.'+part]); return isFinite(v) ? v : PRINT_LEAD_DEFAULTS[key+'.'+part]; }
+function pjD(iso){ const m=/^(\d{4})-(\d{2})-(\d{2})/.exec(iso||''); return m ? new Date(+m[1], +m[2]-1, +m[3], 12) : null; }
+function pjAdd(d,n){ const x=new Date(d.getTime()); x.setDate(x.getDate()+n); return x; }
+function pjIso(d){ return d ? d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0') : ''; }
+function pjDays(d){ if(!d) return null; const t=new Date(); t.setHours(12,0,0,0); return Math.round((d-t)/86400000); }
+// "05-11" this year, "04-02-27" another year (UK DD-MM, per the house rule).
+function pjDm(d){ if(!d) return '—'; const s=String(d.getDate()).padStart(2,'0')+'-'+String(d.getMonth()+1).padStart(2,'0'); return d.getFullYear()===new Date().getFullYear() ? s : s+'-'+String(d.getFullYear()).slice(2); }
+// Worked back from street: warehouse by = street − whBuffer; proof OK by =
+// warehouse − (print + transit); +xmasDays earlier if the print run overlaps
+// the 21-12 → 04-01 shutdown; PO (files) by = proof − proof days; estimates by
+// = PO − est days.
+function pjPlan(street, leadKey){
+  const sd = pjD(street); if(!sd) return null;
+  const pr = pjLead(leadKey,'print'), tr = pjLead(leadKey,'transit');
+  const wh = pjAdd(sd, -(Number(printLeads.whBuffer)||0));
+  let proofBy = pjAdd(wh, -(pr+tr)); let xmas = false;
+  const printEnd = pjAdd(proofBy, pr);
+  for(const y of [proofBy.getFullYear()-1, proofBy.getFullYear()]){
+    const a = new Date(y,11,21,12), b = new Date(y+1,0,4,12);
+    if(proofBy < b && printEnd > a){ xmas = true; break; }
+  }
+  if(xmas) proofBy = pjAdd(proofBy, -(Number(printLeads.xmasDays)||0));
+  const poBy = pjAdd(proofBy, -pjLead(leadKey,'proof'));
+  const estBy = pjAdd(poBy, -pjLead(leadKey,'est'));
+  return {street:sd, wh, proofBy, poBy, estBy, xmas};
+}
+// eBook: David 28-10 — the eBook is made from the print-ready files, so it
+// uses the same lead and the same order-by / completion dates as the UK print
+// line (files out by = UK PO by, proof OK by = UK proof by, live by = warehouse by).
+function pjPlanFor(t, terr){
+  const j = pjOf(t);
+  const key = terr==='ebook' ? pjLeadKey(j.uk.printer||'Biddles') : pjLeadKey(j[terr].printer);
+  return pjPlan(t.dates.streetDate, key);
+}
+// Territory of a Xero cache row: Sent to first (Turnaround = UK, SCB = US),
+// then the printer (Biddles = UK; IBI and the US printers = US).
+function pjRowTerr(r){
+  const s = (r.sentTo||''), p = (r.printer||'');
+  if(/turnaround|\(uk\)/i.test(s)) return 'uk';
+  if(/\bscb\b|\(us\)/i.test(s)) return 'us';
+  if(/biddles/i.test(p)) return 'uk';
+  if(/\bibi\b|integrated|sheridan|lakeside|gaynor|marquis/i.test(p)) return 'us';
+  return '';
+}
+// Effective PO for a print territory: Xero cache lines win; else the manual
+// PO fields (orders before PO-0014). null = no PO. {pending:true} = the Xero
+// cache hasn't answered yet and nothing manual is recorded (never alarms).
+function pjPoFor(t, terr){
+  if(terr==='ebook') return null;
+  const j = pjOf(t)[terr];
+  if(xeroPoCache){
+    const mine = xpoRowsForTitle(t, xeroPoCache.rows).filter(r=>pjRowTerr(r)===terr);
+    if(mine.length){
+      const dates = mine.map(r=>r.date).filter(Boolean).sort();
+      return {src:'xero', rows:mine, no:[...new Set(mine.map(r=>r.po))].join(' + '), d:dates[0]||'', qty:mine.reduce((s,r)=>s+r.qty,0)};
+    }
+  }
+  if(j.po.no || j.po.d) return {src:'manual', no:j.po.no, d:j.po.d, qty:j.po.qty, note:j.po.note};
+  if(!xeroPoCache) return {pending:true};
+  return null;
+}
+const pjDone = s => !!(s && (s.d || s.done));
+// r = red (no PO / files not sent, and late or estimates due within 14 days),
+// n = grey (not yet due, or eBook not recorded after street), a = amber
+// (ordered / files sent, not delivered), g = green (delivered / live).
+function pjState(t, terr){
+  const j = pjOf(t)[terr], pl = pjPlanFor(t, terr);
+  if(terr==='ebook'){
+    if(pjDone(j.live)) return 'g';
+    if(pjDone(j.files) || pjDone(j.conv) || pjDone(j.proof)) return 'a';
+    if(!pl) return 'n';
+    if(pjDays(pl.street) < 0) return 'n';
+    return pjDays(pl.poBy) <= 14 ? 'r' : 'n';
+  }
+  if(pjDone(j.deliv)) return 'g';
+  const po = pjPoFor(t, terr);
+  if(po && !po.pending) return 'a';
+  if(!pl) return 'n';
+  if(po && po.pending) return 'n';
+  return (pjDays(pl.poBy) < 0 || pjDays(pl.estBy) <= 14) ? 'r' : 'n';
+}
+const PJ_STATE_LBL = {
+  print: {r:'Not ordered', n:'Not yet', a:'At printer', g:'Delivered'},
+  ebook: {r:'Files not sent', n:'Not yet', a:'Converting', g:'Live'}
+};
+function pjStateLabel(t, terr, st){
+  if(terr==='ebook' && st==='n'){ const pl=pjPlanFor(t,'ebook'); if(pl && pjDays(pl.street)<0 && !pjHasEbook(t)) return 'Not recorded'; }
+  return PJ_STATE_LBL[terr==='ebook'?'ebook':'print'][st];
+}
+function pjHasEbook(t){ const e=pjOf(t).ebook; return ['files','conv','proof','live'].some(s=>pjDone(e[s])||e[s].note); }
+// The card ribbon / title banner rule (David's brief, 28-10): fires ONLY when a
+// print territory has no PO and is past its order-by date.
+function pjLateTerritories(t){
+  if(!pjInScope(t)) return [];
+  const j = pjOf(t), out = [];
+  ['uk','us'].forEach(k=>{
+    if(j[k].skip || pjDone(j[k].deliv)) return;
+    const po = pjPoFor(t,k); if(po) return; // ordered, or Xero not answered yet
+    const pl = pjPlanFor(t,k); if(!pl) return;
+    const n = pjDays(pl.poBy); if(n < 0) out.push({terr:k, days:-n, poBy:pl.poBy, printer:j[k].printer||PJ_DEFAULT_PRINTER[k]});
+  });
+  return out;
+}
+function pjBannerText(t){
+  const late = pjLateTerritories(t); if(!late.length) return '';
+  return late.map(l=>`${PJ_LABEL[l.terr]} not ordered: ${l.printer||'printer'} order was due ${pjDm(l.poBy)} (${l.days} day${l.days===1?'':'s'} late)`).join(' · ');
+}
+
+// ── PrintSettings tab (lead times), key/value rows ──
+async function loadPrintSettings(){
+  printLeads = Object.assign({}, PRINT_LEAD_DEFAULTS); printLeadsFromSheet = false;
+  if(devMode) return;
+  try{
+    const rows = await sheetsGet(CFG.TITLES_SHEET_ID, 'PrintSettings!A2:B60');
+    (rows||[]).forEach(r=>{ const k=String(r[0]||'').trim(), v=Number(String(r[1]||'').trim()); if(k in PRINT_LEAD_DEFAULTS && isFinite(v) && String(r[1]).trim()!=='') printLeads[k]=v; });
+    printLeadsFromSheet = true;
+  }catch(e){ console.warn('PrintSettings tab not loaded, using defaults:', e && e.message); }
+}
+let pjSettingsTimer = null;
+function pjSetLead(k, v){
+  const n = parseInt(v,10); if(!(k in PRINT_LEAD_DEFAULTS) || isNaN(n) || n<0 || n>365) return;
+  printLeads[k] = n;
+  pjRenderBoardBody();
+  if(devMode || !printLeadsFromSheet) return; // never create the tab from the browser
+  clearTimeout(pjSettingsTimer);
+  pjSettingsTimer = setTimeout(async ()=>{
+    try{
+      const keys = Object.keys(PRINT_LEAD_DEFAULTS); // one row per key, fixed order from A2
+      await sheetsPutRows(CFG.TITLES_SHEET_ID, 'PrintSettings!A2:B'+(keys.length+1), keys.map(x=>[x, String(printLeads[x])]));
+      ctToast('Lead times saved.');
+    }catch(e){ showReconnect('Lead times not saved: '+e.message, isAuthFailure(e)); }
+  }, 800);
+}
+async function sheetsPutRows(spreadsheetId, range, rows){
+  return withAuthRetry(async ()=>{
+    const url = SHEETS_API+spreadsheetId+'/values/'+encodeURIComponent(range)+'?valueInputOption=RAW';
+    const resp = await fetch(url, { method:'PUT', headers: Object.assign({'Content-Type':'application/json'}, await authHeaders()), body: JSON.stringify({ values:rows }) });
+    if(!resp.ok){ const txt=await resp.text(); const err=new Error('Sheets PUT '+resp.status+': '+txt.slice(0,200)); err.status=resp.status; throw err; }
+    return resp.json();
+  });
+}
+
+// ── Board ──
+let pjFilter = 'all', pjFoldDelivered = true, pjFoldLater = true, pjOpenRow = '';
+let pjXeroErr = '';
+function gotoPrinter(openKey){ flushPendingSave(selectedId); view='printer'; if(openKey) pjOpenRow=openKey; render(); }
+function pjRows(){
+  const out = [];
+  data.titles.filter(pjInScope).forEach(t=>{
+    const j = pjOf(t);
+    PJ_TERRS.forEach(k=>{
+      if(j[k].skip) return;
+      const pl = pjPlanFor(t,k), st = pjState(t,k);
+      const later = st==='n' && pl && pjDays(pl.estBy) > 90;
+      out.push({t, terr:k, pl, st, later, key:t.id+'|'+k});
+    });
+  });
+  const ord = {r:0, n:1, a:2, g:3};
+  out.sort((a,b)=> (a.later-b.later) || (ord[a.st]-ord[b.st]) || ((a.pl?a.pl.poBy:Infinity)-(b.pl?b.pl.poBy:Infinity)) || a.t.title.localeCompare(b.t.title) || PJ_TERRS.indexOf(a.terr)-PJ_TERRS.indexOf(b.terr));
+  return out;
+}
+function renderPrinterBoard(){
+  const main = document.getElementById('main');
+  main.innerHTML = `<div class="pj-wrap">
+    <div class="pj-head"><div><h1>To the Printer</h1>
+      <div class="pj-sub">One row per title: UK print, US print and eBook, sorted by order-by date. Click a row to record a date. POs come from Xero (PO-0014 on); older POs are typed in.</div></div></div>
+    <div class="pj-strip" id="pj-strip"></div>
+    <div id="pj-week"></div>
+    <div class="pj-toolbar">
+      <span class="lbl">Show</span>
+      ${['all','uk','us','ebook'].map(f=>`<button type="button" class="pj-chip${pjFilter===f?' on':''}" onclick="pjSetFilter('${f}')">${f==='all'?'All':PJ_LABEL[f]}</button>`).join('')}
+      <span id="pj-xero-meta" class="pj-xero-meta"></span>
+    </div>
+    <div class="pj-board-scroll"><table class="pj-board"><thead><tr>
+      <th>Title</th><th>Line</th><th>Order by</th><th>Estimate<span class="pj-th2">eBook: files sent</span></th><th>PO<span class="pj-th2">eBook: conversion</span></th><th>Proof OK</th><th>Delivered<span class="pj-th2">eBook: live</span></th><th>State</th><th>Next step</th>
+    </tr></thead><tbody id="pj-rows"><tr><td colspan="9" class="pj-none">Loading orders from Xero…</td></tr></tbody></table></div>
+    <p class="pj-legend">Red = no PO (eBook: files not sent) and the order is late, or estimates are due within 14 days. Grey = not due yet. Amber = ordered (eBook: files sent), not delivered. Green = delivered / live. eBook rows use the UK print line's dates.</p>
+    <details class="pj-leads" id="pj-leads"><summary>Lead times (all printers 4 weeks print, editable)</summary><div id="pj-leads-body"></div></details>
+  </div>`;
+  pjRenderBoardBody();
+  loadXeroPoCache().then(c=>{ pjXeroErr=''; if(view==='printer') pjRenderBoardBody(); })
+    .catch(e=>{ pjXeroErr = e.message||String(e); if(view==='printer') pjRenderBoardBody(); if(isAuthFailure(e)) showReconnect('Xero order lookup failed: signed out / token expired. Click Reconnect.', true); });
+}
+function pjSetFilter(f){ pjFilter=f; document.querySelectorAll('.pj-chip').forEach(b=>b.classList.toggle('on', b.getAttribute('onclick')===`pjSetFilter('${f}')`)); pjRenderBoardBody(); }
+function pjToggleFold(which){ if(which==='g') pjFoldDelivered=!pjFoldDelivered; else pjFoldLater=!pjFoldLater; pjRenderBoardBody(); }
+function pjToggleRow(key){ pjOpenRow = pjOpenRow===key ? '' : key; pjRenderBoardBody(); }
+function pjStepCell(t, terr, sk, pl){
+  const j = pjOf(t)[terr], s = j[sk];
+  if(sk==='po' && terr!=='ebook'){
+    const po = pjPoFor(t, terr), st = pjState(t, terr);
+    if(po && po.pending) return `<td class="pj-step"><span class="d pj-miss">…</span><span class="s">checking Xero</span></td>`;
+    if(!po) return `<td class="pj-step"><span class="d ${st==='r'?'pj-late':'pj-miss'}">No PO</span></td>`;
+    const link = po.src==='xero' && po.rows.length===1 && /^https:\/\/go\.xero\.com\//.test(po.rows[0].link) ? po.rows[0].link : '';
+    const no = link ? `<a class="xpo-link" href="${esc(link)}" target="_blank" rel="noopener" onclick="event.stopPropagation()">${esc(po.no)} &#8599;</a>` : esc(po.no||'PO');
+    return `<td class="pj-step"><span class="d pj-ok">${no}</span><span class="s">${po.qty?'× '+esc(String(po.qty))+' · ':''}${po.d?'ordered '+pjDm(pjD(po.d))+' · ':''}${po.src==='xero'?'Xero':'typed in'}</span></td>`;
+  }
+  if(!pjDone(s)) return `<td class="pj-step"><span class="d pj-miss">—</span>${s.note?`<span class="s">${esc(s.note)}</span>`:''}</td>`;
+  const approx = sk==='deliv' && j.deliv.approx ? '~' : '';
+  return `<td class="pj-step"><span class="d pj-ok">${s.d?approx+pjDm(pjD(s.d)):'done'}</span><span class="s">${s.d?'':'date not recorded'}${s.note?(s.d?'':' · ')+esc(s.note):''}</span></td>`;
+}
+function pjRowHtml(r){
+  const {t, terr, pl, st} = r, j = pjOf(t)[terr];
+  const isE = terr==='ebook';
+  let orderBy = '<span class="d pj-miss">no street date</span>';
+  if(pl){
+    const n = pjDays(pl.poBy);
+    const po = isE ? null : pjPoFor(t, terr);
+    if(!isE && po && !po.pending) orderBy = `<span class="d">${po.d?'Ordered '+pjDm(pjD(po.d)):'Ordered'}</span><span class="s">was due ${pjDm(pl.poBy)}</span>`;
+    else if(isE && st!=='r') orderBy = `<span class="d">${pjDm(pl.poBy)}</span><span class="s">files out by · live by ${pjDm(pl.wh)}</span>`;
+    else orderBy = `<span class="d ${st==='r'?(n<0?'pj-late':'pj-due'):''}">${pjDm(pl.poBy)}</span><span class="s">${n<0?(-n)+' days late':'in '+n+' days'}${isE?' · files out by':' · est. by '+pjDm(pl.estBy)}${pl.xmas?' · incl. Xmas':''}</span>`;
+  }
+  const steps = PJ_STEPS[isE?'ebook':'print'].map(([sk])=>pjStepCell(t, terr, sk, pl)).join('');
+  const prn = isE ? (j.by||'Conversion') : (j.printer||'—');
+  const open = pjOpenRow===r.key;
+  return `<tr class="pj-row pj-${st}${open?' pj-open':''}" onclick="pjToggleRow('${esc(r.key)}')" title="Click to record dates">
+    <td><a class="pj-title" href="#" onclick="event.stopPropagation();gotoDetail('${esc(t.id)}');return false" title="Open the title page">${esc(t.title)}</a><div class="pj-street">Street ${t.dates.streetDate?pjDm(pjD(t.dates.streetDate)):'—'}</div></td>
+    <td><span class="pj-terr">${PJ_LABEL[terr]}</span><span class="pj-prn">${esc(prn)}</span></td>
+    <td class="pj-step">${orderBy}</td>${steps}
+    <td><span class="pj-pill pj-${st}">${esc(pjStateLabel(t,terr,st))}</span></td>
+    <td class="pj-next">${esc(j.next||'')}</td></tr>${open?pjEditorHtml(r):''}`;
+}
+function pjEditorHtml(r){
+  const {t, terr} = r, j = pjOf(t)[terr], isE = terr==='ebook', id = t.id;
+  const f = (sk, label) => { const s=j[sk]; return `<div class="pj-ed-step"><label>${label}</label>
+      <input type="date" value="${esc(s.d)}" onchange="pjSet('${id}','${terr}','${sk}','d',this.value)">
+      <label class="pj-ed-chk"><input type="checkbox" ${s.done?'checked':''} onchange="pjSet('${id}','${terr}','${sk}','done',this.checked)"> done, date not known</label>
+      ${sk==='deliv'?`<label class="pj-ed-chk"><input type="checkbox" ${j.deliv.approx?'checked':''} onchange="pjSet('${id}','${terr}','deliv','approx',this.checked)"> approx.</label>`:''}
+      <input type="text" class="pj-ed-note" placeholder="Note" value="${esc(s.note)}" onchange="pjSet('${id}','${terr}','${sk}','note',this.value)"></div>`; };
+  let po = '';
+  if(!isE){
+    const x = pjPoFor(t, terr);
+    po = `<div class="pj-ed-step"><label>PO</label>
+      ${x && x.src==='xero' ? `<div class="pj-ed-x">From Xero: ${esc(x.no)} × ${esc(String(x.qty))}${x.d?' · '+pjDm(pjD(x.d)):''}</div>` : ''}
+      <input type="text" placeholder="PO no. (before PO-0014)" value="${esc(j.po.no)}" onchange="pjSet('${id}','${terr}','po','no',this.value)">
+      <input type="date" value="${esc(j.po.d)}" onchange="pjSet('${id}','${terr}','po','d',this.value)">
+      <input type="text" class="pj-ed-qty" placeholder="Qty" value="${esc(String(j.po.qty||''))}" onchange="pjSet('${id}','${terr}','po','qty',this.value)">
+      <input type="text" class="pj-ed-note" placeholder="Note" value="${esc(j.po.note)}" onchange="pjSet('${id}','${terr}','po','note',this.value)"></div>`;
+  }
+  const steps = isE ? f('files','Files sent')+f('conv','Conversion')+f('proof','Proof OK')+f('live','Live')
+                    : f('est','Estimate')+po+f('proof','Proof OK')+f('deliv','Delivered');
+  return `<tr class="pj-ed-row"><td colspan="9" onclick="event.stopPropagation()"><div class="pj-ed">
+    <div class="pj-ed-top">
+      <label>${isE?'Converted by':'Printer'} <input type="text" value="${esc(isE?j.by:j.printer)}" placeholder="${isE?'e.g. who converts':'Biddles / IBI / …'}" onchange="pjSet('${id}','${terr}','','${isE?'by':'printer'}',this.value)"></label>
+      <label class="pj-ed-next">Next step <input type="text" value="${esc(j.next)}" onchange="pjSet('${id}','${terr}','','next',this.value)"></label>
+      <label class="pj-ed-chk"><input type="checkbox" ${j.skip?'checked':''} onchange="pjSet('${id}','${terr}','','skip',this.checked)"> not needed for this title</label>
+    </div>
+    <div class="pj-ed-steps">${steps}</div>
+    <div class="pj-ed-foot">Saved to the title automatically. <button type="button" class="btn btn-sm" onclick="pjToggleRow('${esc(r.key)}')">Close</button></div>
+  </div></td></tr>`;
+}
+function pjSet(titleId, terr, step, field, value){
+  const t = getTitle(titleId); if(!t) return;
+  const j = pjOf(t)[terr];
+  const tgt = step ? j[step] : j;
+  if(field==='done'||field==='approx'||field==='skip') tgt[field] = !!value;
+  else tgt[field] = String(value==null?'':value).trim();
+  debouncedSave(titleId);
+  if(view==='printer'){ if(field==='skip' && value) pjOpenRow=''; pjRenderBoardBody(); }
+  else if(view==='detail') pjFillDetail(titleId);
+}
+function pjRenderBoardBody(){
+  const body = document.getElementById('pj-rows'); if(!body) return;
+  const all = pjRows();
+  const counts = {r:0,n:0,a:0,g:0}; all.forEach(r=>counts[r.st]++);
+  const list = all.filter(r=>pjFilter==='all'||r.terr===pjFilter);
+  document.getElementById('pj-strip').innerHTML =
+    `<div class="pj-stat pj-r"><b>${counts.r}</b><span>Not ordered, due or late</span></div>`+
+    `<div class="pj-stat pj-n"><b>${counts.n}</b><span>Not yet due</span></div>`+
+    `<div class="pj-stat pj-a"><b>${counts.a}</b><span>Ordered, awaiting delivery</span></div>`+
+    `<div class="pj-stat pj-g"><b>${counts.g}</b><span>Delivered / live</span></div>`;
+  // "This week": print lines with no PO whose estimates are due within 7 days
+  // or already late; eBook lines red with files due within 7 days.
+  const wk = all.filter(r=>r.pl && r.st==='r' && (r.terr==='ebook' ? pjDays(r.pl.poBy)<=7 : pjDays(r.pl.estBy)<=7)).map(r=>{
+    const j = pjOf(r.t)[r.terr], prn = r.terr==='ebook' ? 'eBook' : (j.printer||'printer');
+    let what, d;
+    if(r.terr==='ebook'){ what='files'; d=r.pl.poBy; }
+    else if(pjDone(j.est)){ what='order'; d=r.pl.poBy; }
+    else { what='estimates'; d=r.pl.estBy; }
+    const n = pjDays(d);
+    const verb = what==='order' ? (n<0?'order was due':'order goes by') : (what==='files' ? (n<0?'files were due':'files go by') : (n<0?'estimates were due':'estimates go out by'));
+    return `<li><b>${esc(r.t.title)} ${PJ_LABEL[r.terr]}</b> (${esc(prn)}): ${verb} ${pjDm(d)}${n<0?` (${-n} day${n===-1?'':'s'} late)`:''}</li>`;
+  });
+  document.getElementById('pj-week').innerHTML = `<div class="pj-week">${wk.length?`<b>Due this week or already late (${wk.length})</b><ul>${wk.join('')}</ul>`:'<b>Nothing due this week.</b>'}</div>`;
+  let html = '', shownG = false, shownL = false;
+  const nG = list.filter(r=>r.st==='g' && !r.later).length, nL = list.filter(r=>r.later).length;
+  list.forEach(r=>{
+    if(r.later){
+      if(!shownL){ shownL=true; html += `<tr class="pj-fold" onclick="pjToggleFold('l')"><td colspan="9">${pjFoldLater?'&#9656;':'&#9662;'} Later: estimates more than 90 days away (${nL}) · click to ${pjFoldLater?'show':'fold'}</td></tr>`; }
+      if(pjFoldLater) return;
+    } else if(r.st==='g'){
+      if(!shownG){ shownG=true; html += `<tr class="pj-fold pj-fold-g" onclick="pjToggleFold('g')"><td colspan="9">${pjFoldDelivered?'&#9656;':'&#9662;'} Delivered / live (${nG}) · click to ${pjFoldDelivered?'show':'fold'}</td></tr>`; }
+      if(pjFoldDelivered) return;
+    }
+    html += pjRowHtml(r);
+  });
+  body.innerHTML = html || '<tr><td colspan="9" class="pj-none">Nothing on the board.</td></tr>';
+  const meta = document.getElementById('pj-xero-meta');
+  if(meta) meta.innerHTML = pjXeroErr ? `<span class="xpo-sync xpo-stale">Xero orders not loaded: ${esc(pjXeroErr)}</span>` : (xeroPoCache ? xpoSyncHtml(xeroPoCache.lastSync) : 'Checking Xero…');
+  pjRenderLeads();
+}
+function pjRenderLeads(){
+  const el = document.getElementById('pj-leads-body'); if(!el) return;
+  if(el.dataset.ready) return; // don't redraw while someone is typing in it
+  el.dataset.ready = '1';
+  const inp = k => `<input type="number" min="0" max="365" value="${esc(String(printLeads[k]))}" oninput="pjSetLead('${k}',this.value)">`;
+  el.innerHTML = `<table class="pj-lt"><thead><tr><th>Printer</th><th>Estimates before PO</th><th>Files + PO before proof OK</th><th>Print, from proof OK</th><th>Transit to warehouse</th></tr></thead><tbody>
+    <tr><td><b>Biddles</b> (UK → Turnaround)</td><td>${inp('Biddles.est')} days</td><td>${inp('Biddles.proof')} days</td><td>${inp('Biddles.print')} days</td><td>${inp('Biddles.transit')} days</td></tr>
+    <tr><td><b>IBI</b> (US → SCB)</td><td>${inp('IBI.est')} days</td><td>${inp('IBI.proof')} days</td><td>${inp('IBI.print')} days</td><td>${inp('IBI.transit')} days</td></tr>
+    <tr><td><b>Any other printer</b></td><td>${inp('Other.est')} days</td><td>${inp('Other.proof')} days</td><td>${inp('Other.print')} days</td><td>${inp('Other.transit')} days</td></tr>
+    <tr><td><b>eBook</b></td><td colspan="4">Same dates as the UK print line.</td></tr>
+  </tbody></table>
+  <p class="pj-lt-note">Stock at the warehouse by street −${inp('whBuffer')} days. If the print run overlaps the Christmas shutdown (21-12 to 04-01), add ${inp('xmasDays')} days.
+  ${printLeadsFromSheet?'Changes save to the PrintSettings tab and apply for everyone.':'<b>Using built-in defaults: the PrintSettings tab could not be read, so changes here last for this visit only.</b>'}</p>`;
+}
+
+// ── Title page: banner + UK / US / eBook lines ──
+function pjDetailHtml(t){
+  return `<div class="pj-detail" id="pj-detail-${t.id}">${pjDetailInner(t)}</div>`;
+}
+function pjDetailInner(t){
+  const banner = pjBannerText(t);
+  const j = pjOf(t);
+  const line = terr => {
+    if(j[terr].skip) return '';
+    const st = pjState(t, terr), pl = pjPlanFor(t, terr), isE = terr==='ebook', r = j[terr];
+    const bits = [];
+    if(isE){
+      PJ_STEPS.ebook.forEach(([sk,lbl])=>{ const s=r[sk]; bits.push(`${lbl} <b>${pjDone(s)?(s.d?pjDm(pjD(s.d)):'done'):'—'}</b>`); });
+    } else {
+      const po = pjPoFor(t, terr);
+      bits.push(`Estimate <b>${pjDone(r.est)?(r.est.d?pjDm(pjD(r.est.d)):'done'):'—'}</b>`);
+      bits.push(po&&po.pending?'PO <b>checking Xero…</b>':(po?`<b>${esc(po.no||'PO')}</b>${po.qty?' × '+esc(String(po.qty)):''}`:`<b class="pj-late">No PO</b>`));
+      bits.push(`Proof OK <b>${pjDone(r.proof)?(r.proof.d?pjDm(pjD(r.proof.d)):'done'):'—'}</b>`);
+      bits.push(`Delivered <b>${pjDone(r.deliv)?(r.deliv.d?(r.deliv.approx?'~':'')+pjDm(pjD(r.deliv.d)):'done'):(r.deliv.note?esc(r.deliv.note):'—')}</b>`);
+    }
+    const due = pl ? (isE ? `files by ${pjDm(pl.poBy)} · live by ${pjDm(pl.wh)}` : `order by ${pjDm(pl.poBy)} · stock by ${pjDm(pl.wh)}`) : 'no street date';
+    return `<div class="pj-line pj-${st}"><div class="pj-line-t">${PJ_LABEL[terr]}</div><div class="pj-line-s">
+      <span class="pj-line-prn">${esc(isE?(r.by||'eBook conversion'):(r.printer||'—'))}</span> <span class="pj-pill pj-${st}">${esc(pjStateLabel(t,terr,st))}</span> <span class="pj-line-due">${due}</span><br>
+      ${bits.join(' · ')}${r.next?`<br><span class="pj-line-next">Next: ${esc(r.next)}</span>`:''}</div></div>`;
+  };
+  return `${banner?`<div class="pj-banner">${esc(banner)}</div>`:''}
+    <div class="pj-detail-head"><span class="detail-strip-label">Printing</span><button type="button" class="pj-edit-btn" onclick="gotoPrinter('${esc(t.id)}|uk')">Edit on To the Printer &#8594;</button></div>
+    ${PJ_TERRS.map(line).join('')}`;
+}
+function pjFillDetail(titleId){
+  const el = document.getElementById('pj-detail-'+titleId), t = getTitle(titleId);
+  if(el && t) el.innerHTML = pjDetailInner(t);
 }
 
 // Round 89: the Round 49 Sheet-based page below is retired from the nav

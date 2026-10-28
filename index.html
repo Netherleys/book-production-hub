@@ -2252,6 +2252,98 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
 .detail-produrl-open.is-hidden{display:none}
 @keyframes dpflash{0%,40%{box-shadow:0 0 0 3px #2B5AA8}100%{box-shadow:none}}
 @media (max-width:700px){.dp-row{grid-template-columns:28px minmax(0,1fr)}.dp-act{grid-column:2;flex-direction:row;flex-wrap:wrap;align-items:center;min-width:0}.dp-issues ul{columns:1}.dp-legend{margin-left:0}}
+
+/* ── Round 91 (2026-10-28): To the Printer board + title-page Printing lines,
+   from David's approved mockup (Owners Inbox "BPH - To the Printer Mockup -
+   Mia Chen - 2026-10-28", v2 with eBook rows). r/n/a/g = red/grey/amber/green. */
+#main.main-printer{max-width:1280px;margin:0 auto}
+.pj-wrap{color:var(--text-oncream)}
+.pj-head h1{font-family:var(--serif);font-size:1.5rem;font-weight:700;color:var(--text-oncream)}
+.pj-sub{font-size:.85rem;color:#D8CFBB;margin:3px 0 14px}
+.pj-strip{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:12px}
+.pj-stat{background:var(--surface);color:var(--text);border:1px solid var(--card-border);border-left-width:8px;border-radius:var(--r8);padding:9px 12px}
+.pj-stat b{display:block;font-size:1.45rem;line-height:1.1}
+.pj-stat span{font-size:.76rem;color:var(--text2)}
+.pj-stat.pj-r{border-left-color:var(--terra)}.pj-stat.pj-n{border-left-color:var(--neutral-dot)}.pj-stat.pj-a{border-left-color:var(--amber-border)}.pj-stat.pj-g{border-left-color:var(--sage)}
+.pj-week{background:var(--terra-bg);border:1px solid var(--terra-border);color:var(--text);border-radius:var(--r8);padding:9px 14px;margin-bottom:12px;font-size:.86rem}
+.pj-week b{color:var(--terra-border)}
+.pj-week ul{margin:4px 0 0 18px}
+.pj-toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;background:var(--bg-page2);border:1px solid rgba(241,234,217,.1);border-radius:var(--r8);padding:9px 12px;margin-bottom:10px}
+.pj-toolbar .lbl{font-size:.76rem;color:#D8CFBB}
+.pj-chip{padding:5px 12px;border-radius:999px;border:1px solid rgba(241,234,217,.25);background:rgba(241,234,217,.06);color:var(--text-oncream);font-size:.8rem;cursor:pointer;font-family:var(--sans)}
+.pj-chip.on{background:var(--sage);border-color:var(--sage-border);color:#fff;font-weight:600}
+.pj-xero-meta{margin-left:auto;font-size:.74rem;color:#D8CFBB}
+.pj-board-scroll{overflow-x:auto;border-radius:var(--r8);border:1px solid var(--card-border);box-shadow:var(--shadow-md);background:var(--surface)}
+.pj-board{width:100%;border-collapse:separate;border-spacing:0;background:var(--surface);color:var(--text);min-width:980px}
+.pj-board th{background:#111;color:#F1EAD9;font-size:.7rem;text-transform:uppercase;letter-spacing:.05em;text-align:left;padding:8px 10px;font-weight:600;white-space:nowrap;vertical-align:bottom}
+.pj-th2{display:block;font-size:.6rem;text-transform:none;letter-spacing:0;color:#B9AF9B;font-weight:400}
+.pj-board td{padding:8px 10px;border-top:1px solid var(--border);vertical-align:top;font-size:.84rem}
+.pj-row{cursor:pointer}
+.pj-row:hover td{background:rgba(75,110,83,.05)}
+.pj-row.pj-r td:first-child{box-shadow:inset 6px 0 0 var(--terra)}
+.pj-row.pj-a td:first-child{box-shadow:inset 6px 0 0 var(--amber-border)}
+.pj-row.pj-g td:first-child{box-shadow:inset 6px 0 0 var(--sage)}
+.pj-row.pj-n td:first-child{box-shadow:inset 6px 0 0 var(--neutral-dot)}
+.pj-row.pj-r{background:#fff7f5}
+.pj-row.pj-g{background:#f7faf5;color:var(--text2)}
+.pj-row.pj-open td{background:var(--sage-bg)}
+a.pj-title{font-weight:600;color:var(--text);text-decoration:none}
+a.pj-title:hover{text-decoration:underline}
+.pj-street{font-size:.72rem;color:var(--text3)}
+.pj-terr{display:inline-block;font-weight:700;font-size:.72rem;padding:2px 7px;border-radius:var(--r4);border:1px solid var(--card-border);background:var(--surface2)}
+.pj-prn{display:block;font-size:.72rem;color:var(--text3);margin-top:3px}
+.pj-step{white-space:nowrap}
+.pj-step .d{display:block;font-weight:600}
+.pj-step .s{display:block;font-size:.7rem;color:var(--text3);white-space:normal;max-width:160px}
+.pj-ok::before{content:"\2713  ";color:var(--sage);font-weight:700}
+.pj-miss{color:var(--text-muted)}
+.pj-late{color:var(--terra);font-weight:700}
+.pj-due{color:var(--terra-border);font-weight:700}
+.pj-pill{display:inline-block;font-size:.68rem;font-weight:700;padding:2px 8px;border-radius:999px;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
+.pj-pill.pj-r{background:var(--terra);color:#fff}
+.pj-pill.pj-a{background:var(--amber-bg);color:#8a5a1e;border:1px solid var(--amber-border)}
+.pj-pill.pj-g{background:var(--sage-bg);color:var(--sage-border);border:1px solid var(--sage-border)}
+.pj-pill.pj-n{background:var(--neutral-bg);color:var(--neutral-border);border:1px solid var(--neutral-border)}
+.pj-next{font-size:.8rem;min-width:150px}
+.pj-fold td{background:var(--sage-bg);font-size:.8rem;color:var(--sage-border);font-weight:600;cursor:pointer}
+.pj-fold:not(.pj-fold-g) td{background:var(--neutral-bg);color:var(--neutral-border)}
+.pj-none{color:var(--text3);padding:16px 12px}
+.pj-legend{font-size:.76rem;color:#D8CFBB;margin:8px 0 12px}
+.pj-ed-row td{background:var(--surface2);border-top:none;padding:10px 14px 14px}
+.pj-ed{font-size:.8rem;color:var(--text)}
+.pj-ed-top{display:flex;gap:14px;flex-wrap:wrap;align-items:center;margin-bottom:10px}
+.pj-ed-top label{display:flex;gap:6px;align-items:center;font-weight:600;color:var(--text2)}
+.pj-ed-top input[type=text]{padding:4px 7px;border:1px solid var(--border2);border-radius:var(--r4);font-size:.82rem;min-width:170px}
+.pj-ed-next{flex:1 1 320px}
+.pj-ed-next input[type=text]{flex:1}
+.pj-ed-steps{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.pj-ed-step{background:var(--surface);border:1px solid var(--border2);border-radius:var(--r4);padding:8px;display:flex;flex-direction:column;gap:5px}
+.pj-ed-step > label:first-child{font-size:.68rem;text-transform:uppercase;letter-spacing:.05em;font-weight:700;color:var(--sage-border)}
+.pj-ed-step input[type=date],.pj-ed-step input[type=text]{padding:4px 6px;border:1px solid var(--border2);border-radius:var(--r4);font-size:.8rem;width:100%}
+.pj-ed-chk{display:flex;gap:5px;align-items:center;font-size:.74rem;color:var(--text2);font-weight:400!important}
+.pj-ed-x{font-size:.74rem;color:var(--sage-border);font-weight:600}
+.pj-ed-foot{margin-top:8px;font-size:.74rem;color:var(--text3);display:flex;gap:10px;align-items:center}
+.pj-leads{background:var(--surface);color:var(--text);border:1px solid var(--card-border);border-radius:var(--r8);padding:10px 14px;margin-top:4px}
+.pj-leads summary{cursor:pointer;font-weight:700;font-size:.9rem}
+.pj-lt{width:100%;border-collapse:collapse;font-size:.82rem;margin-top:8px}
+.pj-lt th,.pj-lt td{border-bottom:1px solid var(--border);padding:6px 8px;text-align:left}
+.pj-lt th{font-size:.68rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text3)}
+.pj-leads input[type=number]{width:58px;padding:3px 5px;border:1px solid var(--border2);border-radius:var(--r4);font-size:.82rem}
+.pj-lt-note{font-size:.78rem;color:var(--text3);margin-top:8px;line-height:1.7}
+/* title page */
+.pj-detail{margin-top:12px}
+.pj-banner{background:var(--terra);color:#fff;border-radius:var(--r4);padding:7px 10px;font-size:.82rem;font-weight:700;margin-bottom:10px}
+.pj-detail-head{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:6px}
+.pj-edit-btn{background:none;border:1px solid var(--border2);border-radius:var(--r4);padding:3px 9px;font-size:.74rem;font-weight:600;color:var(--sage-border);cursor:pointer}
+.pj-line{display:grid;grid-template-columns:50px minmax(0,1fr);gap:8px;align-items:start;background:var(--surface);border:1px solid var(--border2);border-left:6px solid var(--neutral-dot);border-radius:var(--r4);padding:7px 10px;margin-bottom:6px;color:var(--text)}
+.pj-line.pj-r{border-left-color:var(--terra)}.pj-line.pj-a{border-left-color:var(--amber-border)}.pj-line.pj-g{border-left-color:var(--sage)}
+.pj-line-t{font-weight:700;font-size:.8rem}
+.pj-line-s{font-size:.78rem;color:var(--text2);line-height:1.6}
+.pj-line-s b{color:var(--text)}
+.pj-line-prn{font-weight:700;color:var(--text)}
+.pj-line-due,.pj-line-next{color:var(--text3)}
+@media (max-width:860px){.pj-strip{grid-template-columns:repeat(2,minmax(0,1fr))}.pj-ed-steps{grid-template-columns:repeat(2,minmax(0,1fr))}.pj-xero-meta{margin-left:0;width:100%}}
+@media (max-width:520px){.pj-ed-steps{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -2307,6 +2399,11 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
          Titles to LAST: "All Titles, Quick Notes (books working) and ending
          with Order Tracker (books finished)" — the nav now reads as a
          logical progression from books-in-progress to books-finished. -->
+    <!-- Round 91 (2026-10-28, David GO on Mia's mockup "BPH - To the Printer
+         Mockup") - UK/US print + eBook lines per title, order-by dates from
+         per-printer lead times. Between Promo Calendar and Order Tracker, as
+         mocked. -->
+    <button class="h-tab" id="tab-printer" onclick="gotoPrinter()">To the Printer</button>
     <button class="h-tab" id="tab-ordertracker" onclick="gotoOrderTracker()">Order Tracker</button>
   </nav>
   <!-- Round 20 (2026-08-19, David-approved mockup: _mockups/
@@ -2648,10 +2745,10 @@ mark.trunc{background:#FFE14D;color:#5a2a00;font-weight:800;font-size:.8em;lette
   <span id="footer-last-saved"></span>
 </footer>
 
-<script src="config.js?v=r90"></script>
+<script src="config.js?v=r91"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="google-auth.js?v=r90"></script>
-<script src="app.js?v=r90"></script>
+<script src="google-auth.js?v=r91"></script>
+<script src="app.js?v=r91"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>
