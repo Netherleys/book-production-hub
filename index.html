@@ -2466,6 +2466,24 @@ textarea.pck-note{width:100%;min-height:30px;font:inherit;font-size:.82rem;paddi
 .pck-foot{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 .pck-foot label.btn{cursor:pointer}
 .pck-qline{font-size:.82rem}
+/* r96 (David 04-11): clearer button row. Main action in BPH ink-navy, NOT sage:
+   green/mustard/red stay status-only. Each button has a one-line description under it. */
+.pck-acts{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px 14px;align-items:start;margin-top:4px}
+.pck-act{display:flex;flex-direction:column;align-items:stretch;gap:5px;min-width:0}
+.pck-act>.btn{display:flex;align-items:center;justify-content:center;text-align:center;min-height:38px;padding:7px 12px;font-size:.84rem;font-weight:600;color:var(--text);background:var(--surface);border:1.5px solid var(--text);border-radius:var(--r4);box-shadow:0 1px 0 rgba(0,0,0,.18)}
+.pck-act>.btn:hover:not([disabled]){background:var(--surface2)}
+.pck-act>.btn[disabled]{opacity:.45;cursor:not-allowed;box-shadow:none}
+.pck-act>.btn:focus-visible,.pck-act>label.btn:focus-within{outline:2px solid #1F3A5F;outline-offset:2px}
+.pck-act>.btn.pck-run{background:#1F3A5F;border-color:#14263F;color:#fff;letter-spacing:.06em;font-weight:700}
+.pck-act>.btn.pck-run:hover{background:#14263F}
+.pck-adesc{font-size:.76rem;line-height:1.35;color:var(--text3)}
+.pck-act .pck-sub{font-size:.74rem}
+.pck-qmsg{order:3;display:block;font-size:.76rem;line-height:1.35;padding:5px 8px;border-radius:var(--r4);border:1px solid var(--border2);background:var(--surface);color:var(--text2)}
+.pck-qmsg.ok,.pck-qmsg.imp{background:var(--sage-bg);border-color:var(--sage-border);color:var(--sage-border);font-weight:600}
+.pck-qmsg.err{background:var(--terra-bg);border-color:var(--terra-border);color:var(--terra-border);font-weight:600}
+@media (max-width:1100px){.pck-acts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+@media (max-width:700px){.pck-acts{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:460px){.pck-acts{grid-template-columns:minmax(0,1fr)}}
 @media (max-width:900px){.pck-sgrid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.pck-hist{grid-auto-flow:row;grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.pck-passes ul{columns:1}}
 @media (max-width:560px){.pck-sgrid{grid-template-columns:minmax(0,1fr)}.pck-hist{grid-template-columns:minmax(0,1fr)}}
 </style>
@@ -2873,11 +2891,11 @@ textarea.pck-note{width:100%;min-height:30px;font:inherit;font-size:.82rem;paddi
   <span id="footer-last-saved"></span>
 </footer>
 
-<script src="config.js?v=r95"></script>
+<script src="config.js?v=r96"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="google-auth.js?v=r95"></script>
-<script src="app.js?v=r95"></script>
-<script src="print-checks.js?v=r95"></script>
+<script src="google-auth.js?v=r96"></script>
+<script src="app.js?v=r96"></script>
+<script src="print-checks.js?v=r96"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>

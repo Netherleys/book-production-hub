@@ -1,4 +1,4 @@
-/* print-checks.js — Book Production Hub, Round 93 (+ r95 04-11: schema v2 grouped rows, merge rule, run_id seconds) (Mia Chen, 04-11-2026, David GO:
+/* print-checks.js — Book Production Hub, Round 93 (+ r95 04-11: schema v2 grouped rows, merge rule, run_id seconds; + r96 04-11: clearer button row with descriptions) (Mia Chen, 04-11-2026, David GO:
  * "Keep the ILLOS box, add an actual page count and also trim size box which is
  * flagged if the PDF is not the same as Commercial. Go build!").
  *
@@ -204,26 +204,36 @@ async function findQueueDirs(root,t){
 async function pckScanQueue(tid,ask){
   const t=getTitle(tid); if(!t||!window.showDirectoryPicker) return;
   const u=U(tid); let root=await idbGet('root');
+  // r96 (David 04-11): a click always ends with a clear result line (u.qMsg); the silent scan on open only fills the banner
+  const fail=why=>{ if(ask) u.qMsg={k:'err',t:"Couldn't read the folder: "+why}; };
+  if(ask){ u.qMsg={k:'busy',t:'Looking…'}; pckRender(tid,true); }
   try{
-    if(root){ let p=await root.queryPermission({mode:'readwrite'}); if(p!=='granted'&&ask) p=await root.requestPermission({mode:'readwrite'}); if(p!=='granted'){ u.qState='need'; pckRender(tid,true); return; } }
+    if(root){ let p=await root.queryPermission({mode:'readwrite'}); if(p!=='granted'&&ask) p=await root.requestPermission({mode:'readwrite'}); if(p!=='granted'){ u.qState='need'; fail('folder access was not given.'); pckRender(tid,true); return; } }
     else if(ask){ root=await window.showDirectoryPicker({id:'bph-books',mode:'readwrite'}); await idbSet('root',root); }
     else { u.qState='need'; pckRender(tid,true); return; }
-    const dirs=await findQueueDirs(root,t); const files=[];
-    for(const d of dirs){ for await (const [n,h] of d.entries()){ if(h.kind==='file' && /\.json$/i.test(n)){ try{ const j=JSON.parse(await (await h.getFile()).text()); if(j&&j.run&&(j.run.title_id===tid||j.run.isbn===isbnKey(t))) files.push({name:n,dir:d,handle:h,json:j}); }catch(_){} } } }
+    const dirs=await findQueueDirs(root,t); const files=[]; let bad=0;
+    for(const d of dirs){ for await (const [n,h] of d.entries()){ if(h.kind==='file' && /\.json$/i.test(n)){ try{ const j=JSON.parse(await (await h.getFile()).text()); if(j&&j.run&&(j.run.title_id===tid||j.run.isbn===isbnKey(t))) files.push({name:n,dir:d,handle:h,json:j}); }catch(_){ bad++; } } } }
     u.queue=files.filter(f=>!pck.runs.some(r=>r.run_id===f.json.run.run_id)); u.qState=dirs.length?'ok':'nofolder';
-  }catch(err){ u.qState=(err&&err.name==='AbortError')?'need':'err'; }
+    if(ask){
+      if(u.queue.length){ await pckImportQueue(tid); return; } // click = find + import in one go
+      u.qMsg={k:'ok',t:'Nothing waiting: all PC checks are in BPH.'+(dirs.length?'':' (This title has no Checks\\_queue folder.)')+(bad?' '+bad+' unreadable file'+(bad>1?'s':'')+' skipped.':'')};
+    }
+  }catch(err){ u.qState=(err&&err.name==='AbortError')?'need':'err'; fail(err&&err.name==='AbortError'?'no folder was picked.':String((err&&err.message)||err)); }
   pckRender(tid,true);
 }
 async function pckImportQueue(tid){
-  const u=U(tid); let n=0, mg=0;
+  const u=U(tid); let n=0, mg=0, skip=0, why='';
   for(const f of u.queue.slice()){
-    try{ const res=await pckMergeRun(f.json); n++; mg+=(res.merged||0);
+    try{ const res=await pckMergeRun(f.json); if(res.skipped) skip++; else { n++; mg+=(res.merged||0); }
       if(!devMode){ try{ const done=await f.dir.getDirectoryHandle('_imported',{create:true}); if(f.handle.move) await f.handle.move(done); else { const w=await (await done.getFileHandle(f.name,{create:true})).createWritable(); await w.write(await (await f.handle.getFile()).text()); await w.close(); } }catch(_){ /* leave it: re-import is idempotent */ } }
       u.queue=u.queue.filter(x=>x!==f);
-      if(res.skipped) ctToast('Already imported: '+dm(f.json.run.run_at));
-    }catch(err){ showReconnect('PC check not imported: '+(err.message||err), isAuthFailure(err)); break; }
+    }catch(err){ why=String(err.message||err); showReconnect('PC check not imported: '+why, isAuthFailure(err)); break; }
   }
   if(n) ctToast(n+' PC check'+(n>1?'s':'')+' imported.'+(mg?' '+mg+' per-page rows merged into grouped rows.':''));
+  // r96: result line under the Look button (also after "Import now" in the banner)
+  const cs=k=>k+' check'+(k>1?'s':'');
+  u.qMsg=why?{k:'err',t:(n?'Imported '+cs(n)+', then stopped: ':"Couldn't import: ")+why}
+    :{k:'imp',t:n?'Imported '+cs(n)+(devMode?' (preview: not written).':', saved to BPH.')+(skip?' '+skip+' already in BPH.':''):'Nothing waiting: all PC checks are in BPH.'};
   pckRender(tid,true);
 }
 async function pckImportFile(tid,input){
@@ -330,7 +340,8 @@ function pckRender(tid,keep){
   // queue banner
   let qb='';
   if(u.queue.length){ const f=u.queue[0].json.run; qb=`<div class="pck-queued"><span class="big">⏳ PC check waiting to sync</span><span class="txt">${u.queue.length} run${u.queue.length>1?'s':''} from <b>${e(dm(f.run_at))}</b> (${e(f.export_file)}) saved on this PC. The PC's Google sign-in had expired, so it couldn't write here.</span><button type="button" class="btn btn-primary" onclick="pckImportQueue('${tid}')">Import now</button></div>`; }
-  const qline=window.showDirectoryPicker?`<button type="button" class="pck-link" onclick="pckScanQueue('${tid}',true)">${u.qState==='need'||!u.qState?'Look for PC checks waiting to sync (folder access)':'↻ Look again for PC checks waiting to sync'}</button>${u.qState==='nofolder'?' <span class="pck-sub">no Checks\\_queue folder found for this title</span>':''}${u.qState==='ok'&&!u.queue.length?' <span class="pck-sub">nothing waiting</span>':''}`:'';
+  // r96 (David 04-11): proper button + status note under it, in the action grid
+  const qline=window.showDirectoryPicker?`<button type="button" class="btn" onclick="pckScanQueue('${tid}',true)">${u.qState==='need'||!u.qState?'⌕ Look for waiting PC checks':'↻ Look again'}</button>${u.qMsg?`<span class="pck-qmsg ${u.qMsg.k}" role="status">${e(u.qMsg.t)}</span>`:''}`:'';
   // table
   const groups=[['Needs you','open','yellow = open',r=>r.status==='Open'],['Deliberate','deliberate','your call, never flagged again',r=>r.status==='Deliberate'],["Won't fix",'wontfix','like Deliberate, grey',r=>r.status==="Won't fix"],
     ['Resolved by you','resolved',"includes check-by-eye items the checker can't confirm itself",r=>r.status==='Resolved'&&!isAutoClosed(r)&&!isMerged(r)],['Confirmed fixed by a re-run','resolved','closed automatically, kept as the record',r=>isAutoClosed(r)],
@@ -369,14 +380,18 @@ function pckRender(tid,keep){
     <div class="pck-tbl"><table class="pck-fx"><colgroup><col class="c-st"><col class="c-pg"><col class="c-cat"><col><col class="c-seen"><col class="c-note"><col class="c-auto"></colgroup>
       <thead><tr><th>Status</th><th>Page</th><th>Check</th><th>Finding</th><th>Seen</th><th>Your note</th><th>Auto (re-runs)</th></tr></thead><tbody>${body||'<tr><td colspan="7" class="pck-na">Nothing in this filter.</td></tr>'}</tbody></table></div>`:''}
     ${passLine}
-    <div class="pck-foot">
-      <label class="btn btn-primary">▶ Run check in browser<input type="file" accept="application/pdf" hidden onchange="pckBrowserCheck('${tid}',this)"></label>
-      <button type="button" class="btn" onclick="pckCopyCmd('${tid}',this)">Copy PC check command</button>
-      <button type="button" class="btn" onclick="pckXlsx('${tid}')"${rows.length||runs.length?'':' disabled'}>⬇ Download xlsx</button>
-      <label class="btn btn-sm">Import PC check file…<input type="file" accept=".json,application/json" multiple hidden onchange="pckImportFile('${tid}',this)"></label>
-      <span class="pck-sub">xlsx = a copy to print or send. Marks made in it are not read back: mark here.</span>
+    <div class="pck-foot pck-acts">
+      <div class="pck-act"><label class="btn pck-run">▶ RUN CHECK<input type="file" accept="application/pdf" hidden onchange="pckBrowserCheck('${tid}',this)"></label>
+        <span class="pck-adesc">Quick check in BPH: page count, trim, ISBN and LSI last page. No ink or colour test.</span></div>
+      <div class="pck-act"><button type="button" class="btn" onclick="pckCopyCmd('${tid}',this)">⧉ Copy PC Check</button>
+        <span class="pck-adesc">Copies the command for the full PC check (ink, colour, proof corrections), same as the Print PDF Check .bat.</span></div>
+      <div class="pck-act"><button type="button" class="btn" onclick="pckXlsx('${tid}')"${rows.length||runs.length?'':' disabled'}>⬇ Download xlsx</button>
+        <span class="pck-adesc">A copy to print or send. Mark items here in BPH, not in the sheet.</span></div>
+      <div class="pck-act"><label class="btn">Import PC check file…<input type="file" accept=".json,application/json" multiple hidden onchange="pckImportFile('${tid}',this)"></label>
+        <span class="pck-adesc">Brings in a PC check that couldn't reach BPH (Google sign-in expired): pick its file.</span></div>
+      ${qline?`<div class="pck-act">${qline}
+        <span class="pck-adesc">Same as Import, but BPH finds the waiting files in the book's Checks folder for you.</span></div>`:''}
     </div>
-    <div class="pck-qline">${qline}</div>
     <div class="pck-browser" id="pck-bc-${tid}">${u.bcMsg||''}</div>`;
   if(!keep && window.showDirectoryPicker && !u.qState) pckScanQueue(tid,false);
   if(typeof updateSectionHeaders==='function') updateSectionHeaders(tid);
@@ -461,7 +476,7 @@ async function pckBrowserCheck(tid,input){
       fail_count:String(fails),warn_count:String(F.length-fails),pass_count:String(passes.length),corr_in:'',corr_total:'',page_count:String(n),trim_mm:tm,interior_mode:c.interior||'',colour_pages:'',colour_page_list:'',illos_pdf:'',ink_limit:'',ink_worst:'',
       summary:'browser check: pages, trim, ISBN, LSI last page'+(F.length?' · '+F.map(f=>f.problem).join(' · '):' · all clear'),passes,passes_json:JSON.stringify(passes),script_version:'BPH browser check r95',notes_file:'',pdf_folder:''}};
     const res=await pckMergeRun(q);
-    say(`<div class="pck-sub">Browser check done: ${n} pages, ${tm} mm, ${fails} fail${fails===1?'':'s'}. Proof corrections, colour, ink and layout need the PC check.${res.skipped?' (already recorded)':''}</div>`);
+    say(`<div class="pck-sub">Browser check done: ${n} pages, ${tm} mm, ${fails} fail${fails===1?'':'s'}. ${res.skipped?' Already recorded.':devMode?' Preview: not written.':' <b>Saved to BPH</b> (Sheet tab “Print Checks”).'} Proof corrections, colour, ink and layout need the PC check.</div>`);
     pckRender(tid,true);
   }catch(err){ say('<div class="po-empty">Browser check failed: '+e(err.message||err)+'</div>'); if(isAuthFailure(err)) showReconnect('Browser check not saved: signed out.',true); }
 }
