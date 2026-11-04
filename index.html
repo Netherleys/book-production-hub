@@ -2445,6 +2445,18 @@ table.pck-fx .muted{font-size:.76rem;color:var(--text3)}
 table.pck-fx .seen,table.pck-fx .auto{font-size:.76rem;color:var(--text2)}
 table.pck-fx .auto .k{display:inline-block;font-size:.66rem;font-weight:800;padding:1px 6px;border-radius:6px;background:var(--sage);color:#fff;margin-right:5px}
 table.pck-fx .auto .k.r{background:#b3261e}
+/* r95: schema v2 grouped rows (one row per check + kind; page-count badge, worst value, page list) */
+table.pck-fx .auto .k.g{background:#6b6b66}
+.pck-ppb{display:inline-block;font-weight:800;font-size:.78rem;padding:1px 8px;border-radius:10px;background:#2f5d8a;color:#fff;white-space:nowrap}
+.pck-worst{font-size:.8rem;margin-top:3px}
+details.pck-pgl{font-size:.78rem;margin-top:3px;color:var(--text2)}
+details.pck-pgl summary{cursor:pointer;color:#2f5d8a}
+details.pck-pgl span{display:block;margin-top:2px;max-height:9em;overflow:auto}
+.pck-file{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;font-size:.82rem;padding:7px 10px;border:1px solid var(--border2);border-radius:8px;background:var(--surface)}
+.pck-file .k{font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text3)}
+.pck-file .nm{overflow-wrap:anywhere}.pck-file .meta{color:var(--text2)}.pck-file code{font-size:.8rem}
+.pck-file details.pck-pgl{flex-basis:100%;margin:0}
+.pck-mtog{font-size:.76rem;text-transform:none;letter-spacing:0;font-weight:400;margin-left:6px}
 select.pck-sel{width:100%;font:inherit;font-size:.82rem;padding:3px 4px;border:1px solid var(--border2);border-radius:6px;background:var(--surface)}
 textarea.pck-note{width:100%;min-height:30px;font:inherit;font-size:.82rem;padding:4px 6px;border:1px solid var(--border2);border-radius:6px;resize:vertical;background:var(--surface)}
 .pck-saved{font-size:.7rem;color:var(--sage-border);margin-top:2px}
@@ -2861,11 +2873,11 @@ textarea.pck-note{width:100%;min-height:30px;font:inherit;font-size:.82rem;paddi
   <span id="footer-last-saved"></span>
 </footer>
 
-<script src="config.js?v=r94"></script>
+<script src="config.js?v=r95"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
-<script src="google-auth.js?v=r94"></script>
-<script src="app.js?v=r94"></script>
-<script src="print-checks.js?v=r94"></script>
+<script src="google-auth.js?v=r95"></script>
+<script src="app.js?v=r95"></script>
+<script src="print-checks.js?v=r95"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>

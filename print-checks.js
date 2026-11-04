@@ -1,4 +1,4 @@
-/* print-checks.js — Book Production Hub, Round 93 (Mia Chen, 04-11-2026, David GO:
+/* print-checks.js — Book Production Hub, Round 93 (+ r95 04-11: schema v2 grouped rows, merge rule, run_id seconds) (Mia Chen, 04-11-2026, David GO:
  * "Keep the ILLOS box, add an actual page count and also trim size box which is
  * flagged if the PDF is not the same as Commercial. Go build!").
  *
@@ -28,16 +28,32 @@ function U(id){ return ui[id]||(ui[id]={filter:'all',showAll:false,runSel:'',que
 const e=s=>esc(s);
 function colL(i){ let s=''; i++; while(i>0){ const m=(i-1)%26; s=String.fromCharCode(65+m)+s; i=Math.floor((i-1)/26); } return s; }
 function dm(s){ const m=/^(\d{4})-(\d\d)-(\d\d)(?:[ T](\d\d:\d\d))?/.exec(String(s||'')); return m?(m[3]+'-'+m[2]+(m[4]?' '+m[4]:'')):String(s||''); }
-function nowStamp(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes()); }
+function nowStamp(sec){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+' '+p(d.getHours())+':'+p(d.getMinutes())+(sec?':'+p(d.getSeconds()):''); } // r95: sec=true for run_id (schema v2 §6)
 function isbnKey(t){ const c=t.commercial||{}; return String(c.isbnPbk||c.isbnHbk||'').replace(/[^0-9Xx]/g,'') || t.id; }
 function rowsFor(t){ const k=isbnKey(t); return pck.rows.filter(r=>r.title_id===t.id || (k && r.isbn===k && !r.title_id)); }
 function runsFor(t){ const k=isbnKey(t); return pck.runs.filter(r=>r.title_id===t.id || (k && r.isbn===k && !r.title_id))
-  .sort((a,b)=>(a.export_date+a.run_at).localeCompare(b.export_date+b.run_at)); }
+  .sort((a,b)=>(a.export_date+a.run_at).localeCompare(b.export_date+b.run_at) || runKeyTime(a).localeCompare(runKeyTime(b))); }
+// r95: run_id = <key>|YYYY-MM-DD HH:MM[:SS]; the seconds order two runs made in the same minute
+function runKeyTime(r){ const m=/\|(\d{4}-\d\d-\d\d \d\d:\d\d(?::\d\d)?)$/.exec(String(r.run_id||'')); return m?(m[1].length===16?m[1]+':00':m[1]):String(r.run_at||''); }
 function latestRun(t){ const r=runsFor(t); return r.length?r[r.length-1]:null; }
 function toObjs(vals){ const h=(vals[0]||[]).map(x=>String(x||'').trim()); const out=[];
   for(let i=1;i<vals.length;i++){ const r=vals[i]; if(!r||!r[0]) continue; const o={_row:i+1}; h.forEach((k,j)=>{ if(k) o[k]=r[j]==null?'':String(r[j]); }); out.push(o); }
   return {h,out}; }
-function isAutoClosed(r){ return r.status==='Resolved' && !r.note_date && !r.david_note; }
+function isAutoClosed(r){ return r.status==='Resolved' && !r.note_date && !r.david_note && !isMerged(r); }
+// r95 (schema v2): grouped rows = one row per check + kind for ink / text / colour / res, page token `all`
+const PCK_GROUP_CHECKS=new Set(['ink','text','colour','res']);
+function isMerged(r){ return r.status==='Resolved' && /^merged into grouped row/.test(String(r.auto_note||'')); }
+function grpInfo(r){
+  if(String(r.page)!=='all' || !PCK_GROUP_CHECKS.has(r.check) || String(r.findingId||'').split('|')[2]!=='all') return null;
+  const parts=String(r.detail||'').split('; '), m=/^(\d+) page\(s\): (.*)$/.exec(parts[0]||''); if(!m) return null;
+  const wp=parts.find(x=>/^worst: /.test(x)), worstList=wp?wp.slice(7).split(', ').filter(Boolean):[];
+  const pw=/\b(max|lowest) ([^,()]+?)\s*\(p(\d+)\)/.exec(String(r.problem||''));
+  const worst=pw?(pw[2]+' on p'+pw[3]):(worstList[0]?worstList[0].replace(/^p(\d+) (.*)$/,'$2 on p$1'):'');
+  const dl=m[2].replace(/-/g,'–'), pr=String(r.problem||''); // drop the page list from the headline (it sits under "Pages")
+  const head=[', pp '+dl, ', p '+dl].reduce((x,y)=>x.includes(y)?x.replace(y,''):x, pr).replace(/,\s*pp \d+–\d+ \(gaps: see detail\)/,'');
+  const first=parseInt(m[2],10);
+  return {n:+m[1], list:m[2], worst, worstList, head, first:isNaN(first)?99999:first, rest:parts.filter(x=>x!==parts[0]&&x!==wp)};
+}
 function pnum(v){ const m=/^\s*(\d+)\s*$/.exec(String(v==null?'':v)); return m?+m[1]:null; }
 
 // ── load ──
@@ -112,17 +128,40 @@ async function pckMergeRun(q){
   if(pck.runs.some(r=>r.run_id===run.run_id)) return {skipped:true};
   const tid=run.title_id, ran=new Set(q.checks_run||[]), when=dm(run.export_date||run.run_at);
   const present=new Map((q.findings||[]).map(f=>[f.findingId,f]));
-  const upd=[], add=[];
-  pck.rows.filter(r=>r.title_id===tid && ran.has(r.check)).forEach(r=>{
-    const here=present.has(r.findingId); present.delete(r.findingId);
-    const o={status:r.status,last_seen:r.last_seen,auto_note:r.auto_note};
-    if(r.status==='Deliberate'||r.status==="Won't fix"){ o.auto_note='skipped ('+r.status+')'; if(here) o.last_seen=run.export_date; }
-    else if(r.by_eye==='TRUE'){ if(here) o.last_seen=run.export_date; o.auto_note=r.status==='Resolved'?"by eye: David's mark kept":'still present in export '+when; }
-    else if(!here){ if(r.status==='Open'){ o.status='Resolved'; o.auto_note='gone in export '+when; } else if(!/^confirmed fixed/.test(r.auto_note||'')||r.status!=='Resolved') o.auto_note='confirmed fixed in export '+when; }
-    else { o.last_seen=run.export_date; if(r.status==='Resolved'){ o.status='Open'; o.auto_note='still present in export '+when+(r.note_date?' (you marked Resolved '+dm(r.note_date)+')':''); } else o.auto_note='still present in export '+when; }
+  // Round 95 (schema v2 §5a, same rule as Dean's print_checks_bph.py v2.5): a grouped finding
+  // <key>|<check>|all|<item> replaces the old per-page rows <key>|<check>|p<N>|<item>[-k].
+  const grp=new Map();
+  (q.findings||[]).forEach(f=>{ if(!f.grouped) return; const p=String(f.findingId).split('|'); if(p.length===4){ const k=p[1]+'|'+p[3].replace(/-\d+$/,''); if(!grp.has(k)) grp.set(k,f.findingId); } });
+  const mergedInto=fid=>{ const p=String(fid).split('|'); return (p.length===4&&/^p\d+$/.test(p[2]))?(grp.get(p[1]+'|'+p[3].replace(/-\d+$/,''))||null):null; };
+  const upd=[], add=[]; let merged=0;
+  pck.rows.filter(r=>(r.title_id===tid || (!r.title_id && run.isbn && r.isbn===run.isbn)) && ran.has(r.check)).forEach(r=>{
+    const f=present.get(r.findingId), here=!!f; present.delete(r.findingId);
+    const st=r.status||'Open', an=String(r.auto_note||'');
+    const o={status:st,last_seen:r.last_seen,auto_note:r.auto_note,problem:r.problem,detail:r.detail};
+    if(here){ o.last_seen=run.export_date; o.problem=f.problem; o.detail=f.detail||''; }
+    const byEye=r.by_eye==='TRUE'||(here&&!!f.by_eye);
+    const gid=here?null:mergedInto(r.findingId);
+    if(st==='Deliberate'||st==="Won't fix"){ o.auto_note='skipped ('+st+')'; }
+    else if(gid && !byEye && !(st==='Resolved' && /^(confirmed fixed|gone in export)/.test(an))){
+      // replaced by a grouped row, not fixed: Open -> Resolved; the first merge note is kept
+      if(st==='Open') o.status='Resolved';
+      if(!/^merged into grouped row/.test(an)){ o.auto_note='merged into grouped row '+gid; merged++; }
+    }
+    else if(byEye){ o.auto_note=st==='Resolved'?"by eye: David's mark kept":(here?'still present in export '+when:'gone in export '+when+' (by eye: status kept)'); }
+    else if(!here){ if(st==='Open'){ o.status='Resolved'; o.auto_note='gone in export '+when+' (auto-closed by run '+dm(run.run_at)+')'; }
+      else if(!/^(confirmed fixed|gone in export|merged into)/.test(an)) o.auto_note='confirmed fixed in export '+when; }
+    else { if(st==='Resolved'){ o.status='Open'; o.auto_note='still present in export '+when+(r.note_date?' (you marked Resolved '+dm(r.note_date)+')':''); } else o.auto_note='still present in export '+when; }
     Object.assign(r,o,{export_file:run.export_file,export_date:run.export_date,run_id:run.run_id});
     upd.push(r);
   });
+  // run-row counts = OPEN items only, after the merge (same as print_checks_bph.py: a queued
+  // run gets its counts set at import, so David's Resolved / Deliberate / Won't fix marks apply)
+  if(Array.isArray(q.findings)){
+    const stOf=new Map(pck.rows.map(r=>[r.findingId,r.status||'Open']));
+    const isOpen=(q.findings||[]).filter(f=>(stOf.get(f.findingId)||'Open')==='Open');
+    const fc=isOpen.filter(f=>f.severity==='FAIL').length, wc=isOpen.filter(f=>f.severity==='WARN'||f.severity==='CHECK').length;
+    run.fail_count=String(fc); run.warn_count=String(wc); run.verdict=fc?'FAIL':'OK';
+  }
   present.forEach(f=>{
     if(pck.rows.some(r=>r.findingId===f.findingId)) return; // row exists but its check wasn't in checks_run: leave it
     add.push({findingId:f.findingId,title_id:tid,title:run.title,isbn:run.isbn,check:f.check,category:f.category,page:String(f.page||''),pdf_page:String(f.pdf_page||''),
@@ -133,13 +172,14 @@ async function pckMergeRun(q){
   if(!devMode){
     const data=[];
     upd.forEach(r=>{ data.push({range:cellRange(PCK_TAB,pck.fH,r._row,['last_seen','export_file','export_date','status']),values:[[r.last_seen,r.export_file,r.export_date,r.status]]});
-                     data.push({range:cellRange(PCK_TAB,pck.fH,r._row,['auto_note','run_id']),values:[[r.auto_note,r.run_id]]}); });
-    if(data.length) await valuesBatch(data);
+                     data.push({range:cellRange(PCK_TAB,pck.fH,r._row,['auto_note','run_id']),values:[[r.auto_note,r.run_id]]});
+                     data.push({range:cellRange(PCK_TAB,pck.fH,r._row,['problem','detail']),values:[[r.problem||'',r.detail||'']]}); }); // r95: grouped rows carry fresh counts
+    for(let i=0;i<data.length;i+=500) await valuesBatch(data.slice(i,i+500)); // r95: TR merges ~400 rows at once
     if(add.length) await appendRows(PCK_TAB, add.map(o=>pck.fH.map(k=>o[k]==null?'':String(o[k]))));
     await appendRows(PCK_RUNS, [pck.rH.map(k=>runRow[k]==null?'':String(runRow[k]))]);
     pck.loaded=false; await pckLoad(true);
   } else { add.forEach((o,i)=>pck.rows.push(Object.assign({_row:pck.rows.length+2+i},o))); pck.runs.push(Object.assign({_row:pck.runs.length+2},runRow)); }
-  return {updated:upd.length, added:add.length};
+  return {updated:upd.length, added:add.length, merged};
 }
 
 // ── PC queue: <PDF folder>\Checks\_queue\*.json, read with folder access ──
@@ -175,21 +215,21 @@ async function pckScanQueue(tid,ask){
   pckRender(tid,true);
 }
 async function pckImportQueue(tid){
-  const u=U(tid); let n=0;
+  const u=U(tid); let n=0, mg=0;
   for(const f of u.queue.slice()){
-    try{ const res=await pckMergeRun(f.json); n++;
+    try{ const res=await pckMergeRun(f.json); n++; mg+=(res.merged||0);
       if(!devMode){ try{ const done=await f.dir.getDirectoryHandle('_imported',{create:true}); if(f.handle.move) await f.handle.move(done); else { const w=await (await done.getFileHandle(f.name,{create:true})).createWritable(); await w.write(await (await f.handle.getFile()).text()); await w.close(); } }catch(_){ /* leave it: re-import is idempotent */ } }
       u.queue=u.queue.filter(x=>x!==f);
       if(res.skipped) ctToast('Already imported: '+dm(f.json.run.run_at));
     }catch(err){ showReconnect('PC check not imported: '+(err.message||err), isAuthFailure(err)); break; }
   }
-  if(n) ctToast(n+' PC check'+(n>1?'s':'')+' imported.');
+  if(n) ctToast(n+' PC check'+(n>1?'s':'')+' imported.'+(mg?' '+mg+' per-page rows merged into grouped rows.':''));
   pckRender(tid,true);
 }
 async function pckImportFile(tid,input){
-  const files=[...(input.files||[])]; let n=0;
-  for(const f of files){ try{ const j=JSON.parse(await f.text()); if(!j.run) throw new Error('not a PC check file'); const r=await pckMergeRun(j); if(!r.skipped) n++; }catch(err){ showReconnect('Import failed ('+f.name+'): '+(err.message||err), isAuthFailure(err)); } }
-  input.value=''; if(n) ctToast(n+' run'+(n>1?'s':'')+' imported.'); pckRender(tid,true);
+  const files=[...(input.files||[])]; let n=0, mg=0;
+  for(const f of files){ try{ const j=JSON.parse(await f.text()); if(!j.run) throw new Error('not a PC check file'); const r=await pckMergeRun(j); if(!r.skipped){ n++; mg+=(r.merged||0); } }catch(err){ showReconnect('Import failed ('+f.name+'): '+(err.message||err), isAuthFailure(err)); } }
+  input.value=''; if(n) ctToast(n+' run'+(n>1?'s':'')+' imported.'+(mg?' '+mg+' per-page rows merged into grouped rows.':'')); pckRender(tid,true);
 }
 
 // ── Titles fields (Commercial + panel) ──
@@ -249,7 +289,7 @@ function pckRender(tid,keep){
   const sel=runs.find(r=>r.run_id===u.runSel)||lr;
   const cnt={all:rows.length,open:0,deliberate:0,resolved:0,wontfix:0};
   rows.forEach(r=>{ const k=r.status==="Won't fix"?'wontfix':String(r.status||'').toLowerCase(); if(k in cnt) cnt[k]++; });
-  const byYou=rows.filter(r=>r.status==='Resolved'&&!isAutoClosed(r)).length, auto=rows.filter(isAutoClosed).length;
+  const byYou=rows.filter(r=>r.status==='Resolved'&&!isAutoClosed(r)&&!isMerged(r)).length, auto=rows.filter(isAutoClosed).length, mergedN=rows.filter(isMerged).length;
   const flag=(ok,txt)=>ok===null||ok===undefined?`<span class="pck-na">${txt||'no run yet'}</span>`:(ok?'<span class="pck-ok">✓ same</span>':'<span class="pck-bad">⚠ differs</span>');
   // settings
   const isb=[c.isbnPbk?e(c.isbnPbk)+' <small>pbk</small>':'',c.isbnEbk?e(c.isbnEbk)+' <small>ebk</small>':'',c.isbnHbk?e(c.isbnHbk)+' <small>hbk</small>':''].filter(Boolean).join(' · ')||'<span class="pck-na">none</span>';
@@ -278,13 +318,14 @@ function pckRender(tid,keep){
   if(!iv) cpages+=`<div class="pck-sub">Interior not set: pick Mono, Colour or Mixed above.</div>`;
   // run strip
   const strip=runs.length?`<div class="pck-hist">${runs.slice(-6).map(r=>{ const i=runs.indexOf(r), ok=r.verdict==='OK', old=!ok&&lastOkIdx>i, cur=r===sel;
-      return `<button type="button" class="pck-run ${ok?'ok':'f'}${old?' old':''}${cur?' cur':''}" onclick="pckSelRun('${tid}','${e(r.run_id)}')" title="${old?'Superseded by a later OK run. ':''}Click to see this run's full result"><span class="dot"></span><span class="rt">${e(dm(r.export_date))} <i>${ok?'OK':'FAIL'}</i></span><span class="rs">${e(r.export_file)} · ${e(r.source||'PC')}<br>${e(r.summary||'')}</span></button>`; }).join('')}</div>
+      return `<button type="button" class="pck-run ${ok?'ok':'f'}${old?' old':''}${cur?' cur':''}" onclick="pckSelRun('${tid}','${e(r.run_id)}')" title="${old?'Superseded by a later OK run. ':''}${e(pdfPath(r))}${r.pdf_sha256?' · fingerprint '+e(String(r.pdf_sha256).slice(0,8)):''} · click to see this run's full result"><span class="dot"></span><span class="rt">${e(dm(r.export_date))} <i>${ok?'OK':'FAIL'}</i></span><span class="rs">${e(r.export_file)} · ${e(r.source||'PC')}<br>${e(r.summary||'')}</span></button>`; }).join('')}</div>
+    ${sel?pckFileLine(tid,sel):''}
     <div class="pck-key">Green = OK / ready. Red = fail. Greyed = a fail already superseded by a later OK run (still clickable).</div>`
     :`<div class="po-empty">No print checks for this title yet. Run one on the PC (drag the PDF onto <b>Desktop\\Print PDF Check.bat</b>) or in the browser (button below).</div>`;
   // verdict
   const openN=cnt.open;
   const verdict=lr?`<div class="pck-verdict ${lr.verdict==='OK'?'ok':'f'}"><span class="big">${lr.verdict==='OK'?'✔ READY TO UPLOAD':'✖ NOT READY'}</span>
-     <span class="txt">${e(lr.fail_count||0)} failure${lr.fail_count==='1'?'':'s'}. ${openN} open · ${cnt.deliberate} Deliberate · ${byYou} resolved by you · ${auto} confirmed fixed by re-runs${cnt.wontfix?' · '+cnt.wontfix+" won't fix":''}.</span>
+     <span class="txt">${e(lr.fail_count||0)} failure${lr.fail_count==='1'?'':'s'}. ${openN} open · ${cnt.deliberate} Deliberate · ${byYou} resolved by you · ${auto} confirmed fixed by re-runs${cnt.wontfix?' · '+cnt.wontfix+" won't fix":''}${mergedN?' · '+mergedN+' merged into grouped rows':''}.</span>
      <span class="when">${e(lr.export_file)}<br>checked ${e(dm(lr.run_at))} ${lr.source==='BPH'?'in the browser':'on the PC'}</span></div>`:'';
   // queue banner
   let qb='';
@@ -292,18 +333,23 @@ function pckRender(tid,keep){
   const qline=window.showDirectoryPicker?`<button type="button" class="pck-link" onclick="pckScanQueue('${tid}',true)">${u.qState==='need'||!u.qState?'Look for PC checks waiting to sync (folder access)':'↻ Look again for PC checks waiting to sync'}</button>${u.qState==='nofolder'?' <span class="pck-sub">no Checks\\_queue folder found for this title</span>':''}${u.qState==='ok'&&!u.queue.length?' <span class="pck-sub">nothing waiting</span>':''}`:'';
   // table
   const groups=[['Needs you','open','yellow = open',r=>r.status==='Open'],['Deliberate','deliberate','your call, never flagged again',r=>r.status==='Deliberate'],["Won't fix",'wontfix','like Deliberate, grey',r=>r.status==="Won't fix"],
-    ['Resolved by you','resolved',"includes check-by-eye items the checker can't confirm itself",r=>r.status==='Resolved'&&!isAutoClosed(r)],['Confirmed fixed by a re-run','resolved','closed automatically, kept as the record',r=>isAutoClosed(r)]];
-  const ord=r=>{ const n=parseInt(String(r.page).replace(/\D.*$/,''),10); return isNaN(n)?99999:n; };
+    ['Resolved by you','resolved',"includes check-by-eye items the checker can't confirm itself",r=>r.status==='Resolved'&&!isAutoClosed(r)&&!isMerged(r)],['Confirmed fixed by a re-run','resolved','closed automatically, kept as the record',r=>isAutoClosed(r)],
+    ['Merged into a grouped row','resolved','old one-row-per-page findings, now counted in one grouped row above; kept as the record',r=>isMerged(r)]];
+  const ord=r=>{ const g=grpInfo(r); if(g) return g.first; const n=parseInt(String(r.page).replace(/\D.*$/,''),10); return isNaN(n)?99999:n; };
   let body='';
   groups.forEach(([lab,key,sub,fn])=>{ if(u.filter!=='all'&&u.filter!==key) return; const rs=rows.filter(fn).sort((a,b)=>ord(a)-ord(b)); if(!rs.length) return;
-    body+=`<tr class="grp"><td colspan="7">${e(lab)} <span>· ${e(sub)}</span></td></tr>`;
+    const mg=fn===isMerged||lab==='Merged into a grouped row';
+    body+=`<tr class="grp"><td colspan="7">${e(lab)} <span>· ${e(sub)}</span>${mg?` <button type="button" class="pck-link pck-mtog" onclick="pckShowMerged('${tid}')">${u.showMerged?'Hide':'Show'} ${rs.length}</button>`:''}</td></tr>`;
+    if(mg && !u.showMerged) return;
     rs.forEach(r=>{ const cls=r.status==='Open'?'s-open':r.status==='Deliberate'?'s-deliberate':r.status==="Won't fix"?'s-wontfix':isAutoClosed(r)?'s-auto':'s-resolved'; const fid=r.findingId, cid=cssId(fid);
-      const auto=/^confirmed fixed|^gone/.test(r.auto_note)?'<span class="k">FIXED</span>':/^still present|^new in/.test(r.auto_note)&&r.status==='Open'?'<span class="k r">'+(/^new/.test(r.auto_note)?'NEW':'STILL HERE')+'</span>':'';
+      const g=grpInfo(r);
+      const auto=/^merged into grouped row/.test(r.auto_note)?'<span class="k g">MERGED</span>':/^confirmed fixed|^gone/.test(r.auto_note)&&r.status!=='Open'?'<span class="k">FIXED</span>':/^still present|^new in/.test(r.auto_note)&&r.status==='Open'?'<span class="k r">'+(/^new/.test(r.auto_note)?'NEW':'STILL HERE')+'</span>':'';
       const gone=isAutoClosed(r)||(r.status==='Resolved'&&r.last_seen!==r.export_date);
       body+=`<tr class="${cls}"><td><select class="pck-sel" aria-label="Status" onchange="pckMark('${e(fid)}','status',this.value,'${tid}')">${PCK_STATUSES.map(s=>`<option${s===r.status?' selected':''}>${e(s)}</option>`).join('')}</select></td>
-        <td class="pg"><b>${/^\d+$/.test(r.page)?'p'+e(r.page):e(r.page)}</b>${r.pdf_page?`<span class="pdfp">PDF p${e(r.pdf_page)}</span>`:''}</td>
+        <td class="pg">${g?`<span class="pck-ppb" title="${e(g.n)} pages, grouped into one row">${e(g.n)} pp</span><span class="pdfp">grouped</span>`:`<b>${/^\d+$/.test(r.page)?'p'+e(r.page):e(r.page)}</b>`}${r.pdf_page?`<span class="pdfp">PDF p${e(r.pdf_page)}</span>`:''}</td>
         <td>${e(r.category)}<br><span class="src">${e(r.source)}${r.by_eye==='TRUE'?' · by eye':''}</span></td>
-        <td><div class="ent">${e(r.problem)}</div>${r.detail?`<div class="muted">${e(r.detail)}</div>`:''}</td>
+        <td>${g?`<div class="ent">${e(g.head)}</div>${g.worst?`<div class="pck-worst">Worst: <b>${e(g.worst)}</b>${g.worstList.length>1?` <span class="muted">· next: ${e(g.worstList.slice(1,4).join(', '))}${g.worstList.length>4?' …':''}</span>`:''}</div>`:''}<details class="pck-pgl"><summary>Pages (${e(g.n)})</summary><span>pp ${e(g.list)}</span></details>${g.rest.length?`<div class="muted">${e(g.rest.join('; '))}</div>`:''}`
+          :`<div class="ent">${e(r.problem)}</div>${r.detail?`<div class="muted">${e(r.detail)}</div>`:''}`}</td>
         <td class="seen">first ${e(dm(r.first_seen))}<br>${gone?'gone after '+e(dm(r.last_seen)):'last '+e(dm(r.last_seen))}</td>
         <td><textarea class="pck-note" rows="1" placeholder="Type a note… saves by itself" oninput="pckMark('${e(fid)}','david_note',this.value,'${tid}')">${e(r.david_note||'')}</textarea><div class="pck-saved" id="pck-sv-${cid}">${r.note_date?'saved '+e(dm(r.note_date)):''}</div></td>
         <td class="auto">${auto}${e(r.auto_note||'')}</td></tr>`; }); });
@@ -335,7 +381,21 @@ function pckRender(tid,keep){
   if(!keep && window.showDirectoryPicker && !u.qState) pckScanQueue(tid,false);
   if(typeof updateSectionHeaders==='function') updateSectionHeaders(tid);
 }
+// r95 (David via Thomas 04-11): each run box identifies exactly which PDF it checked. Chrome blocks
+// file:// links from an https page, so: full path (hover + expand) and a Copy path button for File Explorer.
+function pdfPath(r){ const f=String(r.pdf_folder||'').replace(/[\\/]+$/,''); return f?(f+'\\'+(r.export_file||'')):String(r.export_file||''); }
+function fmtBytes(v){ const n=Number(v); if(!isFinite(n)||n<=0) return ''; return n>=1048576?(Math.round(n/104857.6)/10)+' MB':n>=1024?Math.round(n/1024)+' KB':n+' bytes'; }
+function pckFileLine(tid,r){
+  const path=pdfPath(r), sz=fmtBytes(r.pdf_bytes), fp=String(r.pdf_sha256||'').slice(0,8);
+  return `<div class="pck-file"><span class="k">PDF checked</span><b class="nm" title="${e(path)}">${e(r.export_file||'–')}</b>
+    <span class="meta">modified ${e(dm(r.export_date)||'–')}${sz?' · '+e(sz):''}${fp?` · fingerprint <code title="sha256 ${e(r.pdf_sha256)}">${e(fp)}</code>`:''}</span>
+    ${r.pdf_folder?`<button type="button" class="btn btn-sm" onclick="pckCopyPath('${tid}','${e(r.run_id)}',this)">⧉ Copy path</button>`:''}
+    <details class="pck-pgl"><summary>Full path</summary><span>${e(path)}</span></details>
+    ${!sz&&!fp?'<span class="pck-sub">Size + fingerprint show once the PC check records them.</span>':''}</div>`;
+}
+function pckCopyPath(tid,rid,btn){ const r=pck.runs.find(x=>x.run_id===rid); if(!r) return; ctCopyText(pdfPath(r),btn,'Path copied: paste it into the File Explorer address bar'); }
 function pckFilter(tid,k){ U(tid).filter=k; pckRender(tid,true); }
+function pckShowMerged(tid){ const u=U(tid); u.showMerged=!u.showMerged; pckRender(tid,true); }
 function pckShowAll(tid){ const u=U(tid); u.showAll=!u.showAll; pckRender(tid,true); }
 function pckSelRun(tid,rid){ const u=U(tid); u.runSel=rid; u.showAll=true; pckRender(tid,true); }
 async function pckReload(tid){ pck.loaded=false; pck.err=''; await pckLoad(true); pckRender(tid); }
@@ -396,10 +456,10 @@ async function pckBrowserCheck(tid,input){
     const last=await (await doc.getPage(n)).getTextContent();
     if(last.items.some(x=>String(x.str).trim())) F.push({findingId:isbn+'|lsi|p'+n+'|last-page-not-blank',check:'lsi',category:'Page count / spine',page:String(n),problem:'LSI: last page is not blank',detail:'LSI uses the last page for its barcode, so it adds 2 pages (count at LSI = '+(n+2)+').',by_eye:false,severity:'WARN'});
     else passes.push({category:'Page count / spine',text:'LSI: last page is blank'});
-    const fails=F.filter(f=>f.severity==='FAIL').length, runAt=nowStamp();
-    const q={schema:'bph-print-checks/1',checks_run:['pages','trim','isbn','lsi'],findings:F,run:{run_id:isbn+'|'+runAt,title_id:t.id,title:t.title,isbn,run_at:runAt,export_file:file.name,export_date:exp,source:'BPH',verdict:fails?'FAIL':'OK',
+    const fails=F.filter(f=>f.severity==='FAIL').length, runAtS=nowStamp(true), runAt=runAtS.slice(0,16);
+    const q={schema:'bph-print-checks/1',checks_run:['pages','trim','isbn','lsi'],findings:F,run:{run_id:isbn+'|'+runAtS,title_id:t.id,title:t.title,isbn,run_at:runAt,export_file:file.name,export_date:exp,source:'BPH',verdict:fails?'FAIL':'OK',
       fail_count:String(fails),warn_count:String(F.length-fails),pass_count:String(passes.length),corr_in:'',corr_total:'',page_count:String(n),trim_mm:tm,interior_mode:c.interior||'',colour_pages:'',colour_page_list:'',illos_pdf:'',ink_limit:'',ink_worst:'',
-      summary:'browser check: pages, trim, ISBN, LSI last page'+(F.length?' · '+F.map(f=>f.problem).join(' · '):' · all clear'),passes,passes_json:JSON.stringify(passes),script_version:'BPH browser check r93',notes_file:'',pdf_folder:''}};
+      summary:'browser check: pages, trim, ISBN, LSI last page'+(F.length?' · '+F.map(f=>f.problem).join(' · '):' · all clear'),passes,passes_json:JSON.stringify(passes),script_version:'BPH browser check r95',notes_file:'',pdf_folder:''}};
     const res=await pckMergeRun(q);
     say(`<div class="pck-sub">Browser check done: ${n} pages, ${tm} mm, ${fails} fail${fails===1?'':'s'}. Proof corrections, colour, ink and layout need the PC check.${res.skipped?' (already recorded)':''}</div>`);
     pckRender(tid,true);
@@ -408,6 +468,6 @@ async function pckBrowserCheck(tid,input){
 
 function pckSectionStatus(t){ if(!pck.loaded) return 'partial'; const lr=latestRun(t); if(!lr) return 'partial'; if(lr.verdict!=='OK') return 'overdue'; if(rowsFor(t).some(r=>r.status==='Open')) return 'partial'; return 'complete'; }
 
-Object.assign(window,{pckSectionHtml,pckOpen,pckRender,pckMark,pckFilter,pckShowAll,pckSelRun,pckReload,pckCopyColour,pckCopyCmd,pckXlsx,pckBrowserCheck,
+Object.assign(window,{pckSectionHtml,pckOpen,pckRender,pckMark,pckFilter,pckShowMerged,pckCopyPath,pckShowAll,pckSelRun,pckReload,pckCopyColour,pckCopyCmd,pckXlsx,pckBrowserCheck,
   pckScanQueue,pckImportQueue,pckImportFile,pckSetField,pckCommercialHtml,pckSectionStatus,pckLoad,pckMergeRun,_pck:pck});
 })();
