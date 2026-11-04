@@ -1505,6 +1505,7 @@ function loadDevSampleData(){
   document.getElementById('whoami').textContent = 'DEV PREVIEW — not saving';
   setSyncStatus('none');
   render();
+  bphApplyDeepLink(); // Round 94
 }
 
 // ─── AUTH / LOAD ───
@@ -1598,6 +1599,7 @@ async function loadAllData(){
     setSyncStatus('saved');
     document.getElementById('footer-sync-label').textContent = 'Connected — Book Production Titles';
     render();
+    bphApplyDeepLink(); // Round 94 — #title=…[&section=print-checks] waits for the titles
     // Round 91 — the card ribbon needs PO numbers from the Xero cache. Until it
     // answers, no ribbon fires (never a false alarm); then the current view
     // redraws once with the real state.
@@ -4525,6 +4527,39 @@ function kitHashCheck(){ const h=(location.hash||'').toLowerCase();
   if(h==='#kit-device-on'||h==='#kit-device-off'){ kitDeviceSet(h==='#kit-device-on'); try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){} } }
 window.addEventListener('hashchange',kitHashCheck);
 if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',kitHashCheck); else kitHashCheck();
+// ─── Round 94 (04-11-2026, Mia Chen) — deep link ───
+// #title=<title_id> opens that title's page; add &section=print-checks to open
+// and scroll to section 9 (any SECTION_KEYS key also works, e.g. section=poTracker).
+// Fallback: title= may also be a 13-digit ISBN (pbk or hbk). Read at page load and
+// held until the titles are in (loadAllData / sample data), or applied at once on a
+// later hashchange. The hash is then cleared so a reload doesn't jump again.
+let bphDeepLink=null;
+const BPH_DL_SECTIONS={'print-checks':'printChecks','printchecks':'printChecks','9':'printChecks'};
+function bphParseDeepLink(){ const h=(location.hash||'').replace(/^#/,''); if(!/^title=/i.test(h)) return null;
+  const p=new URLSearchParams(h), id=(p.get('title')||'').trim(); return id?{id,section:(p.get('section')||'').trim()}:null; }
+function bphDeepSectionKey(s){ if(!s) return ''; const k=s.toLowerCase(); return BPH_DL_SECTIONS[k]||SECTION_KEYS.find(x=>x.toLowerCase()===k.replace(/[-_ ]/g,''))||''; }
+function bphApplyDeepLink(){
+  if(!bphDeepLink || !data.titles.length) return false;
+  const dl=bphDeepLink; bphDeepLink=null;
+  try{ history.replaceState(null,'',location.pathname+location.search); }catch(e){}
+  const lc=dl.id.toLowerCase(), dig=dl.id.replace(/[^0-9Xx]/g,'');
+  const t=getTitle(dl.id) || data.titles.find(x=>String(x.id).toLowerCase()===lc)
+    || (dig.length>=10 && data.titles.find(x=>{ const c=x.commercial||{}; return [c.isbnPbk,c.isbnHbk].some(v=>v && String(v).replace(/[^0-9Xx]/g,'')===dig); }));
+  if(!t){ ctToast('BPH has no title "'+dl.id+'"'); return true; }
+  gotoDetail(t.id);
+  const key=bphDeepSectionKey(dl.section);
+  if(key) restoreDetailPosition(t.id,key,0); else window.scrollTo(0,0);
+  // Print Checks fills in after its Sheet read; until then the page may be too short to
+  // bring section 9 to the top. Scroll again once it has loaded, unless David has moved.
+  // (Scroll anchoring nudges scrollY by itself, so "moved" = a real wheel/key/touch/click.)
+  if(key==='printChecks' && typeof pckOpen==='function'){ let moved=false; const ev=['wheel','keydown','touchstart','mousedown'], mv=()=>{ moved=true; };
+    ev.forEach(n=>window.addEventListener(n,mv,{once:true,passive:true}));
+    pckOpen(t.id).then(()=>{ ev.forEach(n=>window.removeEventListener(n,mv)); if(!moved && view==='detail' && selectedId===t.id){ const el=document.getElementById(`asec-${t.id}-${key}`); if(el) el.scrollIntoView({behavior:'auto',block:'start'}); } }).catch(()=>{}); }
+  return true;
+}
+function bphDeepLinkCheck(){ const dl=bphParseDeepLink(); if(dl){ bphDeepLink=dl; bphApplyDeepLink(); } }
+window.addEventListener('hashchange',bphDeepLinkCheck);
+bphDeepLinkCheck();
 function distTaSectionHtml(t){
   const rows=TA_ROWS(t);
   return `<div class="dp-sechead"><h2>Turnaround <span class="dp-h2-title">· ${esc(t.title||'Untitled')}</span></h2>${kitBtnHtml(t,false)}<span class="dp-secnote">In the AI-sheet order (Dean’s kit builder). Turnaround has no character limits; word counts are for the sheet’s layout.${kitDeviceOn()?' “Build Sales Kit” runs Dean’s builder on this PC.':''}</span></div>
