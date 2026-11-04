@@ -1202,7 +1202,11 @@ function rowToTitle(row){
       illustrationsText: illustrationsText||'',
       pagesBreakdown: pn.pagesBreakdown||'',
       // Round 82 — TBC ticks (estimates). true/false in productionNotes_json.
-      pagesTbc: pn.pagesTbc===true, illustrationsTbc: pn.illustrationsTbc===true
+      pagesTbc: pn.pagesTbc===true, illustrationsTbc: pn.illustrationsTbc===true,
+      // Round 93 — Print Checks fields, inside productionNotes_json (no new column). Only present once set.
+      ...('interior' in pn ? {interior: String(pn.interior||'')} : {}),
+      ...('humanAuthored' in pn ? {humanAuthored: pn.humanAuthored===true} : {}),
+      ...('illosCount' in pn ? {illosCount: String(pn.illosCount==null?'':pn.illosCount)} : {})
     },
     price,
     content: { keywords: c.keywords||'', fullDescription: editorial.fullDescription, jacketBlurb: editorial.jacketBlurb, briefDescription: editorial.briefDescription, salesHandle: editorial.salesHandle, sellingPoints: (publicity.sellingPoints||[]).join('\n'),
@@ -1306,7 +1310,11 @@ function titleToRow(t){
     illustrationsText: t.commercial.illustrationsText||'', poManualNotes: t.poManualNotes||'',
     pagesBreakdown: t.commercial.pagesBreakdown||'', pagesTbc: t.commercial.pagesTbc===true, illustrationsTbc: t.commercial.illustrationsTbc===true, printStatusOverride: t.dates.printStatusOverride||'',
     releaseNote: t.dates.releaseNote||'', authorBookkeepingLink: t.authorBookkeepingLink||'',
-    distributor: t.dist||{}
+    distributor: t.dist||{},
+    // Round 93 — Print Checks fields; written only once the title has them.
+    ...(t.commercial.interior!==undefined ? {interior: t.commercial.interior||''} : {}),
+    ...(t.commercial.humanAuthored!==undefined ? {humanAuthored: t.commercial.humanAuthored===true} : {}),
+    ...(t.commercial.illosCount!==undefined ? {illosCount: String(t.commercial.illosCount||'')} : {})
   });
   const printerContacts_json = JSON.stringify({ contacts: t.print.printerContacts||[] });
   const filesLinks_json = JSON.stringify({ links: t.filesLinks.links||[] });
@@ -2191,6 +2199,7 @@ function getSectionStatus(t,key){
       return 'complete';
     }
     case 'print':return t.print.printEstimate?'complete':'partial';
+    case 'printChecks':return (typeof pckSectionStatus==='function')?pckSectionStatus(t):'partial'; // Round 93
     case 'poTracker': return (t.commercial.isbnPbk||t.commercial.isbnHbk||t.poTrackerTitleOverride)?'complete':'partial';
     // Round 80 — the old statement box is hidden, so the visible Marketing Notes count too.
     case 'publicity':return (t.publicity.marketingUK||t.publicity.marketingUSA||t.publicity.publicityStatement)?'complete':'partial';
@@ -2240,9 +2249,9 @@ function getSectionStatus(t,key){
 // SECTION_GROUPS below maps each key to its group so the sidebar can band
 // them subtly (see the toc-sidenav build in renderDetail()) without adding
 // a hard visual divider David didn't ask for.
-const SECTION_KEYS = ['commercial','dates','publicity','content','author','toc','pipeline','print','productionNotes','poTracker','futureEdition'];
-const SECTION_LABEL_TEXT = {commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Proofing & Production Notes',futureEdition:'Info & Future Edition'};
-const SECTION_GROUPS = {commercial:'commercial',dates:'commercial',publicity:'commercial',content:'content',author:'content',toc:'content',pipeline:'production',print:'production',productionNotes:'production',poTracker:'wrapup',futureEdition:'wrapup'};
+const SECTION_KEYS = ['commercial','dates','publicity','content','author','toc','pipeline','print','printChecks','productionNotes','poTracker','futureEdition']; // Round 93: printChecks
+const SECTION_LABEL_TEXT = {printChecks:'Print Checks',commercial:'Commercial',poTracker:'PO Tracker / Print Estimates',content:'Content',author:'Author',pipeline:'Production Pipeline',dates:'Dates & Scheduling',print:'Print & Distribution',publicity:'Publicity & Marketing',toc:'TOC / Excerpt / Insight',productionNotes:'Proofing & Production Notes',futureEdition:'Info & Future Edition'};
+const SECTION_GROUPS = {printChecks:'production',commercial:'commercial',dates:'commercial',publicity:'commercial',content:'content',author:'content',toc:'content',pipeline:'production',print:'production',productionNotes:'production',poTracker:'wrapup',futureEdition:'wrapup'};
 const SECTION_LABELS = {};
 SECTION_KEYS.forEach((k,i)=>{ SECTION_LABELS[k] = (i+1)+'. '+SECTION_LABEL_TEXT[k]; });
 // Round 6, item 4 — REVERSES the rounds 1/2 instruction that Pipeline/PO
@@ -2991,6 +3000,7 @@ function renderDetail(){
   // e.g. navigating away and back) and hasn't been fetched yet; the normal
   // first-open case is handled by toggleAccord() itself.
   if(isOpen(t.id,'poTracker') && !poTrackerLoadedFor[t.id]){ poTrackerLoadedFor[t.id]=true; loadPoTrackerFor(t.id); }
+  if(isOpen(t.id,'printChecks') && typeof pckOpen==='function') pckOpen(t.id); // Round 93
   if(pjInScope(t)) loadXeroPoCache().then(()=>pjFillDetail(t.id)).catch(()=>{}); // Round 91
   // Round 13 (2026-08-12) — was SECTION_KEYS[0] ('dates'); the detail view
   // actually opens scrolled to the top box, not "Dates & Scheduling", so
@@ -3483,6 +3493,7 @@ function renderSectionBody(t,key){
     case 'pipeline':return renderPipeline(t);
     case 'dates':return renderDates(t);
     case 'print':return renderPrint(t);
+    case 'printChecks':return (typeof pckSectionHtml==='function')?pckSectionHtml(t):''; // Round 93
     case 'poTracker':return renderPoTracker(t);
     case 'publicity':return renderPublicity(t);
     case 'toc':return renderTOC(t);
@@ -3522,6 +3533,7 @@ function setAccordOpen(tid,key,openState){
   // off the first time it's actually opened instead (once per title per
   // session; the "Loading…" placeholder in renderPoTracker() is what's
   // sitting there until this fires).
+  if(key==='printChecks' && openState && typeof pckOpen==='function') pckOpen(tid); // Round 93
   if(key==='poTracker' && openState && !poTrackerLoadedFor[tid]){
     poTrackerLoadedFor[tid]=true;
     loadPoTrackerFor(tid);
@@ -5161,6 +5173,8 @@ function renderCommercial(t){const id=t.id;const c=t.commercial;const p=t.price;
     ${frow('<span class="flag-usa">USA</span>Category USA',inp(`f-${id}-categoryUSA`,c.categoryUSA,'','fc(\''+id+'\',\'commercial.categoryUSA\',this.value)'),'usa')}
     ${frow('Nielsen Notified',`<label class="field-row"><input type="checkbox" ${c.nielsenNotified?'checked':''} onchange="fc('${id}','commercial.nielsenNotified',this.checked)"> Notified</label>`)}
     ${frow('Illustrations',`<div class="tbc-wrap${c.illustrationsTbc?' tbc-on':''}" id="tbcw-${id}-illustrations">`+inp(`f-${id}-illustrationsText`,c.illustrationsText,'e.g. black and white images: 10, colour images: 20, posters and photographs','fc(\''+id+'\',\'commercial.illustrationsText\',this.value);tbcNoteRefresh(\''+id+'\')')+tbcTickHtml(t,'illustrations')+`</div><div class="tbc-note" id="tbcn-${id}-illustrations">${tbcNoteText(t,'illustrations')}</div>`,'full')}
+    ${/* Round 93 — Illos number, Interior, Human Authored (print check). Pages + Trim Size above are the check's page count + trim. */''}
+    ${typeof pckCommercialHtml==='function'?pckCommercialHtml(t):''}
   </div></div>`;}
 
 // ─── Round 81 (2026-10-16, David-approved hotfix) — Pages guard ───
