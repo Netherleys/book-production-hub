@@ -1,4 +1,5 @@
-/* print-checks.js — Book Production Hub, Round 93 (+ r95 04-11: schema v2 grouped rows, merge rule, run_id seconds; + r96 04-11: clearer button row with descriptions) (Mia Chen, 04-11-2026, David GO:
+/* r98 09-11 (Mia Chen): proof-query panel (Proof Query Log) + per-page checklist in grouped findings (Group Pages, group status derived).
+ * print-checks.js — Book Production Hub, Round 93 (+ r95 04-11: schema v2 grouped rows, merge rule, run_id seconds; + r96 04-11: clearer button row with descriptions) (Mia Chen, 04-11-2026, David GO:
  * "Keep the ILLOS box, add an actual page count and also trim size box which is
  * flagged if the PDF is not the same as Commercial. Go build!").
  *
@@ -20,9 +21,9 @@ const PCK_TAB='Print Checks', PCK_RUNS='Print Check Runs';
 const PCK_STATUSES=['Open','Resolved','Deliberate',"Won't fix"];
 const PCK_SCRIPT='C:\\Users\\Administrator\\OneDrive\\Documents\\PKA MANAGEMENT\\Scripts\\print_pdf_check.py';
 const PCK_PRINTER_LINE='<b>LSI:</b> any colour page = whole book printed + billed as colour. <b>Biddles and most others:</b> colour pages counted and priced separately, so quote with the list above.';
-let pck={ loaded:false, loading:null, err:'', fH:[], rH:[], rows:[], runs:[] };
+let pck={ loaded:false, loading:null, err:'', fH:[], rH:[], rows:[], runs:[], pH:[], lH:[], pages:[], log:[], pg:new Map(), pkey:new Map() };
 const ui={}; // titleId -> {filter, showAll, runSel, queue:[]}
-function U(id){ return ui[id]||(ui[id]={filter:'all',showAll:false,runSel:'',queue:[],qState:''}); }
+function U(id){ return ui[id]||(ui[id]={filter:'all',cat:'all',ticks:new Set(),open:new Set(),hide:new Set(),vp:false,showAll:false,runSel:'',queue:[],qState:''}); }
 
 // ── helpers ──
 const e=s=>esc(s);
@@ -41,7 +42,7 @@ function toObjs(vals){ const h=(vals[0]||[]).map(x=>String(x||'').trim()); const
   return {h,out}; }
 function isAutoClosed(r){ return r.status==='Resolved' && !r.note_date && !r.david_note && !isMerged(r); }
 // r95 (schema v2): grouped rows = one row per check + kind for ink / text / colour / res, page token `all`
-const PCK_GROUP_CHECKS=new Set(['ink','text','colour','res']);
+const PCK_GROUP_CHECKS=new Set(['ink','text','colour','res','layout']);
 function isMerged(r){ return r.status==='Resolved' && /^merged into grouped row/.test(String(r.auto_note||'')); }
 function grpInfo(r){
   if(String(r.page)!=='all' || !PCK_GROUP_CHECKS.has(r.check) || String(r.findingId||'').split('|')[2]!=='all') return null;
@@ -62,9 +63,11 @@ async function pckLoad(force){
   if(pck.loading && !force) return pck.loading;
   pck.loading=(async()=>{
     try{
-      if(devMode){ const fx=window.PCK_DEV_FIXTURE||{rows:[],runs:[],fH:[],rH:[]}; pck.rows=fx.rows.map((r,i)=>Object.assign({_row:i+2},r)); pck.runs=fx.runs.map((r,i)=>Object.assign({_row:i+2},r)); pck.fH=fx.fH; pck.rH=fx.rH; pck.loaded=true; pck.err=''; return pck; }
-      const [a,b]=await Promise.all([sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_TAB+"'!A1:AF5000"), sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_RUNS+"'!A1:AF3000")]);
-      const A=toObjs(a), B=toObjs(b); pck.fH=A.h; pck.rH=B.h; pck.rows=A.out; pck.runs=B.out; pck.loaded=true; pck.err='';
+      if(devMode){ const fx=window.PCK_DEV_FIXTURE||{rows:[],runs:[],fH:[],rH:[]}; pck.rows=fx.rows.map((r,i)=>Object.assign({_row:i+2},r)); pck.runs=fx.runs.map((r,i)=>Object.assign({_row:i+2},r)); pck.fH=fx.fH; pck.rH=fx.rH; pck.pages=(fx.pages||[]).map((r,i)=>Object.assign({_row:i+2},r)); pck.log=(fx.log||[]).map((r,i)=>Object.assign({_row:i+2},r)); pck.pH=fx.pH||[]; pck.lH=fx.lH||[]; pckIndexPages(); pckNormGroups(); pck.loaded=true; pck.err=''; return pck; }
+      // r98: the two newer tabs may not exist yet on an older Sheet: treat a missing tab as empty
+      const opt=r=>sheetsGet(CFG.TITLES_SHEET_ID,r).catch(err=>{ if(isAuthFailure(err)) throw err; return []; });
+      const [a,b,c,d]=await Promise.all([sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_TAB+"'!A1:AF5000"), sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_RUNS+"'!A1:AF3000"), opt("'"+PCK_PAGES+"'!A1:P20000"), opt("'"+PCK_LOG+"'!A1:S5000")]);
+      const A=toObjs(a), B=toObjs(b), C=toObjs(c), D=toObjs(d); pck.fH=A.h; pck.rH=B.h; pck.rows=A.out; pck.runs=B.out; pck.pH=C.h; pck.pages=C.out; pck.lH=D.h; pck.log=D.out; pckIndexPages(); pckNormGroups(); pck.loaded=true; pck.err='';
     }catch(err){ pck.err=(err&&err.message)||String(err); pck.loaded=false; }
     finally{ pck.loading=null; }
     return pck;
@@ -287,6 +290,154 @@ function pckFlags(t,lr){
   return f;
 }
 
+// ── r97 (09-11): proof-query verdict line, category chips, group bulk marks + undo ──
+const statusKey=r=>r.status==="Won't fix"?'wontfix':String(r.status||'Open').toLowerCase();
+function ddmmyyyy(){ const d=new Date(), p=n=>String(n).padStart(2,'0'); return p(d.getDate())+'-'+p(d.getMonth()+1)+'-'+d.getFullYear(); }
+// Line at the top of the section, read from the latest run row: summary leads with the verdict
+// ("UP TO DATE vs proof queries (...)" or "NOT CONFIRMED: <reasons>"), notes_file lists the files.
+function pckProofLine(lr){
+  if(!lr) return '';
+  const lead=String(lr.summary||'').split(' | ')[0], m=/^(UP TO DATE|NOT CONFIRMED)\b/.exec(lead); if(!m) return '';
+  const ok=m[1]==='UP TO DATE', tot=pnum(lr.corr_total), cin=pnum(lr.corr_in);
+  const miss=/(\d+) MISSING/.exec(lead), eye=/(\d+) not machine-checked/.exec(lead);
+  const counts=(tot==null?'':tot+' item'+(tot===1?'':'s')+': <b>'+(cin==null?0:cin)+' IN</b> / <b>'+(miss?miss[1]:0)+' MISSING</b> / <b>'+(eye?eye[1]:Math.max(0,tot-(cin||0)-(miss?+miss[1]:0)))+' check by eye</b>');
+  const files=String(lr.notes_file||'').split('; ').filter(Boolean).map(x=>{ const k=/^(.*?)(\s*\(.*\))?$/.exec(x); return '<b>'+e(k[1])+'</b>'+e(k[2]||''); }).join(' + ');
+  const pdf=lr.export_file?'<b>'+e(lr.export_file)+'</b> ('+e(dm(lr.export_date))+')':'';
+  const why=ok?'':'<b>Reason: '+e(lead.replace(/^NOT CONFIRMED:\s*/,''))+'.</b> Re-export and re-run. ';
+  return `<div class="pck-pq ${ok&&!(miss&&+miss[1])?'ok':'f'}" role="status"><span class="big">${ok?'✔':'✖'} PROOF QUERIES: ${m[1]}</span>
+    <span class="txt">${why}${pdf}${files?' · '+files:''}${counts?`<small>${ok?'':'Last result, may be stale: '}${counts}</small>`:''}</span></div>`;
+}
+function pckShort(l){ if(l.length<=110) return l; const i=l.lastIndexOf(',',110); return l.slice(0,i>0?i:110)+' …'; }
+// ── r98 (09-11): per-page checklist inside grouped findings (Sheet tab "Group Pages") ──
+// BPH writes ONLY status / david_note / note_date of a page row. A grouped finding's status is DERIVED
+// from its pages: Open until every page is handled (Resolved / Deliberate / Won't fix).
+const PCK_PAGES='Group Pages', PCK_LOG='Proof Query Log';
+const PCK_WORD={'Resolved':'OK','Deliberate':'Deliberate',"Won't fix":"Won't fix",'Open':'reopened'};
+function pgSt(o){ const v=o.status||'Open'; return PCK_STATUSES.includes(v)?v:'Open'; }
+function pckIndexPages(){
+  const m=new Map(), k=new Map(); pck.pages.forEach(p=>{ k.set(p.key,p); if(!m.has(p.group_id)) m.set(p.group_id,[]); m.get(p.group_id).push(p); });
+  m.forEach(a=>a.sort((x,y)=>((pnum(x.page)==null?1e9:pnum(x.page))-(pnum(y.page)==null?1e9:pnum(y.page)))||String(x.page).localeCompare(String(y.page)))); pck.pg=m; pck.pkey=k; }
+const grpPages=r=>(r&&pck.pg.get(r.findingId))||[];
+function grpState(pg){ const c={'Open':0,'Resolved':0,'Deliberate':0,"Won't fix":0}; pg.forEach(p=>{ c[pgSt(p)]++; });
+  const M=pg.length, done=M-c.Open, kinds=PCK_STATUSES.slice(1).filter(x=>c[x]);
+  return {c,M,done,st:c.Open?'Open':(kinds.length===1?kinds[0]:'Resolved'),mix:kinds.map(x=>c[x]+' '+x).join(' · ')}; }
+// group row status follows its pages. Returns true if it changed.
+function pckSyncGroup(r){ const pg=grpPages(r); if(!pg.length) return false; const st=grpState(pg).st; if(r.status===st) return false; r.status=st; return true; }
+function pckNormGroups(){ pck.rows.forEach(r=>{ if(grpPages(r).length) pckSyncGroup(r); }); } // in memory only; the Sheet is corrected on David's next mark
+// items governed by a bulk action: a grouped row = its pages, any other row = itself
+const itId=i=>i.t==='page'?i.o.key:i.o.findingId;
+function pckItems(t,sc){
+  const rows=rowsFor(t);
+  if(sc.fid){ const r=rows.find(x=>x.findingId===sc.fid); return r?grpPages(r).map(p=>({t:'page',o:p,g:r})):[]; }
+  const out=[]; rows.filter(r=>r.category===sc.cat && !isMerged(r) && (grpPages(r).length||!isAutoClosed(r))).forEach(r=>{ const pg=grpPages(r); if(pg.length) pg.forEach(p=>out.push({t:'page',o:p,g:r})); else out.push({t:'row',o:r}); });
+  return out; }
+function pckTargets(tid,sc,mode,status){
+  const u=U(tid); let its=pckItems(getTitle(tid),sc);
+  its=status==='Open'?its.filter(i=>pgSt(i.o)!=='Open'):its.filter(i=>pgSt(i.o)==='Open');
+  return mode==='ticked'?its.filter(i=>u.ticks.has(itId(i))):its; }
+function pckTick(tid,id,on){ const u=U(tid); if(on) u.ticks.add(id); else u.ticks.delete(id); pckRender(tid,true); }
+function pckCat(tid,k){ const u=U(tid); u.cat=k; pckRender(tid,true); }
+function pckTogglePages(tid,fid){ const u=U(tid); if(u.open.has(fid)) u.open.delete(fid); else u.open.add(fid); pckRender(tid,true); }
+function pckHideHandled(tid,fid){ const u=U(tid); if(u.hide.has(fid)) u.hide.delete(fid); else u.hide.add(fid); pckRender(tid,true); }
+function pckVpToggle(tid,on){ U(tid).vp=!!on; }
+function pckGroupSetAll(tid,sel){ const v=sel.value, fid=sel.dataset.k; sel.value=''; if(v) pckBulkAsk(tid,'group',v,fid); }
+// the Sheet write for a set of rows: status + david_note + note_date (same three cells pckMark writes)
+function pckRowsWriteData(rs){ return rs.map(r=>({range:cellRange(PCK_TAB,pck.fH,r._row,['status','david_note','note_date']),values:[[r.status||'',r.david_note||'',r.note_date||'']]})); }
+function pckPagesWriteData(ps){ return ps.map(p=>({range:cellRange(PCK_PAGES,pck.pH,p._row,['status','david_note','note_date']),values:[[p.status||'',p.david_note||'',p.note_date||'']]})); }
+// guard: re-read column A of each tab; abort (writing nothing) if any row no longer holds the key we expect
+async function pckWriteMulti(ps,rs){
+  if(devMode||(!ps.length&&!rs.length)) return;
+  const bad=()=>{ const x=new Error('the tab changed under us, so BPH re-read it. Nothing was saved: try again'); x.stale=true; return x; };
+  if(ps.length){ const col=await sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_PAGES+"'!A1:A20000"); if(ps.some(p=>!col[p._row-1]||col[p._row-1][0]!==p.key)) throw bad(); }
+  if(rs.length){ const col=await sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_TAB+"'!A1:A5000"); if(rs.some(r=>!col[r._row-1]||col[r._row-1][0]!==r.findingId)) throw bad(); }
+  const data=pckPagesWriteData(ps).concat(pckRowsWriteData(rs)); for(let i=0;i<data.length;i+=500) await valuesBatch(data.slice(i,i+500));
+}
+let undoT=null;
+function pckToast(msg,undoFn){
+  let el=document.getElementById('pck-undo'); if(!el){ el=document.createElement('div'); el.id='pck-undo'; el.className='pck-toast'; el.setAttribute('role','status'); document.body.appendChild(el); }
+  el.innerHTML='<span></span>'; el.firstChild.textContent=msg;
+  if(undoFn){ const a=document.createElement('button'); a.type='button'; a.textContent='Undo'; a.onclick=()=>{ el.classList.remove('show'); undoFn(); }; el.appendChild(a); }
+  el.classList.add('show'); clearTimeout(undoT); undoT=setTimeout(()=>el.classList.remove('show'),20000);
+}
+// one page's mark (status / note), debounced; the group row follows (derived) and is written with it
+const pmTimers={};
+function pckPageMark(tid,key,field,value){
+  const p=pck.pkey.get(key); if(!p) return; const g=pck.rows.find(x=>x.findingId===p.group_id);
+  p[field]=value; p.note_date=nowStamp().slice(0,10);
+  if(field==='status' && g && pckSyncGroup(g)){ g.note_date=p.note_date; g._dirty=true; }
+  const el=()=>document.getElementById('pck-psv-'+cssId(key)); if(el()) el().textContent='saving…';
+  if(field==='status') pckRender(tid,true);
+  clearTimeout(pmTimers[key]);
+  pmTimers[key]=setTimeout(async()=>{
+    try{ await pckWriteMulti([p],g&&g._dirty?[g]:[]); if(g) g._dirty=false; const s=el(); if(s) s.textContent='✓ saved '+dm(nowStamp())+(devMode?' (preview)':''); }
+    catch(err){ const s=el(); if(s) s.textContent='not saved'; showReconnect('Page mark not saved: '+(err.message||err), isAuthFailure(err)); if(err.stale) pckReload(tid); }
+  }, field==='status'?150:800);
+}
+function pckBulkAsk(tid,mode,status,fid){ // status: 'Resolved' (shown as OK) | 'Deliberate' | "Won't fix" | 'Open' (reopen); fid = one grouped finding, else the selected category
+  const u=U(tid), t=getTitle(tid), sc=fid?{fid}:{cat:u.cat}, all=pckItems(t,sc), tg=pckTargets(tid,sc,mode,status); if(!tg.length) return;
+  const word=PCK_WORD[status], re=status==='Open', M=all.length, done=all.filter(i=>pgSt(i.o)!=='Open').length, after=re?done-tg.length:done+tg.length;
+  const unit=all.every(i=>i.t==='page')?'page':all.some(i=>i.t==='page')?'item':'row', n=tg.length, pl=(k,w)=>k+' '+w+(k===1?'':'s');
+  const gr=fid?rowsFor(t).find(x=>x.findingId===fid):null, gi=gr&&grpInfo(gr), label=gr?(gi?gi.head:gr.problem):sc.cat;
+  const ov=document.createElement('div'); ov.className='pck-modal-bg'; ov.id='pck-modal';
+  ov.innerHTML=`<div class="pck-modal" role="dialog" aria-modal="true" aria-labelledby="pck-mh"><h3 id="pck-mh">${re?'Reopen':'Mark'} ${pl(n,unit)}${mode==='ticked'?' you ticked':''}${re?'':' as '+e(word)}?</h3>
+    <p>${gr?'Finding':'Category'}: <b>${e(label)}</b>. ${mode==='ticked'?`Only the <b>${pl(n,unit)} you ticked</b> ${n>1?'change':'changes'}.`:`This changes the <b>${pl(n,unit)} ${re?'now handled':'still Open'}</b>.`}</p>
+    <p class="pck-sub">${!re&&done?`The <b>${done} already handled</b> are left alone. `:''}After this: <b>${after} of ${M}</b> ${unit}s confirmed${after>=M?', so the finding closes':' and it stays Open'}. Each ${unit} gets the note “bulk: ${re?'reopened':'marked '+e(word)} by David ${ddmmyyyy()}” (existing notes kept). You can undo straight afterwards.</p>
+    <div class="row"><button type="button" class="btn" id="pck-mc">Cancel</button><button type="button" class="btn pck-go" id="pck-my">Yes, ${re?'reopen':'mark'} ${n}${re?'':' as '+e(word)}</button></div></div>`;
+  document.body.appendChild(ov);
+  const close=()=>ov.remove(); ov.querySelector('#pck-mc').onclick=close; ov.addEventListener('click',ev=>{ if(ev.target===ov) close(); });
+  ov.addEventListener('keydown',ev=>{ if(ev.key==='Escape') close(); }); const go=ov.querySelector('#pck-my'); go.focus();
+  go.onclick=()=>{ close(); pckBulkApply(tid,tg,status,sc); };
+}
+async function pckBulkApply(tid,tg,status,sc){
+  const word=PCK_WORD[status], line=status==='Open'?'bulk: reopened by David '+ddmmyyyy():'bulk: marked '+word+' by David '+ddmmyyyy(), today=nowStamp().slice(0,10), u=U(tid);
+  const gs=[...new Set(tg.filter(i=>i.g).map(i=>i.g))];
+  const snap=o=>({o,status:o.status||'',david_note:o.david_note||'',note_date:o.note_date||''}), prevI=tg.map(i=>snap(i.o)), prevG=gs.map(snap);
+  const restore=()=>prevI.concat(prevG).forEach(p=>Object.assign(p.o,{status:p.status,david_note:p.david_note,note_date:p.note_date}));
+  tg.forEach(i=>{ const o=i.o; o.status=status; o.david_note=o.david_note?o.david_note+'\n'+line:line; o.note_date=today; u.ticks.delete(itId(i)); });
+  const gch=gs.filter(g=>pckSyncGroup(g)); gch.forEach(g=>{ g.note_date=today; }); // the group row follows its pages
+  const isPg=o=>o.group_id!=null && pck.pkey.get(o.key)===o;
+  const wr=(prev,extra)=>[prev.filter(p=>isPg(p.o)).map(p=>p.o), prev.filter(p=>!isPg(p.o)).map(p=>p.o).concat(extra)];
+  pckRender(tid,true);
+  try{ const [ps,rs]=wr(prevI,gch); await pckWriteMulti(ps,rs); }
+  catch(err){ restore(); pckRender(tid,true); showReconnect('Bulk mark not saved: '+(err.message||err), isAuthFailure(err)); if(err.stale) pckReload(tid); return; }
+  const its=pckItems(getTitle(tid),sc), done=its.filter(i=>pgSt(i.o)!=='Open').length, unit=its.every(i=>i.t==='page')?'page':'item', n=tg.length;
+  pckToast(n+' '+unit+(n>1?'s':'')+(status==='Open'?' reopened':' marked '+word)+(devMode?' (preview, not written)':'')+'. '+done+' of '+its.length+' confirmed'+(done>=its.length?', all handled.':'.'),async()=>{
+    restore(); pckRender(tid,true);
+    try{ const [ps,rs]=wr(prevI,prevG.map(p=>p.o)); await pckWriteMulti(ps,rs); pckToast('Undone: '+n+' '+unit+(n>1?'s':'')+' restored.'); }
+    catch(err){ showReconnect('Undo not saved: '+(err.message||err), isAuthFailure(err)); if(err.stale) pckReload(tid); } });
+}
+// page checklist under a grouped row
+function pckPagesHtml(tid,g){
+  const u=U(tid), pg=grpPages(g), S=grpState(pg), fid=g.findingId, hide=u.hide.has(fid), op=S.M-S.done, dis=n=>n?'':' disabled';
+  const tk=pg.filter(p=>pgSt(p)==='Open'&&u.ticks.has(p.key)).length, k=e(fid);
+  const lines=pg.filter(p=>!hide||pgSt(p)==='Open').map(p=>{ const st=pgSt(p), key=e(p.key), msg=String(p.message||'').replace(/^p\d+:\s*/,'');
+    return `<div class="pck-pgln ${st==='Open'?'o':st==='Deliberate'?'d':st==="Won't fix"?'w':'r'}"><span class="cb">${st==='Open'?`<input type="checkbox" aria-label="Tick page ${e(p.page)}" data-k="${key}" data-f="tick" ${u.ticks.has(p.key)?'checked':''} onchange="pckTick('${tid}',this.dataset.k,this.checked)">`:''}</span>
+      <span class="pp">PDF p${e(p.page)}</span><span class="msg" title="${e(p.auto_note||'')}">${e(msg)}</span>
+      <select class="pck-sel" aria-label="Status of page ${e(p.page)}" data-k="${key}" data-f="st" onchange="pckPageMark('${tid}',this.dataset.k,'status',this.value)">${PCK_STATUSES.map(x=>`<option${x===st?' selected':''}>${e(x)}</option>`).join('')}</select>
+      <input class="pck-pnote" type="text" placeholder="note (optional)" aria-label="Note for page ${e(p.page)}" data-k="${key}" data-f="note" value="${e(p.david_note||'')}" oninput="pckPageMark('${tid}',this.dataset.k,'david_note',this.value)"><span class="pck-saved" id="pck-psv-${cssId(p.key)}">${p.note_date?'saved '+e(dm(p.note_date)):''}</span></div>`; }).join('');
+  return `<div class="pck-pgs"><div class="pck-pgh"><span><b>${S.done} of ${S.M}</b> pages confirmed</span><span class="pck-prog"><i style="width:${Math.round(S.done/S.M*100)}%"></i></span>${S.done?`<span class="pck-sub">${e(S.mix)}${op?' · '+op+' still open':''}</span>`:''}<span class="pck-grow"></span>
+    <span class="pck-sub">Mark all <u>open</u> pages:</span><button type="button" class="btn pck-go" data-k="${k}" onclick="pckBulkAsk('${tid}','group','Resolved',this.dataset.k)"${dis(op)}>OK (${op})</button><button type="button" class="btn" data-k="${k}" onclick="pckBulkAsk('${tid}','group','Deliberate',this.dataset.k)"${dis(op)}>Deliberate (${op})</button>
+    <span class="pck-sub">or tick pages, then</span><button type="button" class="btn pck-go" data-k="${k}" onclick="pckBulkAsk('${tid}','ticked','Resolved',this.dataset.k)"${dis(tk)}>OK ticked (${tk})</button><button type="button" class="btn" data-k="${k}" onclick="pckBulkAsk('${tid}','ticked','Deliberate',this.dataset.k)"${dis(tk)}>Deliberate ticked (${tk})</button>
+    ${S.done?`<button type="button" class="pck-link" data-k="${k}" onclick="pckHideHandled('${tid}',this.dataset.k)">${hide?'Show':'Hide'} handled pages</button>`:''}</div>
+    <div class="pck-pgbox" data-gid="${k}" tabindex="0" aria-label="Pages of this finding">${lines||'<div class="pck-na">Every page is handled.</div>'}</div></div>`;
+}
+
+// ── r98: "Verified against proof queries (N)" panel, from Sheet tab "Proof Query Log" ──
+function pckProofPanel(t,lr,tid){
+  if(!lr) return ''; const k=isbnKey(t);
+  const rs=pck.log.filter(l=>(l.isbn===k||l.title_id===t.id) && l.run_id===lr.run_id); if(!rs.length) return '';
+  const rank=x=>x==='MISSING'?0:x==='CHECK BY EYE'?1:x==='not checked'?2:x==='IN'?3:2, n=x=>pnum(x)==null?1e9:pnum(x);
+  rs.sort((a,b)=>rank(a.result)-rank(b.result)||String(a.source_file).localeCompare(String(b.source_file))||n(a.item_no)-n(b.item_no));
+  const c={}; rs.forEach(l=>{ c[l.result]=(c[l.result]||0)+1; });
+  const chip=r=>{ const cls=r==='IN'?'in':r==='MISSING'?'miss':r==='CHECK BY EYE'?'eye':'nc'; return `<span class="pck-vchip ${cls}">${e(r||'not checked')}</span>`; };
+  const sm=[['MISSING','missing'],['CHECK BY EYE','check by eye'],['not checked','not checked'],['IN','IN']].filter(x=>c[x[0]]).map(x=>`<b>${c[x[0]]}</b> ${x[1]}`).join(' · ');
+  const rows=rs.map(l=>{ const hot=l.result==='MISSING'||l.result==='CHECK BY EYE';
+    const loc=(l.proof_page?'proof p'+e(l.proof_page):'no proof page')+' → '+(l.pdf_page?'PDF p'+e(l.pdf_page):'<i>no page</i>');
+    const what=l.quote?'“'+e(l.quote)+'”':'', ent=l.entry?`<div class="en">Entry: <b>${e(l.entry)}</b></div>`:'';
+    return `<div class="pck-vq${hot?' hot':''}"><span class="no">#${e(l.item_no)}</span><div class="bd"><div class="q">${what||'<i>(no quote)</i>'}</div>${ent}<div class="mt"><span class="loc">${loc}</span> · <span class="sf">${e(l.source_file)}</span>${l.david_addition?` · <span class="da">David’s addition: ${e(l.david_addition)}</span>`:''}</div>${l.detail?`<div class="dt">${e(l.detail)}</div>`:''}</div>${chip(l.result)}</div>`; }).join('');
+  return `<details class="pck-vp"${U(tid).vp?' open':''} ontoggle="pckVpToggle('${tid}',this.open)"><summary><b>Verified against proof queries (${rs.length})</b> <span class="pck-vsum">${sm}</span></summary><div class="pck-vlist">${rows}</div></details>`;
+}
+
 // ── render ──
 function pckSectionHtml(t){ return `<div class="pck" id="pck-${t.id}"><div class="po-empty">Loading print checks…</div></div>`; }
 async function pckOpen(tid){ await pckLoad(); pckRender(tid); }
@@ -294,6 +445,7 @@ function pckRender(tid,keep){
   const box=document.getElementById('pck-'+tid), t=getTitle(tid); if(!box||!t) return;
   if(pck.err){ box.innerHTML=`<div class="po-empty">Print checks could not be read: ${e(pck.err)}</div><button class="btn btn-sm" onclick="pckReload('${tid}')">Try again</button>`; return; }
   if(!pck.loaded){ box.innerHTML='<div class="po-empty">Loading print checks…</div>'; return; }
+  const snapScroll=[...box.querySelectorAll('.pck-pgbox')].map(b=>[b.dataset.gid,b.scrollTop]), ae=document.activeElement, snapFocus=ae&&box.contains(ae)&&ae.dataset&&ae.dataset.f?[ae.dataset.k,ae.dataset.f]:null;
   const u=U(tid), rows=rowsFor(t), runs=runsFor(t), lr=runs[runs.length-1]||null, c=t.commercial||{}, fl=pckFlags(t,lr);
   const lastOkIdx=runs.map(r=>r.verdict).lastIndexOf('OK');
   const sel=runs.find(r=>r.run_id===u.runSel)||lr;
@@ -348,7 +500,7 @@ function pckRender(tid,keep){
     ['Merged into a grouped row','resolved','old one-row-per-page findings, now counted in one grouped row above; kept as the record',r=>isMerged(r)]];
   const ord=r=>{ const g=grpInfo(r); if(g) return g.first; const n=parseInt(String(r.page).replace(/\D.*$/,''),10); return isNaN(n)?99999:n; };
   let body='';
-  groups.forEach(([lab,key,sub,fn])=>{ if(u.filter!=='all'&&u.filter!==key) return; const rs=rows.filter(fn).sort((a,b)=>ord(a)-ord(b)); if(!rs.length) return;
+  groups.forEach(([lab,key,sub,fn])=>{ if(u.filter!=='all'&&u.filter!==key) return; const rs=rows.filter(fn).filter(r=>u.cat==='all'||r.category===u.cat).sort((a,b)=>ord(a)-ord(b)); if(!rs.length) return;
     const mg=fn===isMerged||lab==='Merged into a grouped row';
     body+=`<tr class="grp"><td colspan="7">${e(lab)} <span>· ${e(sub)}</span>${mg?` <button type="button" class="pck-link pck-mtog" onclick="pckShowMerged('${tid}')">${u.showMerged?'Hide':'Show'} ${rs.length}</button>`:''}</td></tr>`;
     if(mg && !u.showMerged) return;
@@ -356,27 +508,42 @@ function pckRender(tid,keep){
       const g=grpInfo(r);
       const auto=/^merged into grouped row/.test(r.auto_note)?'<span class="k g">MERGED</span>':/^confirmed fixed|^gone/.test(r.auto_note)&&r.status!=='Open'?'<span class="k">FIXED</span>':/^still present|^new in/.test(r.auto_note)&&r.status==='Open'?'<span class="k r">'+(/^new/.test(r.auto_note)?'NEW':'STILL HERE')+'</span>':'';
       const gone=isAutoClosed(r)||(r.status==='Resolved'&&r.last_seen!==r.export_date);
-      body+=`<tr class="${cls}"><td><select class="pck-sel" aria-label="Status" onchange="pckMark('${e(fid)}','status',this.value,'${tid}')">${PCK_STATUSES.map(s=>`<option${s===r.status?' selected':''}>${e(s)}</option>`).join('')}</select></td>
+      const gpg=grpPages(r), GS=gpg.length?grpState(gpg):null, tickable=u.cat!=='all' && r.status==='Open' && !GS;
+      const stCell=GS?`<span class="pck-pill ${GS.done===0?'open':GS.done>=GS.M?'res':'part'}">${GS.done===0?'OPEN':GS.done>=GS.M?'CLOSED':'PARTIAL'}</span><div class="pck-sub">${GS.done>=GS.M?e(GS.mix):'<b>'+GS.done+' of '+GS.M+'</b> pages'}</div><select class="pck-sel pck-setall" aria-label="Mark all open pages" data-k="${e(fid)}" onchange="pckGroupSetAll('${tid}',this)"><option value="">Mark all…</option><option value="Resolved">All open: OK</option><option value="Deliberate">All open: Deliberate</option><option value="Won't fix">All open: Won't fix</option>${GS.done?'<option value="Open">Reopen all handled</option>':''}</select>`:null;
+      body+=`<tr class="${cls}"><td>${stCell||''}${GS?'':`${tickable?`<label class="pck-cb"><input type="checkbox" aria-label="Tick this row" data-k="${e(fid)}" ${u.ticks.has(fid)?'checked':''} onchange="pckTick('${tid}',this.dataset.k,this.checked)"> tick</label>`:''}<select class="pck-sel" aria-label="Status" onchange="pckMark('${e(fid)}','status',this.value,'${tid}')">${PCK_STATUSES.map(s=>`<option${s===r.status?' selected':''}>${e(s)}</option>`).join('')}</select>`}</td>
         <td class="pg">${g?`<span class="pck-ppb" title="${e(g.n)} pages, grouped into one row">${e(g.n)} pp</span><span class="pdfp">grouped</span>`:`<b>${/^\d+$/.test(r.page)?'p'+e(r.page):e(r.page)}</b>`}${r.pdf_page?`<span class="pdfp">PDF p${e(r.pdf_page)}</span>`:''}</td>
         <td>${e(r.category)}<br><span class="src">${e(r.source)}${r.by_eye==='TRUE'?' · by eye':''}</span></td>
-        <td>${g?`<div class="ent">${e(g.head)}</div>${g.worst?`<div class="pck-worst">Worst: <b>${e(g.worst)}</b>${g.worstList.length>1?` <span class="muted">· next: ${e(g.worstList.slice(1,4).join(', '))}${g.worstList.length>4?' …':''}</span>`:''}</div>`:''}<details class="pck-pgl"><summary>Pages (${e(g.n)})</summary><span>pp ${e(g.list)}</span></details>${g.rest.length?`<div class="muted">${e(g.rest.join('; '))}</div>`:''}`
+        <td>${g?`<div class="ent">${e(g.head)}</div>${g.worst?`<div class="pck-worst">Worst: <b>${e(g.worst)}</b>${g.worstList.length>1?` <span class="muted">· next: ${e(g.worstList.slice(1,4).join(', '))}${g.worstList.length>4?' …':''}</span>`:''}</div>`:''}<div class="pck-pplist">pp ${e(pckShort(g.list.replace(/-/g,'–')))}</div>${gpg.length?`<button type="button" class="pck-pgtog" aria-expanded="${u.open.has(fid)}" data-k="${e(fid)}" onclick="pckTogglePages('${tid}',this.dataset.k)">${u.open.has(fid)?'▾ Hide':'▸ Check'} ${gpg.length} pages</button>`:`<details class="pck-pgl"><summary>All ${e(g.n)} pages</summary><span>pp ${e(g.list.replace(/-/g,'–'))}</span></details>`}${g.rest.length?`<div class="muted">${e(pckShort(g.rest.join('; ')))}</div>`:''}`
           :`<div class="ent">${e(r.problem)}</div>${r.detail?`<div class="muted">${e(r.detail)}</div>`:''}`}</td>
         <td class="seen">first ${e(dm(r.first_seen))}<br>${gone?'gone after '+e(dm(r.last_seen)):'last '+e(dm(r.last_seen))}</td>
         <td><textarea class="pck-note" rows="1" placeholder="Type a note… saves by itself" oninput="pckMark('${e(fid)}','david_note',this.value,'${tid}')">${e(r.david_note||'')}</textarea><div class="pck-saved" id="pck-sv-${cid}">${r.note_date?'saved '+e(dm(r.note_date)):''}</div></td>
-        <td class="auto">${auto}${e(r.auto_note||'')}</td></tr>`; }); });
+        <td class="auto">${auto}${e(r.auto_note||'')}</td></tr>`;
+      if(gpg.length&&u.open.has(fid)) body+=`<tr class="pck-pgrow"><td colspan="7">${pckPagesHtml(tid,r)}</td></tr>`; }); });
   const fb=(k,l)=>`<button type="button" class="pck-fbtn${u.filter===k?' on':''}" onclick="pckFilter('${tid}','${k}')">${l} <b>${cnt[k]}</b></button>`;
+  const catN={}; rows.filter(r=>u.filter==='all'||statusKey(r)===u.filter).forEach(r=>{ const k=r.category||'(none)'; catN[k]=(catN[k]||0)+1; });
+  const cats=Object.keys(catN).sort((a,b)=>catN[b]-catN[a]||a.localeCompare(b)); if(u.cat!=='all'&&!(u.cat in catN)) cats.push(u.cat);
+  const cb=(k,l,n)=>`<button type="button" class="pck-fbtn${u.cat===k?' on':''}" data-cat="${e(k)}" onclick="pckCat('${tid}',this.dataset.cat)">${e(l)} <b>${n}</b></button>`;
+  const catRow=rows.length&&cats.length>1?`<div class="pck-filters" role="group" aria-label="Category"><span class="pck-flab">Category</span>${cb('all','All',Object.values(catN).reduce((a,b)=>a+b,0))}${cats.map(k=>cb(k,k,catN[k]||0)).join('')}</div>`:'';
+  let bulk='';
+  if(u.cat!=='all'){ const its=pckItems(t,{cat:u.cat}), M=its.length, op=its.filter(i=>pgSt(i.o)==='Open'), dn=M-op.length, tk=op.filter(i=>u.ticks.has(itId(i))).length, unit=its.every(i=>i.t==='page')?'page':its.some(i=>i.t==='page')?'item':'row', pu=unit+(M===1?'':'s');
+    if(M){ const st=!dn?['OPEN','open']:dn>=M?['RESOLVED','res']:['PARTIAL','part'], dis=n=>n?'':' disabled';
+      bulk=`<div class="pck-bulk"><b>${e(u.cat)} · ${M} ${pu}</b><span class="pck-pill ${st[1]}">${st[0]}</span><span><b>${dn} of ${M}</b> ${unit}s confirmed<span class="pck-prog"><i style="width:${Math.round(dn/M*100)}%"></i></span></span><span class="pck-sub">${op.length} still open</span><span class="pck-grow"></span>
+        <span class="pck-sub">Mark all <u>open</u> in category:</span><button type="button" class="btn pck-go" onclick="pckBulkAsk('${tid}','group','Resolved')"${dis(op.length)}>OK (${op.length})</button><button type="button" class="btn" onclick="pckBulkAsk('${tid}','group','Deliberate')"${dis(op.length)}>Deliberate (${op.length})</button>
+        <span class="pck-sub">or tick ${unit}s, then</span><button type="button" class="btn pck-go" onclick="pckBulkAsk('${tid}','ticked','Resolved')"${dis(tk)}>OK ticked (${tk})</button><button type="button" class="btn" onclick="pckBulkAsk('${tid}','ticked','Deliberate')"${dis(tk)}>Deliberate ticked (${tk})</button></div>`; } }
   let passes=[]; try{ passes=JSON.parse((sel&&sel.passes_json)||'[]'); }catch(_){}
   const passLine=sel?`<div class="pck-collapsed">✅ Passing in the ${e(dm(sel.export_date))} run, not listed${passes.length?': '+passes.length+' checks':''}. <button type="button" class="pck-link" onclick="pckShowAll('${tid}')">${u.showAll?'Problems only':'Show all checks'}</button></div>
     ${u.showAll?`<div class="pck-passes"><div class="pck-sub">Run ${e(dm(sel.run_at))} · ${e(sel.export_file)} · ${e(sel.verdict)} · ${e(sel.summary||'')}${sel.notes_file?' · notes: '+e(sel.notes_file):''}</div>${passes.length?'<ul>'+passes.map(p=>`<li><b>${e(p.category)}</b> · ${e(p.text)}</li>`).join('')+'</ul>':'<div class="pck-sub">This run has no pass list stored (migrated from an older check sheet).</div>'}</div>`:''}`:'';
   box.innerHTML=`<div class="pck-h"><span class="chip sage">Single point of truth · Sheet tab “Print Checks”</span>${lr?`<span class="chip blue">✓ Synced · last write ${e(dm(lr.run_at))} · ${lr.source==='BPH'?'browser check':'PC check'}</span>`:''}${devMode?'<span class="chip amber">Preview: nothing is written</span>':''}</div>
     ${qb}
+    ${pckProofLine(lr)}
+    ${pckProofPanel(t,lr,tid)}
     <div class="pck-sec-l">This title's print settings <span>· saved in BPH (Commercial) · flagged when the PDF differs</span></div>
     ${settings}
     <div class="pck-cpages">${cpages}</div>
     <div class="pck-sec-l">Runs <span>· one per check, newest right · click a run to see its full result</span></div>
     ${strip}
     ${verdict}
-    ${rows.length?`<div class="pck-filters" role="group" aria-label="Filter">${fb('all','All')}${fb('open','Open')}${fb('deliberate','Deliberate')}${fb('resolved','Resolved')}${fb('wontfix',"Won't fix")}</div>
+    ${rows.length?`<div class="pck-filters" role="group" aria-label="Filter"><span class="pck-flab">Status</span>${fb('all','All')}${fb('open','Open')}${fb('deliberate','Deliberate')}${fb('resolved','Resolved')}${fb('wontfix',"Won't fix")}</div>${catRow}${bulk}
     <div class="pck-tbl"><table class="pck-fx"><colgroup><col class="c-st"><col class="c-pg"><col class="c-cat"><col><col class="c-seen"><col class="c-note"><col class="c-auto"></colgroup>
       <thead><tr><th>Status</th><th>Page</th><th>Check</th><th>Finding</th><th>Seen</th><th>Your note</th><th>Auto (re-runs)</th></tr></thead><tbody>${body||'<tr><td colspan="7" class="pck-na">Nothing in this filter.</td></tr>'}</tbody></table></div>`:''}
     ${passLine}
@@ -393,6 +560,8 @@ function pckRender(tid,keep){
         <span class="pck-adesc">Same as Import, but BPH finds the waiting files in the book's Checks folder for you.</span></div>`:''}
     </div>
     <div class="pck-browser" id="pck-bc-${tid}">${u.bcMsg||''}</div>`;
+  snapScroll.forEach(([g,sc])=>{ const b=[...box.querySelectorAll('.pck-pgbox')].find(x=>x.dataset.gid===g); if(b) b.scrollTop=sc; });
+  if(snapFocus){ const el=[...box.querySelectorAll('[data-f]')].find(x=>x.dataset.k===snapFocus[0]&&x.dataset.f===snapFocus[1]); if(el) el.focus({preventScroll:true}); }
   if(!keep && window.showDirectoryPicker && !u.qState) pckScanQueue(tid,false);
   if(typeof updateSectionHeaders==='function') updateSectionHeaders(tid);
 }
@@ -435,6 +604,10 @@ async function pckXlsx(tid){
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cols].concat(rows)), 'Print Checks');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([runCols].concat(runsFor(t).map(r=>runCols.map(k=>r[k]||'')))), 'Runs');
+  const pgc=['group_id','check','kind','page','message','status','david_note','note_date','auto_note'], gp=[]; rowsFor(t).forEach(r=>grpPages(r).forEach(p=>gp.push(pgc.map(k=>p[k]||''))));
+  if(gp.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([pgc].concat(gp)), 'Pages');
+  const lgc=['source_file','item_no','proof_page','pdf_page','entry','quote','result','detail','david_addition'], lg=pck.log.filter(l=>(l.title_id===t.id||l.isbn===isbnKey(t))&&latestRun(t)&&l.run_id===latestRun(t).run_id).map(l=>lgc.map(k=>l[k]||''));
+  if(lg.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([lgc].concat(lg)), 'Proof queries');
   const lr=latestRun(t); let passes=[]; try{ passes=JSON.parse((lr&&lr.passes_json)||'[]'); }catch(_){}
   if(passes.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['category','passing in the latest run']].concat(passes.map(p=>[p.category,p.text]))), 'Passing');
   const safe=String(t.title||'Book').replace(/[\\/:*?"<>|]+/g,'-');
@@ -484,5 +657,5 @@ async function pckBrowserCheck(tid,input){
 function pckSectionStatus(t){ if(!pck.loaded) return 'partial'; const lr=latestRun(t); if(!lr) return 'partial'; if(lr.verdict!=='OK') return 'overdue'; if(rowsFor(t).some(r=>r.status==='Open')) return 'partial'; return 'complete'; }
 
 Object.assign(window,{pckSectionHtml,pckOpen,pckRender,pckMark,pckFilter,pckShowMerged,pckCopyPath,pckShowAll,pckSelRun,pckReload,pckCopyColour,pckCopyCmd,pckXlsx,pckBrowserCheck,
-  pckScanQueue,pckImportQueue,pckImportFile,pckSetField,pckCommercialHtml,pckSectionStatus,pckLoad,pckMergeRun,_pck:pck});
+  pckScanQueue,pckImportQueue,pckImportFile,pckSetField,pckCommercialHtml,pckCat,pckTick,pckBulkAsk,pckRowsWriteData,pckPageMark,pckTogglePages,pckHideHandled,pckVpToggle,pckGroupSetAll,pckProofPanel,pckProofLine,pckSectionStatus,pckLoad,pckMergeRun,_pck:pck});
 })();
