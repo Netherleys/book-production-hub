@@ -416,9 +416,11 @@ function pckPagesHtml(tid,g){
       <select class="pck-sel" aria-label="Status of page ${e(p.page)}" data-k="${key}" data-f="st" onchange="pckPageMark('${tid}',this.dataset.k,'status',this.value)">${PCK_STATUSES.map(x=>`<option${x===st?' selected':''}>${e(x)}</option>`).join('')}</select>
       <input class="pck-pnote" type="text" placeholder="note (optional)" aria-label="Note for page ${e(p.page)}" data-k="${key}" data-f="note" value="${e(p.david_note||'')}" oninput="pckPageMark('${tid}',this.dataset.k,'david_note',this.value)"><span class="pck-saved" id="pck-psv-${cssId(p.key)}">${p.note_date?'saved '+e(dm(p.note_date)):''}</span></div>`; }).join('');
   return `<div class="pck-pgs"><div class="pck-pgh"><span><b>${S.done} of ${S.M}</b> pages confirmed</span><span class="pck-prog"><i style="width:${Math.round(S.done/S.M*100)}%"></i></span>${S.done?`<span class="pck-sub">${e(S.mix)}${op?' · '+op+' still open':''}</span>`:''}<span class="pck-grow"></span>
-    <span class="pck-sub">Mark all <u>open</u> pages:</span><button type="button" class="btn pck-go" data-k="${k}" onclick="pckBulkAsk('${tid}','group','Resolved',this.dataset.k)"${dis(op)}>OK (${op})</button><button type="button" class="btn" data-k="${k}" onclick="pckBulkAsk('${tid}','group','Deliberate',this.dataset.k)"${dis(op)}>Deliberate (${op})</button>
-    <span class="pck-sub">or tick pages, then</span><button type="button" class="btn pck-go" data-k="${k}" onclick="pckBulkAsk('${tid}','ticked','Resolved',this.dataset.k)"${dis(tk)}>OK ticked (${tk})</button><button type="button" class="btn" data-k="${k}" onclick="pckBulkAsk('${tid}','ticked','Deliberate',this.dataset.k)"${dis(tk)}>Deliberate ticked (${tk})</button>
-    ${S.done?`<button type="button" class="pck-link" data-k="${k}" onclick="pckHideHandled('${tid}',this.dataset.k)">${hide?'Show':'Hide'} handled pages</button>`:''}</div>
+</div>
+    <div class="pck-pgh"><span class="pck-sub">Mark all ${op} open pages as:</span><button type="button" class="btn pck-go" data-k="${k}" onclick="pckBulkAsk('${tid}','group','Resolved',this.dataset.k)"${dis(op)}>OK (${op})</button><button type="button" class="btn" data-k="${k}" onclick="pckBulkAsk('${tid}','group','Deliberate',this.dataset.k)"${dis(op)}>Deliberate (${op})</button>
+    <span class="pck-sub">or tick pages in the list, then</span><button type="button" class="btn pck-go" data-k="${k}" onclick="pckBulkAsk('${tid}','ticked','Resolved',this.dataset.k)"${dis(tk)}>OK ticked (${tk})</button><button type="button" class="btn" data-k="${k}" onclick="pckBulkAsk('${tid}','ticked','Deliberate',this.dataset.k)"${dis(tk)}>Deliberate ticked (${tk})</button>
+    ${S.done?`<button type="button" class="pck-link" data-k="${k}" onclick="pckBulkAsk('${tid}','group','Open',this.dataset.k)">Reopen handled pages</button>`:''}${S.done?`<button type="button" class="pck-link" data-k="${k}" onclick="pckHideHandled('${tid}',this.dataset.k)">${hide?'Show':'Hide'} handled pages</button>`:''}</div>
+    <div class="pck-help">Tick the pages you have checked, then click <b>OK ticked</b>. To change one page, use its own status box.</div>
     <div class="pck-pgbox" data-gid="${k}" tabindex="0" aria-label="Pages of this finding">${lines||'<div class="pck-na">Every page is handled.</div>'}</div></div>`;
 }
 
@@ -449,8 +451,8 @@ function pckRender(tid,keep){
   const u=U(tid), rows=rowsFor(t), runs=runsFor(t), lr=runs[runs.length-1]||null, c=t.commercial||{}, fl=pckFlags(t,lr);
   const lastOkIdx=runs.map(r=>r.verdict).lastIndexOf('OK');
   const sel=runs.find(r=>r.run_id===u.runSel)||lr;
-  const cnt={all:rows.length,open:0,deliberate:0,resolved:0,wontfix:0};
-  rows.forEach(r=>{ const k=r.status==="Won't fix"?'wontfix':String(r.status||'').toLowerCase(); if(k in cnt) cnt[k]++; });
+  const cnt={all:0,open:0,deliberate:0,resolved:0,wontfix:0};
+  rows.filter(r=>!isMerged(r)).forEach(r=>{ cnt.all++; const k=r.status==="Won't fix"?'wontfix':String(r.status||'').toLowerCase(); if(k in cnt) cnt[k]++; }); // r99: old per-page rows merged into groups are not counted
   const byYou=rows.filter(r=>r.status==='Resolved'&&!isAutoClosed(r)&&!isMerged(r)).length, auto=rows.filter(isAutoClosed).length, mergedN=rows.filter(isMerged).length;
   const flag=(ok,txt)=>ok===null||ok===undefined?`<span class="pck-na">${txt||'no run yet'}</span>`:(ok?'<span class="pck-ok">✓ same</span>':'<span class="pck-bad">⚠ differs</span>');
   // settings
@@ -487,7 +489,7 @@ function pckRender(tid,keep){
   // verdict
   const openN=cnt.open;
   const verdict=lr?`<div class="pck-verdict ${lr.verdict==='OK'?'ok':'f'}"><span class="big">${lr.verdict==='OK'?'✔ READY TO UPLOAD':'✖ NOT READY'}</span>
-     <span class="txt">${e(lr.fail_count||0)} failure${lr.fail_count==='1'?'':'s'}. ${openN} open · ${cnt.deliberate} Deliberate · ${byYou} resolved by you · ${auto} confirmed fixed by re-runs${cnt.wontfix?' · '+cnt.wontfix+" won't fix":''}${mergedN?' · '+mergedN+' merged into grouped rows':''}.</span>
+     <span class="txt">${e(lr.fail_count||0)} failure${lr.fail_count==='1'?'':'s'}. ${openN} findings open · ${cnt.deliberate} Deliberate · ${byYou} resolved by you · ${auto} confirmed fixed by re-runs${cnt.wontfix?' · '+cnt.wontfix+" won't fix":''}${mergedN?' · '+mergedN+' old per-page rows hidden (merged into the grouped findings)':''}.</span>
      <span class="when">${e(lr.export_file)}<br>checked ${e(dm(lr.run_at))} ${lr.source==='BPH'?'in the browser':'on the PC'}</span></div>`:'';
   // queue banner
   let qb='';
@@ -497,39 +499,38 @@ function pckRender(tid,keep){
   // table
   const groups=[['Needs you','open','yellow = open',r=>r.status==='Open'],['Deliberate','deliberate','your call, never flagged again',r=>r.status==='Deliberate'],["Won't fix",'wontfix','like Deliberate, grey',r=>r.status==="Won't fix"],
     ['Resolved by you','resolved',"includes check-by-eye items the checker can't confirm itself",r=>r.status==='Resolved'&&!isAutoClosed(r)&&!isMerged(r)],['Confirmed fixed by a re-run','resolved','closed automatically, kept as the record',r=>isAutoClosed(r)],
-    ['Merged into a grouped row','resolved','old one-row-per-page findings, now counted in one grouped row above; kept as the record',r=>isMerged(r)]];
+    ['Merged into groups','merged','old one-row-per-page findings, now covered by the grouped findings; kept as the record',r=>isMerged(r)]];
   const ord=r=>{ const g=grpInfo(r); if(g) return g.first; const n=parseInt(String(r.page).replace(/\D.*$/,''),10); return isNaN(n)?99999:n; };
   let body='';
-  groups.forEach(([lab,key,sub,fn])=>{ if(u.filter!=='all'&&u.filter!==key) return; const rs=rows.filter(fn).filter(r=>u.cat==='all'||r.category===u.cat).sort((a,b)=>ord(a)-ord(b)); if(!rs.length) return;
-    const mg=fn===isMerged||lab==='Merged into a grouped row';
-    body+=`<tr class="grp"><td colspan="7">${e(lab)} <span>· ${e(sub)}</span>${mg?` <button type="button" class="pck-link pck-mtog" onclick="pckShowMerged('${tid}')">${u.showMerged?'Hide':'Show'} ${rs.length}</button>`:''}</td></tr>`;
-    if(mg && !u.showMerged) return;
+  groups.forEach(([lab,key,sub,fn])=>{ if(key==='merged'?u.filter!=='merged':(u.filter!=='all'&&u.filter!==key)) return; const rs=rows.filter(fn).filter(r=>u.cat==='all'||r.category===u.cat).sort((a,b)=>ord(a)-ord(b)); if(!rs.length) return;
+    body+=`<tr class="grp"><td colspan="7">${e(lab)} <span>· ${e(sub)}</span></td></tr>`;
     rs.forEach(r=>{ const cls=r.status==='Open'?'s-open':r.status==='Deliberate'?'s-deliberate':r.status==="Won't fix"?'s-wontfix':isAutoClosed(r)?'s-auto':'s-resolved'; const fid=r.findingId, cid=cssId(fid);
       const g=grpInfo(r);
       const auto=/^merged into grouped row/.test(r.auto_note)?'<span class="k g">MERGED</span>':/^confirmed fixed|^gone/.test(r.auto_note)&&r.status!=='Open'?'<span class="k">FIXED</span>':/^still present|^new in/.test(r.auto_note)&&r.status==='Open'?'<span class="k r">'+(/^new/.test(r.auto_note)?'NEW':'STILL HERE')+'</span>':'';
       const gone=isAutoClosed(r)||(r.status==='Resolved'&&r.last_seen!==r.export_date);
       const gpg=grpPages(r), GS=gpg.length?grpState(gpg):null, tickable=u.cat!=='all' && r.status==='Open' && !GS;
-      const stCell=GS?`<span class="pck-pill ${GS.done===0?'open':GS.done>=GS.M?'res':'part'}">${GS.done===0?'OPEN':GS.done>=GS.M?'CLOSED':'PARTIAL'}</span><div class="pck-sub">${GS.done>=GS.M?e(GS.mix):'<b>'+GS.done+' of '+GS.M+'</b> pages'}</div><select class="pck-sel pck-setall" aria-label="Mark all open pages" data-k="${e(fid)}" onchange="pckGroupSetAll('${tid}',this)"><option value="">Mark all…</option><option value="Resolved">All open: OK</option><option value="Deliberate">All open: Deliberate</option><option value="Won't fix">All open: Won't fix</option>${GS.done?'<option value="Open">Reopen all handled</option>':''}</select>`:null;
+      const stCell=GS?`<span class="pck-pill ${GS.done===0?'open':GS.done>=GS.M?'res':'part'}">${GS.done===0?'OPEN':GS.done>=GS.M?'CLOSED':'PARTIAL'}</span><div class="pck-sub">${GS.done>=GS.M?e(GS.mix):'<b>'+GS.done+' of '+GS.M+'</b> pages'}</div><div class="pck-sub">${GS.done>=GS.M?'':'use <b>Go through pages</b>'}</div>`:null;
       body+=`<tr class="${cls}"><td>${stCell||''}${GS?'':`${tickable?`<label class="pck-cb"><input type="checkbox" aria-label="Tick this row" data-k="${e(fid)}" ${u.ticks.has(fid)?'checked':''} onchange="pckTick('${tid}',this.dataset.k,this.checked)"> tick</label>`:''}<select class="pck-sel" aria-label="Status" onchange="pckMark('${e(fid)}','status',this.value,'${tid}')">${PCK_STATUSES.map(s=>`<option${s===r.status?' selected':''}>${e(s)}</option>`).join('')}</select>`}</td>
         <td class="pg">${g?`<span class="pck-ppb" title="${e(g.n)} pages, grouped into one row">${e(g.n)} pp</span><span class="pdfp">grouped</span>`:`<b>${/^\d+$/.test(r.page)?'p'+e(r.page):e(r.page)}</b>`}${r.pdf_page?`<span class="pdfp">PDF p${e(r.pdf_page)}</span>`:''}</td>
         <td>${e(r.category)}<br><span class="src">${e(r.source)}${r.by_eye==='TRUE'?' · by eye':''}</span></td>
-        <td>${g?`<div class="ent">${e(g.head)}</div>${g.worst?`<div class="pck-worst">Worst: <b>${e(g.worst)}</b>${g.worstList.length>1?` <span class="muted">· next: ${e(g.worstList.slice(1,4).join(', '))}${g.worstList.length>4?' …':''}</span>`:''}</div>`:''}<div class="pck-pplist">pp ${e(pckShort(g.list.replace(/-/g,'–')))}</div>${gpg.length?`<button type="button" class="pck-pgtog" aria-expanded="${u.open.has(fid)}" data-k="${e(fid)}" onclick="pckTogglePages('${tid}',this.dataset.k)">${u.open.has(fid)?'▾ Hide':'▸ Check'} ${gpg.length} pages</button>`:`<details class="pck-pgl"><summary>All ${e(g.n)} pages</summary><span>pp ${e(g.list.replace(/-/g,'–'))}</span></details>`}${g.rest.length?`<div class="muted">${e(pckShort(g.rest.join('; ')))}</div>`:''}`
+        <td>${g?`<div class="ent">${e(g.head)}</div>${g.worst?`<div class="pck-worst">Worst: <b>${e(g.worst)}</b>${g.worstList.length>1?` <span class="muted">· next: ${e(g.worstList.slice(1,4).join(', '))}${g.worstList.length>4?' …':''}</span>`:''}</div>`:''}<div class="pck-pplist">pp ${e(pckShort(g.list.replace(/-/g,'–')))}</div>${gpg.length?`<button type="button" class="pck-pgtog" aria-expanded="${u.open.has(fid)}" data-k="${e(fid)}" onclick="pckTogglePages('${tid}',this.dataset.k)">${u.open.has(fid)?'▾ Hide the':'▸ Go through'} ${gpg.length} pages</button>`:`<details class="pck-pgl"><summary>All ${e(g.n)} pages</summary><span>pp ${e(g.list.replace(/-/g,'–'))}</span></details>`}${g.rest.length?`<div class="muted">${e(pckShort(g.rest.join('; ')))}</div>`:''}`
           :`<div class="ent">${e(r.problem)}</div>${r.detail?`<div class="muted">${e(r.detail)}</div>`:''}`}</td>
         <td class="seen">first ${e(dm(r.first_seen))}<br>${gone?'gone after '+e(dm(r.last_seen)):'last '+e(dm(r.last_seen))}</td>
         <td><textarea class="pck-note" rows="1" placeholder="Type a note… saves by itself" oninput="pckMark('${e(fid)}','david_note',this.value,'${tid}')">${e(r.david_note||'')}</textarea><div class="pck-saved" id="pck-sv-${cid}">${r.note_date?'saved '+e(dm(r.note_date)):''}</div></td>
         <td class="auto">${auto}${e(r.auto_note||'')}</td></tr>`;
       if(gpg.length&&u.open.has(fid)) body+=`<tr class="pck-pgrow"><td colspan="7">${pckPagesHtml(tid,r)}</td></tr>`; }); });
   const fb=(k,l)=>`<button type="button" class="pck-fbtn${u.filter===k?' on':''}" onclick="pckFilter('${tid}','${k}')">${l} <b>${cnt[k]}</b></button>`;
-  const catN={}; rows.filter(r=>u.filter==='all'||statusKey(r)===u.filter).forEach(r=>{ const k=r.category||'(none)'; catN[k]=(catN[k]||0)+1; });
+  const catN={}; rows.filter(r=>u.filter==='merged'?isMerged(r):(!isMerged(r)&&(u.filter==='all'||statusKey(r)===u.filter))).forEach(r=>{ const k=r.category||'(none)'; catN[k]=(catN[k]||0)+1; });
   const cats=Object.keys(catN).sort((a,b)=>catN[b]-catN[a]||a.localeCompare(b)); if(u.cat!=='all'&&!(u.cat in catN)) cats.push(u.cat);
   const cb=(k,l,n)=>`<button type="button" class="pck-fbtn${u.cat===k?' on':''}" data-cat="${e(k)}" onclick="pckCat('${tid}',this.dataset.cat)">${e(l)} <b>${n}</b></button>`;
   const catRow=rows.length&&cats.length>1?`<div class="pck-filters" role="group" aria-label="Category"><span class="pck-flab">Category</span>${cb('all','All',Object.values(catN).reduce((a,b)=>a+b,0))}${cats.map(k=>cb(k,k,catN[k]||0)).join('')}</div>`:'';
   let bulk='';
   if(u.cat!=='all'){ const its=pckItems(t,{cat:u.cat}), M=its.length, op=its.filter(i=>pgSt(i.o)==='Open'), dn=M-op.length, tk=op.filter(i=>u.ticks.has(itId(i))).length, unit=its.every(i=>i.t==='page')?'page':its.some(i=>i.t==='page')?'item':'row', pu=unit+(M===1?'':'s');
     if(M){ const st=!dn?['OPEN','open']:dn>=M?['RESOLVED','res']:['PARTIAL','part'], dis=n=>n?'':' disabled';
-      bulk=`<div class="pck-bulk"><b>${e(u.cat)} · ${M} ${pu}</b><span class="pck-pill ${st[1]}">${st[0]}</span><span><b>${dn} of ${M}</b> ${unit}s confirmed<span class="pck-prog"><i style="width:${Math.round(dn/M*100)}%"></i></span></span><span class="pck-sub">${op.length} still open</span><span class="pck-grow"></span>
-        <span class="pck-sub">Mark all <u>open</u> in category:</span><button type="button" class="btn pck-go" onclick="pckBulkAsk('${tid}','group','Resolved')"${dis(op.length)}>OK (${op.length})</button><button type="button" class="btn" onclick="pckBulkAsk('${tid}','group','Deliberate')"${dis(op.length)}>Deliberate (${op.length})</button>
-        <span class="pck-sub">or tick ${unit}s, then</span><button type="button" class="btn pck-go" onclick="pckBulkAsk('${tid}','ticked','Resolved')"${dis(tk)}>OK ticked (${tk})</button><button type="button" class="btn" onclick="pckBulkAsk('${tid}','ticked','Deliberate')"${dis(tk)}>Deliberate ticked (${tk})</button></div>`; } }
+      const nF=new Set(its.map(i=>i.g?i.g.findingId:i.o.findingId)).size, hasRows=its.some(i=>i.t==='row');
+      bulk=`<div class="pck-bulk"><div class="pck-bl1"><b>${e(u.cat)} · ${nF} finding${nF===1?'':'s'}${unit==='row'?'':' · '+M+' '+pu}</b><span class="pck-pill ${st[1]}">${st[0]}</span><span><b>${dn} of ${M}</b> ${unit}s confirmed<span class="pck-prog"><i style="width:${Math.round(dn/M*100)}%"></i></span></span><span class="pck-sub">${op.length} still open</span></div>
+        <div class="pck-bl2"><span class="pck-sub">Mark every open ${unit} in ${e(u.cat)} as:</span><button type="button" class="btn pck-go" onclick="pckBulkAsk('${tid}','group','Resolved')"${dis(op.length)}>OK (${op.length})</button><button type="button" class="btn" onclick="pckBulkAsk('${tid}','group','Deliberate')"${dis(op.length)}>Deliberate (${op.length})</button>${hasRows?`<span class="pck-sub">or tick ${unit==='item'?'findings':unit+'s'} in the table, then</span><button type="button" class="btn pck-go" onclick="pckBulkAsk('${tid}','ticked','Resolved')"${dis(tk)}>OK ticked (${tk})</button><button type="button" class="btn" onclick="pckBulkAsk('${tid}','ticked','Deliberate')"${dis(tk)}>Deliberate ticked (${tk})</button>`:''}</div>
+        ${unit==='row'?'':`<div class="pck-help">To check pages one by one, click <b>Go through pages</b> on a finding below. Tick the pages you have checked, then click <b>OK ticked</b>.</div>`}</div>`; } }
   let passes=[]; try{ passes=JSON.parse((sel&&sel.passes_json)||'[]'); }catch(_){}
   const passLine=sel?`<div class="pck-collapsed">✅ Passing in the ${e(dm(sel.export_date))} run, not listed${passes.length?': '+passes.length+' checks':''}. <button type="button" class="pck-link" onclick="pckShowAll('${tid}')">${u.showAll?'Problems only':'Show all checks'}</button></div>
     ${u.showAll?`<div class="pck-passes"><div class="pck-sub">Run ${e(dm(sel.run_at))} · ${e(sel.export_file)} · ${e(sel.verdict)} · ${e(sel.summary||'')}${sel.notes_file?' · notes: '+e(sel.notes_file):''}</div>${passes.length?'<ul>'+passes.map(p=>`<li><b>${e(p.category)}</b> · ${e(p.text)}</li>`).join('')+'</ul>':'<div class="pck-sub">This run has no pass list stored (migrated from an older check sheet).</div>'}</div>`:''}`:'';
@@ -543,7 +544,7 @@ function pckRender(tid,keep){
     <div class="pck-sec-l">Runs <span>· one per check, newest right · click a run to see its full result</span></div>
     ${strip}
     ${verdict}
-    ${rows.length?`<div class="pck-filters" role="group" aria-label="Filter"><span class="pck-flab">Status</span>${fb('all','All')}${fb('open','Open')}${fb('deliberate','Deliberate')}${fb('resolved','Resolved')}${fb('wontfix',"Won't fix")}</div>${catRow}${bulk}
+    ${rows.length?`<div class="pck-filters" role="group" aria-label="Filter"><span class="pck-flab">Show findings</span>${fb('all','All')}${fb('open','Open')}${fb('deliberate','Deliberate')}${fb('resolved','Resolved')}${fb('wontfix',"Won't fix")}${mergedN?`<button type="button" class="pck-fbtn pck-fmerged${u.filter==='merged'?' on':''}" title="Old one-row-per-page findings, replaced by the grouped findings. Kept as the record, not counted." onclick="pckFilter('${tid}','merged')">Old per-page rows (merged) <b>${mergedN}</b></button>`:''}<span class="pck-sub pck-fnote">Counts are findings. One finding can cover many pages.</span></div>${catRow}${bulk}
     <div class="pck-tbl"><table class="pck-fx"><colgroup><col class="c-st"><col class="c-pg"><col class="c-cat"><col><col class="c-seen"><col class="c-note"><col class="c-auto"></colgroup>
       <thead><tr><th>Status</th><th>Page</th><th>Check</th><th>Finding</th><th>Seen</th><th>Your note</th><th>Auto (re-runs)</th></tr></thead><tbody>${body||'<tr><td colspan="7" class="pck-na">Nothing in this filter.</td></tr>'}</tbody></table></div>`:''}
     ${passLine}
