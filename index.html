@@ -2538,6 +2538,49 @@ textarea.pck-note{width:100%;min-height:30px;font:inherit;font-size:.82rem;paddi
 .pck-qmsg{order:3;display:block;font-size:.76rem;line-height:1.35;padding:5px 8px;border-radius:var(--r4);border:1px solid var(--border2);background:var(--surface);color:var(--text2)}
 .pck-qmsg.ok,.pck-qmsg.imp{background:var(--sage-bg);border-color:var(--sage-border);color:var(--sage-border);font-weight:600}
 .pck-qmsg.err{background:var(--terra-bg);border-color:var(--terra-border);color:var(--terra-border);font-weight:600}
+/* r102 (11-11, Mia Chen): simplified Proof Checker screen. Row text slightly bigger (David reads from the screen); alternating rows get a slightly different hue within each state. */
+.field-group[hidden]{display:none}
+.pq-tabs{display:flex;gap:0;border-bottom:2px solid #111;margin-top:6px}
+.pq-tab{border:2px solid transparent;border-bottom:0;background:none;font:inherit;font-weight:700;font-size:.95rem;padding:8px 16px;cursor:pointer;border-radius:8px 8px 0 0;color:var(--text2)}
+.pq-tab b{display:inline-block;min-width:22px;text-align:center;border-radius:10px;background:#fff8c9;border:1px solid #d6b400;padding:0 6px;margin-left:6px;font-size:.78rem;color:var(--text)}
+.pq-tab.on{background:#111;color:#fff;border-color:#111}
+.pq-tabdesc{font-size:.88rem;color:var(--text2);margin:2px 0 0}
+.pq-search{border:1px solid var(--border2);border-radius:14px;padding:4px 12px;font:inherit;font-size:.85rem;width:240px;margin-left:auto;background:var(--surface);color:var(--text)}
+.pq-bulk{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;padding:9px 12px;border:2px solid #2f5d8a;background:#e8f0f8;border-radius:8px;min-height:46px}
+.pq-bulk.idle{border:1px dashed var(--border2);background:var(--surface2)}
+table.pq-tbl{width:100%;border-collapse:collapse;font-size:1rem;line-height:1.4;table-layout:fixed;min-width:780px}
+table.pq-tbl col.c-sel{width:36px}table.pq-tbl col.c-cl{width:80px}table.pq-tbl col.c-pg{width:74px}table.pq-tbl col.c-res{width:160px}table.pq-tbl col.c-note{width:220px}
+table.pq-tbl th{text-align:left;font-size:.72rem;text-transform:uppercase;letter-spacing:.04em;color:var(--text3);padding:8px;border-bottom:1px solid var(--border2);background:var(--surface2)}
+table.pq-tbl td{padding:9px 8px;border-bottom:1px solid var(--border);vertical-align:top;overflow-wrap:anywhere}
+table.pq-tbl tr.s-open.z0 td{background:#fff8c9}table.pq-tbl tr.s-open.z1 td{background:#fdefa6}
+table.pq-tbl tr.s-closed.z0 td{background:#f1f7ee}table.pq-tbl tr.s-closed.z1 td{background:#e1eddb}
+table.pq-tbl tr.s-closed .pq-ent{color:var(--text2)}
+table.pq-tbl tr.sel td{box-shadow:inset 0 0 0 9999px rgba(47,93,138,.12)}
+table.pq-tbl tr.reop td{box-shadow:inset 4px 0 0 #b3261e}
+.pq-selcb{width:17px;height:17px;accent-color:#2f5d8a;cursor:pointer}
+.pq-cl{display:flex;flex-direction:column;align-items:flex-start;gap:3px;cursor:pointer}
+.pq-cl input{width:22px;height:22px;accent-color:var(--sage);cursor:pointer}
+.pq-cl span{font-size:.72rem;font-weight:700;color:var(--text3);letter-spacing:.03em}
+tr.s-closed .pq-cl span{color:var(--sage-border)}
+.pq-pg b{display:block}.pq-src{display:block;font-size:.74rem;color:var(--text3)}
+.pq-ent{font-weight:500}.pq-muted{font-size:.82rem;color:var(--text3);margin-top:2px}
+.pq-tag{display:inline-block;font-size:.66rem;font-weight:800;padding:1px 7px;border-radius:8px;background:#6b6b66;color:#fff;margin-right:6px;letter-spacing:.03em;vertical-align:1px}
+.pq-tag.q{background:#2f5d8a}.pq-tag.eye{background:#8a5a12}.pq-tag.text{background:#5d6b57}.pq-tag.style{background:#7a4f8a}
+.pq-reop{display:inline-block;font-size:.7rem;font-weight:800;padding:1px 7px;border-radius:8px;background:#b3261e;color:#fff;margin-right:6px}
+.pq-res{display:inline-block;font-size:.84rem;font-weight:700;padding:3px 9px;border-radius:12px}
+.pq-res.found{background:#dcebd6;color:#2d5a2f;border:1px solid #6e9a6a}
+.pq-res.nf{background:#fdecea;color:#b3261e;border:1px solid #b3261e}
+.pq-res.eye{background:#fff3a3;color:#6d5600;border:1px solid #d6b400}
+.pq-rolab{display:block;font-size:.7rem;color:var(--text3);margin-top:2px}
+.pq-note{width:100%;border:1px solid var(--border2);border-radius:6px;padding:5px 8px;font:inherit;font-size:.92rem;resize:vertical;background:#fff;min-height:46px;color:var(--text)}
+.pq-hiddenline{font-size:.8rem;color:var(--text3)}
+.pq-acts{grid-template-columns:repeat(3,minmax(0,1fr))}
+.pq-waiting{grid-column:1/-1;font-size:.8rem;color:var(--text2)}
+.pq-waiting .pck-link,.pq-colourtoggle .pck-link{cursor:pointer;text-decoration:underline;background:none;border:0;padding:0;font:inherit;color:#1F3A5F}
+.pq-hist{border:1px solid var(--border2);border-radius:8px;padding:6px 10px;background:var(--surface)}
+.pq-hist summary{cursor:pointer;font-weight:700;font-size:.85rem}
+.pq-colourtoggle{font-size:.76rem;color:var(--text3)}
+@media (max-width:700px){.pq-acts{grid-template-columns:minmax(0,1fr)}.pq-search{width:100%;margin-left:0}}
 @media (max-width:1100px){.pck-acts{grid-template-columns:repeat(3,minmax(0,1fr))}}
 @media (max-width:700px){.pck-acts{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:460px){.pck-acts{grid-template-columns:minmax(0,1fr)}}
@@ -2952,7 +2995,7 @@ textarea.pck-note{width:100%;min-height:30px;font:inherit;font-size:.82rem;paddi
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js?v=r96"></script>
 <script src="app.js?v=r101"></script>
-<script src="print-checks.js?v=r99"></script>
+<script src="print-checks.js?v=r102"></script>
 <script src="gcal-sync.js"></script>
 </body>
 </html>

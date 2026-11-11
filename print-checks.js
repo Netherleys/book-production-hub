@@ -1,4 +1,5 @@
-/* r98 09-11 (Mia Chen): proof-query panel (Proof Query Log) + per-page checklist in grouped findings (Group Pages, group status derived).
+/* r102 11-11 (Mia Chen): simplified Proof Checker screen (two flat lists, Closed tick + Note, result labels, colour/ink UI hidden behind pckColourUi()). Old render kept as pckRenderLegacy (localStorage bph-pck-legacy=1).
+ * r98 09-11 (Mia Chen): proof-query panel (Proof Query Log) + per-page checklist in grouped findings (Group Pages, group status derived).
  * print-checks.js — Book Production Hub, Round 93 (+ r95 04-11: schema v2 grouped rows, merge rule, run_id seconds; + r96 04-11: clearer button row with descriptions) (Mia Chen, 04-11-2026, David GO:
  * "Keep the ILLOS box, add an actual page count and also trim size box which is
  * flagged if the PDF is not the same as Commercial. Go build!").
@@ -66,7 +67,7 @@ async function pckLoad(force){
       if(devMode){ const fx=window.PCK_DEV_FIXTURE||{rows:[],runs:[],fH:[],rH:[]}; pck.rows=fx.rows.map((r,i)=>Object.assign({_row:i+2},r)); pck.runs=fx.runs.map((r,i)=>Object.assign({_row:i+2},r)); pck.fH=fx.fH; pck.rH=fx.rH; pck.pages=(fx.pages||[]).map((r,i)=>Object.assign({_row:i+2},r)); pck.log=(fx.log||[]).map((r,i)=>Object.assign({_row:i+2},r)); pck.pH=fx.pH||[]; pck.lH=fx.lH||[]; pckIndexPages(); pckNormGroups(); pck.loaded=true; pck.err=''; return pck; }
       // r98: the two newer tabs may not exist yet on an older Sheet: treat a missing tab as empty
       const opt=r=>sheetsGet(CFG.TITLES_SHEET_ID,r).catch(err=>{ if(isAuthFailure(err)) throw err; return []; });
-      const [a,b,c,d]=await Promise.all([sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_TAB+"'!A1:AF5000"), sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_RUNS+"'!A1:AF3000"), opt("'"+PCK_PAGES+"'!A1:P20000"), opt("'"+PCK_LOG+"'!A1:S5000")]);
+      const [a,b,c,d]=await Promise.all([sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_TAB+"'!A1:AF5000"), sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_RUNS+"'!A1:AF3000"), opt("'"+PCK_PAGES+"'!A1:P20000"), opt("'"+PCK_LOG+"'!A1:AD5000")]);
       const A=toObjs(a), B=toObjs(b), C=toObjs(c), D=toObjs(d); pck.fH=A.h; pck.rH=B.h; pck.rows=A.out; pck.runs=B.out; pck.pH=C.h; pck.pages=C.out; pck.lH=D.h; pck.log=D.out; pckIndexPages(); pckNormGroups(); pck.loaded=true; pck.err='';
     }catch(err){ pck.err=(err&&err.message)||String(err); pck.loaded=false; }
     finally{ pck.loading=null; }
@@ -263,8 +264,8 @@ function pckCommercialHtml(t){
       <div class="pck-inl"><input type="number" min="0" id="f-${id}-illosCount" value="${e(c.illosCount||'')}" placeholder="blank" oninput="pckSetField('${id}','illosCount',this.value)">
       ${!c.illosCount&&sug!==''?`<button type="button" class="btn btn-sm" onclick="pckSetField('${id}','illosCount','${sug}')">Use ${e(sug)} (from the text)</button>`:''}</div>
       <div class="pck-hint">Compared with the pictures in the PDF; flagged if more than ~10% off. A guide, never a fail. The Illustrations text stays as it is (sales sheets).</div></div>
-    <div class="field-group"><label class="field-label">Interior</label>${segHtml(id,c.interior||'')}
-      <div class="pck-hint">Mixed = some colour pages: the print check lists them for the printer quote.</div></div>
+    ${pckColourUi()?`<div class="field-group"><label class="field-label">Interior</label>${segHtml(id,c.interior||'')}
+      <div class="pck-hint">Mixed = some colour pages: the print check lists them for the printer quote.</div></div>`:'<div class="field-group" hidden></div>'}
     <div class="field-group"><label class="field-label">Human Authored</label><label class="pck-tick pck-tick-comm"><input type="checkbox" ${c.humanAuthored===true?'checked':''} onchange="pckSetField('${id}','humanAuthored',this.checked)"> Line + logo required on the copyright page</label></div>`;
 }
 function pckCommRefresh(tid){ const t=getTitle(tid), el=document.getElementById('pck-comm-'+tid); if(!t||!el) return;
@@ -440,10 +441,208 @@ function pckProofPanel(t,lr,tid){
   return `<details class="pck-vp"${U(tid).vp?' open':''} ontoggle="pckVpToggle('${tid}',this.open)"><summary><b>Verified against proof queries (${rs.length})</b> <span class="pck-vsum">${sm}</span></summary><div class="pck-vlist">${rows}</div></details>`;
 }
 
-// ── render ──
+// ═══ r102 (11-11, Mia Chen; David GO on the mockup): simplified Proof Checker screen ═══
+// Two flat lists. "Proof corrections" = Sheet tab Proof Query Log (kind=correction); "Other things to check" =
+// tab Print Checks (list=other). Closed = David's tick (reversible). Result label = checker-written, read-only.
+// BPH writes ONLY: Proof Query Log david_status / david_note / david_note_date, Print Checks status / david_note / note_date
+// of the clicked row(s). Colour / Ink UI is HIDDEN, not deleted: see pckColourUi().
+const COLOUR_CHECKS=new Set(['ink','colour']);
+// Switch the colour / Ink UI back on (mixed books such as Trashfilm Roadshows): click "Show colour / ink options" at the foot of the
+// section (saved in this browser), or set PCK_COLOUR_UI:true in config.js for every browser.
+function pckColourUi(){ try{ return !!(window.BOOK_HUB_CONFIG&&window.BOOK_HUB_CONFIG.PCK_COLOUR_UI===true) || localStorage.getItem('bph-pck-colour-ui')==='1'; }catch(_){ return false; } }
+function pckToggleColourUi(tid){ try{ if(localStorage.getItem('bph-pck-colour-ui')==='1') localStorage.removeItem('bph-pck-colour-ui'); else localStorage.setItem('bph-pck-colour-ui','1'); }catch(_){} pckRender(tid,true); if(typeof pckCommRefresh==='function') pckCommRefresh(tid); }
+const PQ_DONE=['Resolved','Deliberate',"Won't fix"];
+const pqU=id=>{ const u=U(id); if(!u.pq) u.pq={tab:'proof',f:'all',cat:'all',term:'',sel:new Set()}; return u.pq; };
+function pqRows(t){ const k=isbnKey(t); return pck.log.filter(l=>(l.title_id===t.id||(!l.title_id&&k&&l.isbn===k)) && l.kind==='correction'); }
+function pqOther(t){ const cu=pckColourUi();
+  return rowsFor(t).filter(r=>{ if(isMerged(r)) return false; const L=r.list||'';
+    if(L==='other') return true;
+    if(L==='') return cu||!COLOUR_CHECKS.has(r.check);        // older titles (list column not filled yet): shown, minus colour/ink rows
+    if(L==='hidden') return cu&&COLOUR_CHECKS.has(r.check);   // colour / ink family comes back only with the colour UI on
+    return false; }); }
+const pqNum=v=>{ const n=parseInt(v,10); return isNaN(n)?1e9:n; };
+function pqItems(t,tab){
+  if(tab==='proof') return pqRows(t).sort((a,b)=>pqNum(a.item_no)-pqNum(b.item_no)||String(a.source_file).localeCompare(String(b.source_file))).map(o=>({t:'p',id:o.key,o,cat:o.category||'Other'}));
+  return pqOther(t).sort((a,b)=>{ const x=pqNum(a.page), y=pqNum(b.page); return x-y||String(a.category).localeCompare(String(b.category)); }).map(o=>({t:'o',id:o.findingId,o,cat:o.category||'Other'}));
+}
+const pqReopened=it=>it.t==='p'?(it.o.reopened==='TRUE'&&!it.o._ack&&it.o.david_status==='Closed'):(it.o.reopened==='TRUE'&&(it.o.status||'Open')==='Open');
+// "closed" as David sees it: his tick, unless the checker has reopened it (proof tab: not found while ticked)
+const pqClosed=it=>it.t==='p'?(it.o.david_status==='Closed'&&!pqReopened(it)):PQ_DONE.includes(it.o.status);
+// Other tab: a Closed tick with a note is written as "Deliberate" (the checker never reopens Deliberate / Won't fix); with no note, "Resolved".
+function pqOtherStatus(on,note,prev){ if(!on) return 'Open'; if(prev==="Won't fix") return prev; if(String(note||'').trim()) return 'Deliberate'; return PQ_DONE.includes(prev)&&prev!=='Resolved'?prev:'Resolved'; }
+function pqApply(it,on){ const o=it.o, today=nowStamp().slice(0,10);
+  if(it.t==='p'){ o.david_status=on?'Closed':'Open'; o._ack=on; }
+  else { o.status=pqOtherStatus(on,o.david_note,o.status); o.note_date=today; } }
+const pqPend=new Map(); let pqTimer=null;
+function pqQueue(tid,it,delay){ pqPend.set(it.id,it); const sv=document.getElementById('pq-sv-'+cssId(it.id)); if(sv) sv.textContent='saving…'; clearTimeout(pqTimer); pqTimer=setTimeout(()=>pqFlush(tid),delay); }
+async function pqFlush(tid){
+  const batch=[...pqPend.values()]; pqPend.clear(); if(!batch.length) return;
+  const P=batch.filter(i=>i.t==='p'), O=batch.filter(i=>i.t==='o');
+  const sv=(i,txt)=>{ const s=document.getElementById('pq-sv-'+cssId(i.id)); if(s) s.textContent=txt; };
+  try{
+    if(!devMode){
+      const data=[], stale=()=>{ const x=new Error('the tab changed under us, so BPH re-read it. Nothing was saved: try again'); x.stale=true; return x; };
+      if(P.length){ const col=await sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_LOG+"'!A1:A5000"); if(P.some(i=>!col[i.o._row-1]||col[i.o._row-1][0]!==i.o.key)) throw stale();
+        P.forEach(i=>data.push({range:cellRange(PCK_LOG,pck.lH,i.o._row,['david_status','david_note','david_note_date']),values:[[i.o.david_status||'',i.o.david_note||'',i.o.david_note_date||'']]})); }
+      if(O.length){ const col=await sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_TAB+"'!A1:A5000"); if(O.some(i=>!col[i.o._row-1]||col[i.o._row-1][0]!==i.o.findingId)) throw stale();
+        O.forEach(i=>data.push({range:cellRange(PCK_TAB,pck.fH,i.o._row,['status','david_note','note_date']),values:[[i.o.status||'',i.o.david_note||'',i.o.note_date||'']]})); }
+      for(let k=0;k<data.length;k+=500) await valuesBatch(data.slice(k,k+500));
+    }
+    batch.forEach(i=>sv(i,'✓ saved '+dm(nowStamp())+(devMode?' (preview, not written)':'')));
+  }catch(err){ batch.forEach(i=>sv(i,'not saved')); showReconnect('Proof checker mark not saved: '+(err.message||err), isAuthFailure(err)); if(err.stale) pckReload(tid); }
+}
+function pqFind(tid,id){ const t=getTitle(tid); if(!t) return null; const q=pqU(tid); return pqItems(t,q.tab).find(i=>i.id===id)||null; }
+function pqSetClosed(tid,id,on){ const it=pqFind(tid,id); if(!it) return; pqApply(it,on); pqQueue(tid,it,150); pckRender(tid,true); }
+function pqNote(tid,id,val){ const it=pqFind(tid,id); if(!it) return; it.o.david_note=val;
+  const d=nowStamp().slice(0,10); if(it.t==='p') it.o.david_note_date=d; else { it.o.note_date=d; if(PQ_DONE.includes(it.o.status)) it.o.status=pqOtherStatus(true,val,it.o.status); }
+  pqQueue(tid,it,800); }
+function pqSelOne(tid,id,on){ const s=pqU(tid).sel; if(on) s.add(id); else s.delete(id); pckRender(tid,true); }
+function pqSelAll(tid,on){ const t=getTitle(tid), q=pqU(tid); pqVisible(t,q).forEach(i=>{ if(on) q.sel.add(i.id); else q.sel.delete(i.id); }); pckRender(tid,true); }
+function pqClear(tid){ pqU(tid).sel.clear(); pckRender(tid,true); }
+function pqSnap(it){ const o=it.o; return {it,david_status:o.david_status,david_note:o.david_note,david_note_date:o.david_note_date,status:o.status,note_date:o.note_date,_ack:o._ack}; }
+function pqBulk(tid,on){
+  const t=getTitle(tid), q=pqU(tid); const its=pqItems(t,q.tab).filter(i=>q.sel.has(i.id)&&pqClosed(i)!==on); if(!its.length) return;
+  const snaps=its.map(pqSnap); its.forEach(i=>{ pqApply(i,on); q.sel.delete(i.id); pqQueue(tid,i,150); }); pckRender(tid,true);
+  pckToast(its.length+(on?' ticked Closed':' reopened')+(devMode?' (preview, not written)':'')+'.',()=>{ snaps.forEach(s=>{ Object.assign(s.it.o,{david_status:s.david_status,david_note:s.david_note,david_note_date:s.david_note_date,status:s.status,note_date:s.note_date,_ack:s._ack}); pqQueue(tid,s.it,150); }); pckRender(tid,true); });
+}
+function pqTab(tid,k){ const q=pqU(tid); q.tab=k; q.cat='all'; q.sel.clear(); pckRender(tid,true); }
+function pqFilt(tid,k){ pqU(tid).f=k; pckRender(tid,true); }
+function pqCat(tid,k){ pqU(tid).cat=k; pckRender(tid,true); }
+function pqSearch(tid,v){ pqU(tid).term=v; pckRender(tid,true); }
+function pqVisible(t,q){ const term=q.term.trim().toLowerCase();
+  return pqItems(t,q.tab).filter(i=>(q.f==='all'||(q.f==='open')===!pqClosed(i))&&(q.cat==='all'||i.cat===q.cat)&&(!term||pqText(i).toLowerCase().includes(term))); }
+function pqText(i){ const o=i.o; return i.t==='p'?[o.quote,o.proof_page,o.pdf_page,o.item_no,o.david_note,o.category,o.tag,o.entry].join(' '):[o.problem,o.detail,o.page,o.category,o.david_note].join(' '); }
+function pqClip(s,n){ s=String(s||''); if(s.length<=n) return e(s); return `<details class="pck-pgl"><summary>${e(s.slice(0,n))} … more</summary><span>${e(s)}</span></details>`; }
+function pqResult(o){
+  const v=o.check_result, d=o.result_date?' · checked '+e(dm(o.result_date)):'';
+  if(v==='found') return `<span class="pq-res found">✓ Found in PDF</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
+  if(v==='not found') return `<span class="pq-res nf">✗ Not found</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
+  if(v==='cannot tell') return `<span class="pq-res eye">? Can’t tell, check by eye</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
+  if(v==='no action') return `<span class="pq-rolab">no action</span>`;
+  return `<span class="pq-rolab">not checked yet</span>`;
+}
+function pqRowHtml(tid,it,z,selected){
+  const o=it.o, cl=pqClosed(it), id=e(it.id), rop=pqReopened(it);
+  const tg=it.t==='p'?(o.category==='Queries'?'<span class="pq-tag q">QUERY</span>':o.category==='By eye'?'<span class="pq-tag eye">BY EYE</span>':(o.tag==='text'||o.tag==='style')?`<span class="pq-tag ${o.tag}">${o.tag.toUpperCase()}</span>`:''):'';
+  const pg=it.t==='p'?`<b>${o.proof_page?'p'+e(o.proof_page):(o.pdf_page?'PDF p'+e(o.pdf_page):'–')}</b><span class="pq-src">#${e(o.item_no)}${o.proof_page&&o.pdf_page?' · PDF p'+e(o.pdf_page):''}</span>`
+    :`<b>${/^\d+$/.test(o.page)?'p'+e(o.page):(o.page==='all'?'whole book':e(o.page))}</b><span class="pq-src">${e(o.category)}</span>`;
+  const body=it.t==='p'
+    ?`<div class="pq-ent">${rop?'<span class="pq-reop">REOPENED</span>':''}${tg}${o.entry?'<b>'+e(o.entry)+':</b> ':''}${e(o.quote||'(no quote)')}</div>${o.check_result==='not found'&&o.detail?`<div class="pq-muted">${e(o.detail)}</div>`:''}`
+    :`<div class="pq-ent">${rop?'<span class="pq-reop">REOPENED</span>':''}${e(o.problem)}</div>${o.detail?`<div class="pq-muted">${pqClip(o.detail,160)}</div>`:''}${o.auto_note?`<div class="pq-muted"><b>${e(o.auto_note)}</b></div>`:''}`;
+  const lab=cl?(it.t==='o'&&o.status!=='Resolved'?'CLOSED · '+e(String(o.status).toLowerCase()):'CLOSED'):'OPEN';
+  const nd=it.t==='p'?o.david_note_date:o.note_date;
+  return `<tr class="${cl?'s-closed':'s-open'} z${z}${selected?' sel':''}${rop?' reop':''}"><td><input type="checkbox" class="pq-selcb" aria-label="Select this line" data-k="${id}" data-f="sel" ${selected?'checked':''} onchange="pqSelOne('${tid}',this.dataset.k,this.checked)"></td>
+    <td><label class="pq-cl"><input type="checkbox" aria-label="Closed" data-k="${id}" data-f="cl" ${cl?'checked':''} onchange="pqSetClosed('${tid}',this.dataset.k,this.checked)"><span>${lab}</span></label></td>
+    <td class="pq-pg">${pg}</td><td>${body}</td>${it.t==='p'?`<td>${pqResult(o)}</td>`:''}
+    <td><textarea class="pq-note" rows="1" data-k="${id}" data-f="note" placeholder="${o.category==='Queries'?'Your answer or query…':'Type a note… saves by itself'}" aria-label="Your note" oninput="pqNote('${tid}',this.dataset.k,this.value)">${e(o.david_note||'')}</textarea><div class="pck-saved" id="pq-sv-${cssId(it.id)}">${nd?'saved '+e(dm(nd)):''}</div></td></tr>`;
+}
+// COPY PC CHECK: no --ink / --mono / --colour by default (the checker reads Interior from BPH); --mixed only when Interior = Mixed.
+function pckCopyCmdV2(tid,btn){
+  const t=getTitle(tid); if(!t) return; const lr=latestRun(t), c=t.commercial||{}, cu=pckColourUi();
+  const folder=(lr&&lr.pdf_folder)||((t.workingFolderLink||'D:\\PROJECTS - BOOKS\\<book folder>')+'\\<print PDFs folder>');
+  const pdf=folder+'\\'+((lr&&lr.export_file)||'<print PDF>.pdf');
+  const mode=cu?(c.interior==='Colour'?' --colour':c.interior==='Mixed'?' --mixed':' --mono'):(c.interior==='Mixed'?' --mixed':'');
+  const cmd=`python "${PCK_SCRIPT}" "${pdf}"${mode}${cu?' --ink':''}${c.humanAuthored===true?' --human-authored':''} --title "${t.title}" --check-dir "${folder}\\Checks"`;
+  ctCopyText(cmd,btn,'PC check command copied. Or drag the PDF onto Desktop\\Print PDF Check.bat');
+}
+function pckRender(tid,keep){
+  let legacy=false; try{ legacy=localStorage.getItem('bph-pck-legacy')==='1'; }catch(_){}
+  return legacy?pckRenderLegacy(tid,keep):pckRenderV2(tid,keep);
+}
+function pckRenderV2(tid,keep){
+  const box=document.getElementById('pck-'+tid), t=getTitle(tid); if(!box||!t) return;
+  if(pck.err){ box.innerHTML=`<div class="po-empty">Print checks could not be read: ${e(pck.err)}</div><button class="btn btn-sm" onclick="pckReload('${tid}')">Try again</button>`; return; }
+  if(!pck.loaded){ box.innerHTML='<div class="po-empty">Loading print checks…</div>'; return; }
+  const ae=document.activeElement, snapFocus=ae&&box.contains(ae)&&ae.dataset&&ae.dataset.f?[ae.dataset.k||'',ae.dataset.f,ae.selectionStart]:null;
+  const u=U(tid), q=pqU(tid), cu=pckColourUi(), runs=runsFor(t), lr=runs[runs.length-1]||null, c=t.commercial||{}, fl=pckFlags(t,lr);
+  const sel=runs.find(r=>r.run_id===u.runSel)||lr;
+  const proofAll=pqItems(t,'proof'), otherAll=pqItems(t,'other'), pre=q.tab==='proof';
+  const all=pre?proofAll:otherAll, vis=pqVisible(t,q), nOpen=all.filter(i=>!pqClosed(i)).length, nClosed=all.length-nOpen;
+  const nf=proofAll.filter(i=>i.o.check_result==='not found').length, ey=proofAll.filter(i=>i.o.check_result==='cannot tell').length, fd=proofAll.filter(i=>i.o.check_result==='found').length;
+  const checked=proofAll.some(i=>i.o.check_result);
+  const flag=(ok,txt)=>ok===null||ok===undefined?`<span class="pck-na">${txt||'no run yet'}</span>`:(ok?'<span class="pck-ok">✓ same</span>':'<span class="pck-bad">⚠ differs</span>');
+  const isb=[c.isbnPbk?e(c.isbnPbk)+' <small>pbk</small>':'',c.isbnEbk?e(c.isbnEbk)+' <small>ebk</small>':'',c.isbnHbk?e(c.isbnHbk)+' <small>hbk</small>':''].filter(Boolean).join(' · ')||'<span class="pck-na">none</span>';
+  const trimTxt=a=>a?(Array.isArray(a)?a[0]+' × '+a[1]:Math.round(a.wMm*10)/10+' × '+Math.round(a.hMm*10)/10)+' mm':'';
+  const settings=`<div class="pck-sgrid">
+    <div class="pck-sf ${fl.pages.ok===false?'bad':''}"><span class="l">Pages</span><span class="v">PDF <b>${fl.pages.pdf==null?'–':fl.pages.pdf}</b> · Commercial <b>${fl.pages.comm==null?e(c.pages||'–'):fl.pages.comm}</b></span>${flag(fl.pages.pdf==null||fl.pages.comm==null?null:fl.pages.ok, fl.pages.pdf==null?'no run yet':'Commercial has no number')}${fl.pages.note?`<span class="pck-sub">${e(fl.pages.note.trim())}</span>`:''}</div>
+    <div class="pck-sf ${fl.trim.ok===false?'bad':''}"><span class="l">Trim size</span><span class="v">PDF <b>${fl.trim.pdf?trimTxt(fl.trim.pdf):'–'}</b> · Commercial <b>${fl.trim.comm?trimTxt(fl.trim.comm):e(c.trimSize||'–')}</b></span>${flag(fl.trim.ok, !fl.trim.pdf?'no run yet':'Commercial trim unreadable')}<span class="pck-sub">within 0.5 mm, either way round</span></div>
+    <div class="pck-sf"><span class="l">ISBNs</span><span class="v pck-isbn">${isb}</span></div>
+    ${cu?`<div class="pck-sf"><span class="l">Interior</span>${segHtml(tid,c.interior||'')}</div>`:''}
+    <div class="pck-sf"><span class="l">Human Authored</span><label class="pck-tick"><input type="checkbox" ${c.humanAuthored===true?'checked':''} onchange="pckSetField('${tid}','humanAuthored',this.checked)"> required</label></div>
+    <div class="pck-sf ${fl.illos.ok===false?'warn':''}"><span class="l">Illos number</span><span class="v"><input class="pck-inp" type="number" min="0" value="${e(c.illosCount||'')}" placeholder="blank" onchange="pckSetField('${tid}','illosCount',this.value)"> · PDF <b>${fl.illos.pdf==null?'–':'~'+fl.illos.pdf}</b></span>${fl.illos.ok===false?'<span class="pck-warn">⚠ more than ~10% off (a guide)</span>':flag(fl.illos.ok, c.illosCount===''||c.illosCount==null?'blank: no flag':'no run yet')}<span class="pck-sub">Commercial text: “${e(c.illustrationsText||'–')}”</span></div>
+  </div>`;
+  // colour pages box + printer colour line: hidden unless the colour UI is on
+  let cpages='';
+  if(cu){ const P=lr?pnum(lr.page_count):null, cpN=lr?pnum(lr.colour_pages):null, cpL=lr?(lr.colour_page_list||''):'', runAt=lr?dm(lr.export_date).slice(6):'', iv=c.interior||'';
+    if(!lr) cpages=`<div class="pck-cp-row"><span class="pck-na">Colour pages: no run yet.</span></div>`;
+    else if(iv==='Mixed') cpages=`<div class="pck-cp-row"><span class="k">Colour pages</span><b>${cpN==null?'–':cpN}${P?' of '+P:''}</b></div><div class="pck-cp-row"><span class="k">Page list</span><span class="pck-list">${cpL?'pp '+e(cpL):'none found'}</span>${cpL?`<button type="button" class="btn btn-sm" onclick="pckCopyColour('${tid}',this)">⧉ Copy for printer quote</button>`:''}</div><div class="pck-cp-row"><span class="k">Mono pages</span><b>${P!=null&&cpN!=null?P-cpN:'–'}</b><span class="pck-sub">from the ${e(runAt)} run · re-runs update it</span></div>`;
+    else if(iv==='Colour') cpages=`<div class="pck-cp-row"><span class="k">Colour pages</span><b>all ${P||''}</b><span class="pck-sub">whole book printed in colour · no mono check</span></div>`;
+    else if(cpN) cpages=`<div class="pck-cp-row pck-cp-flag">⚠️ Colour in a ${iv==='Mono'?'Mono':'mono'} book: <b>${cpN} page${cpN>1?'s':''}</b> <span class="pck-list">pp ${e(cpL)}</span> Convert to greyscale, or switch to <b>Mixed</b>.</div>`;
+    else cpages=`<div class="pck-cp-row"><span class="k">Colour pages</span><b>${cpN==null?'–':'0'}</b>${cpN==null?'<span class="pck-sub">this run did not report colour pages</span>':`<span class="pck-ok">✓ ${iv==='Mono'?'Mono book, ':''}no colour found in the ${e(runAt)} run</span>`}</div>`;
+    if(lr) cpages+=`<div class="pck-printers">${PCK_PRINTER_LINE}</div>`;
+    if(!iv) cpages+=`<div class="pck-sub">Interior not set: pick Mono, Colour or Mixed above.</div>`;
+    cpages=`<div class="pck-cpages">${cpages}</div>`; }
+  // proof-queries box, from the Proof Query Log
+  let pq='';
+  if(proofAll.length){ const pdf=lr&&lr.export_file?`<b>${e(lr.export_file)}</b> (${e(dm(lr.export_date))})`:'';
+    pq=`<div class="pck-pq ${checked&&!nf?'ok':'f'}" role="status"><span class="big">${!checked?'PROOF CORRECTIONS: NOT CHECKED YET':nf?'✖ PROOF CORRECTIONS: '+nf+' NOT FOUND':'✔ PROOF CORRECTIONS: NONE MISSING'}</span>
+      <span class="txt">${!checked?'No final export checked yet. Tick each correction as you make it. Result labels appear after the final export is checked.':(nf?`<b>${nf} not found in the PDF.</b> Fix in the file, re-export, re-run. `:'')+pdf}<small>${proofAll.length} correction requests${checked?`: <b>${fd} found in PDF</b> / <b>${nf} not found</b> / <b>${ey} can’t tell, check by eye</b>`:''} · <b>${proofAll.filter(i=>!pqClosed(i)).length} open</b> / ${proofAll.filter(pqClosed).length} closed</small></span></div>`; }
+  // queue banner + history
+  let qb='';
+  if(u.queue.length){ const f=u.queue[0].json.run; qb=`<div class="pck-queued"><span class="big">⏳ PC check waiting to sync</span><span class="txt">${u.queue.length} run${u.queue.length>1?'s':''} from <b>${e(dm(f.run_at))}</b> (${e(f.export_file)}) saved on this PC. The PC's Google sign-in had expired, so it couldn't write here.</span><button type="button" class="btn btn-primary" onclick="pckImportQueue('${tid}')">Import now</button></div>`; }
+  const lastOkIdx=runs.map(r=>r.verdict).lastIndexOf('OK');
+  const strip=runs.length?`<div class="pck-hist">${runs.slice(-6).map(r=>{ const i=runs.indexOf(r), ok=r.verdict==='OK', old=!ok&&lastOkIdx>i, cur=r===sel;
+      return `<button type="button" class="pck-run ${ok?'ok':'f'}${old?' old':''}${cur?' cur':''}" onclick="pckSelRun('${tid}','${e(r.run_id)}')" title="${old?'Superseded by a later OK run. ':''}${e(pdfPath(r))}${r.pdf_sha256?' · fingerprint '+e(String(r.pdf_sha256).slice(0,8)):''} · click to see this run's full result"><span class="dot"></span><span class="rt">${e(dm(r.export_date))} <i>${ok?'OK':'FAIL'}</i></span><span class="rs">${e(r.export_file)} · ${e(r.source||'PC')}<br>${e(r.summary||'')}</span></button>`; }).join('')}</div>${sel?pckFileLine(tid,sel):''}`
+    :`<div class="po-empty">No print checks for this title yet. Run one on the PC (drag the PDF onto <b>Desktop\\Print PDF Check.bat</b>) or in the browser (button below).</div>`;
+  let passes=[]; try{ passes=JSON.parse((sel&&sel.passes_json)||'[]'); }catch(_){}
+  const passList=sel?`<div class="pck-passes"><div class="pck-sub">Run ${e(dm(sel.run_at))} · ${e(sel.export_file)} · ${e(sel.verdict)} · ${e(sel.summary||'')}${sel.notes_file?' · notes: '+e(sel.notes_file):''}</div>${passes.length?'<ul>'+passes.map(p=>`<li><b>${e(p.category)}</b> · ${e(p.text)}</li>`).join('')+'</ul>':'<div class="pck-sub">This run has no pass list stored.</div>'}</div>`:'';
+  const hist=`<details class="pq-hist"><summary>Check history${runs.length?' ('+runs.length+' run'+(runs.length>1?'s':'')+')':''} and passing checks</summary>${strip}${passList}</details>`;
+  // lists
+  const catN={}; all.forEach(i=>{ catN[i.cat]=(catN[i.cat]||0)+1; });
+  const order=pre?['Captions','Text/style','By eye','Queries']:[]; const cats=Object.keys(catN).sort((a,b)=>{ const x=order.indexOf(a), y=order.indexOf(b); return (x<0?99:x)-(y<0?99:y)||catN[b]-catN[a]||a.localeCompare(b); });
+  const fb=(k,l,n)=>`<button type="button" class="pck-fbtn${q.f===k?' on':''}" onclick="pqFilt('${tid}','${k}')">${l} <b>${n}</b></button>`;
+  const cb=(k,l,n)=>`<button type="button" class="pck-fbtn${q.cat===k?' on':''}" data-cat="${e(k)}" onclick="pqCat('${tid}',this.dataset.cat)">${e(l)} <b>${n}</b></button>`;
+  const selItems=all.filter(i=>q.sel.has(i.id)), n=selItems.length;
+  const bulk=`<div class="pq-bulk ${n?'':'idle'}">${n?`<b>${n} selected</b> <button type="button" class="btn btn-primary" onclick="pqBulk('${tid}',true)">✓ Tick Closed (${selItems.filter(i=>!pqClosed(i)).length})</button><button type="button" class="btn" onclick="pqBulk('${tid}',false)">Reopen (${selItems.filter(pqClosed).length})</button><button type="button" class="btn" onclick="pqClear('${tid}')">Clear selection</button>`:`<span class="pck-sub">Tick the small boxes on the left to select several lines (header box = all shown), then close or reopen them in one click. Every line stays one line.</span>`}</div>`;
+  const allSel=vis.length&&vis.every(i=>q.sel.has(i.id));
+  const rowsHtml=vis.map((i,k)=>pqRowHtml(tid,i,k%2,q.sel.has(i.id))).join('')||`<tr><td colspan="${pre?6:5}" class="pck-na" style="padding:14px">${all.length?'Nothing in this filter.':(pre?'No proof corrections logged for this title.':'Nothing else to check.')}</td></tr>`;
+  const noteN=pre?pqRows(t).length:0; const skipped=pre?(pck.log.filter(l=>(l.title_id===t.id)&&l.kind==='note').length):0;
+  const lists=`<div class="pq-tabs" role="tablist"><button type="button" role="tab" aria-selected="${pre}" class="pq-tab${pre?' on':''}" onclick="pqTab('${tid}','proof')">Proof corrections <b>${proofAll.filter(i=>!pqClosed(i)).length} open</b></button><button type="button" role="tab" aria-selected="${!pre}" class="pq-tab${pre?'':' on'}" onclick="pqTab('${tid}','other')">Other things to check <b>${otherAll.filter(i=>!pqClosed(i)).length} open</b></button></div>
+    <p class="pq-tabdesc">${pre?'Your correction requests, one line each, in your own words. Make the change in the file, tick <b>Closed</b>, and add a Note for any query. After a final export is checked, each line gets a result label. Tick the Closed box again to reopen.':'Things the checker found that are not in your proofing queries. Closed = dealt with or accepted. A Note makes a close “deliberate”, so the checker leaves it closed. A close with no note reopens if a later export is still wrong.'}</p>
+    <div class="pck-filters"><span class="pck-flab">Show</span>${fb('all','All',all.length)}${fb('open','Open',nOpen)}${fb('closed','Closed',nClosed)}<input class="pq-search" type="search" data-k="" data-f="search" placeholder="Search text, page or note…" aria-label="Search" value="${e(q.term)}" oninput="pqSearch('${tid}',this.value)"></div>
+    ${cats.length>1?`<div class="pck-filters" role="group" aria-label="Category"><span class="pck-flab">Category</span>${cb('all','All',all.length)}${cats.map(k=>cb(k,k,catN[k])).join('')}</div>`:''}
+    ${bulk}
+    <div class="pck-tbl"><table class="pq-tbl"><colgroup><col class="c-sel"><col class="c-cl"><col class="c-pg"><col>${pre?'<col class="c-res">':''}<col class="c-note"></colgroup>
+      <thead><tr><th><input type="checkbox" class="pq-selcb" title="Select all shown" aria-label="Select all shown" data-k="" data-f="selall" ${allSel?'checked':''} onchange="pqSelAll('${tid}',this.checked)"></th><th>Closed</th><th>${pre?'Page':'Where'}</th><th>${pre?'Correction request':'Finding'}</th>${pre?'<th>Result in the PDF</th>':''}<th>Your note</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    ${pre&&skipped?`<div class="pq-hiddenline">${skipped} line${skipped>1?'s':''} from the proof notes are not corrections (headings / style key), so they are not listed.</div>`:''}`;
+  const qline=window.showDirectoryPicker?` · <button type="button" class="pck-link" onclick="pckScanQueue('${tid}',true)">${u.qState==='need'||!u.qState?'Look for waiting PC checks':'Look again'}</button>`:'';
+  const foot=`<div class="pck-foot pck-acts pq-acts">
+      <div class="pck-act"><label class="btn pck-run">▶ RUN CHECK<input type="file" accept="application/pdf" hidden onchange="pckBrowserCheck('${tid}',this)"></label>
+        <span class="pck-adesc">Quick check in BPH: page count, trim, ISBN and LSI last page.${cu?' No ink or colour test.':''}</span></div>
+      <div class="pck-act"><button type="button" class="btn" onclick="pckCopyCmd('${tid}',this)">⧉ Copy PC Check</button>
+        <span class="pck-adesc">Copies the command for the full PC check (${cu?'ink, colour, ':''}proof corrections, layout, fonts, PDF/X). Run it on the final export to fill the result labels.</span></div>
+      <div class="pck-act"><button type="button" class="btn" onclick="pckXlsx('${tid}')"${all.length||runs.length||proofAll.length?'':' disabled'}>⬇ Download xlsx</button>
+        <span class="pck-adesc">A copy to print or send. Mark items here in BPH, not in the sheet.</span></div>
+      <div class="pq-waiting"><b>Waiting PC checks:</b> <label class="pck-link">Import PC check file…<input type="file" accept=".json,application/json" multiple hidden onchange="pckImportFile('${tid}',this)"></label>${qline} <span class="pck-sub">(only needed if a check could not reach BPH)</span>${u.qMsg?` <span class="pck-qmsg ${u.qMsg.k}" role="status">${e(u.qMsg.t)}</span>`:''}</div>
+    </div>`;
+  box.innerHTML=`<div class="pck-h"><span class="chip sage">Single point of truth · Sheet tabs “Proof Query Log” + “Print Checks”</span>${lr?`<span class="chip blue">✓ Synced · last write ${e(dm(lr.run_at))} · ${lr.source==='BPH'?'browser check':'PC check'}</span>`:''}${devMode?'<span class="chip amber">Preview: nothing is written</span>':''}</div>
+    ${qb}${pq}
+    <div class="pck-sec-l">This title's print settings <span>· saved in BPH (Commercial) · flagged when the PDF differs</span></div>
+    ${settings}${cpages}
+    ${lists}
+    ${foot}
+    ${hist}
+    <div class="pck-browser" id="pck-bc-${tid}">${u.bcMsg||''}</div>
+    <div class="pq-colourtoggle"><button type="button" class="pck-link" onclick="pckToggleColourUi('${tid}')">${cu?'Hide colour / ink options':'Show colour / ink options (mixed books)'}</button> <span class="pck-sub">${cu?'Colour / ink options are showing.':'Colour and ink checks are hidden for mono books.'}</span></div>`;
+  if(snapFocus){ const el=[...box.querySelectorAll('[data-f]')].find(x=>(x.dataset.k||'')===snapFocus[0]&&x.dataset.f===snapFocus[1]); if(el){ el.focus({preventScroll:true}); if(snapFocus[1]==='search'&&snapFocus[2]!=null){ try{ el.setSelectionRange(snapFocus[2],snapFocus[2]); }catch(_){} } } }
+  if(!keep && window.showDirectoryPicker && !u.qState) pckScanQueue(tid,false);
+  if(typeof updateSectionHeaders==='function') updateSectionHeaders(tid);
+}
+
+// ── render (legacy, kept) ──
 function pckSectionHtml(t){ return `<div class="pck" id="pck-${t.id}"><div class="po-empty">Loading print checks…</div></div>`; }
 async function pckOpen(tid){ await pckLoad(); pckRender(tid); }
-function pckRender(tid,keep){
+function pckRenderLegacy(tid,keep){
   const box=document.getElementById('pck-'+tid), t=getTitle(tid); if(!box||!t) return;
   if(pck.err){ box.innerHTML=`<div class="po-empty">Print checks could not be read: ${e(pck.err)}</div><button class="btn btn-sm" onclick="pckReload('${tid}')">Try again</button>`; return; }
   if(!pck.loaded){ box.innerHTML='<div class="po-empty">Loading print checks…</div>'; return; }
@@ -585,7 +784,8 @@ function pckShowAll(tid){ const u=U(tid); u.showAll=!u.showAll; pckRender(tid,tr
 function pckSelRun(tid,rid){ const u=U(tid); u.runSel=rid; u.showAll=true; pckRender(tid,true); }
 async function pckReload(tid){ pck.loaded=false; pck.err=''; await pckLoad(true); pckRender(tid); }
 function pckCopyColour(tid,btn){ const t=getTitle(tid), lr=t&&latestRun(t); if(!lr) return; ctCopyText('Colour pages: '+(lr.colour_pages||0)+' — pp '+(lr.colour_page_list||''),btn,'Copied for the printer quote'); }
-function pckCopyCmd(tid,btn){
+function pckCopyCmd(tid,btn){ let lg=false; try{ lg=localStorage.getItem('bph-pck-legacy')==='1'; }catch(_){} return lg?pckCopyCmdLegacy(tid,btn):pckCopyCmdV2(tid,btn); }
+function pckCopyCmdLegacy(tid,btn){
   const t=getTitle(tid); if(!t) return; const lr=latestRun(t), c=t.commercial||{};
   const folder=(lr&&lr.pdf_folder)||((t.workingFolderLink||'D:\\PROJECTS - BOOKS\\<book folder>')+'\\<print PDFs folder>');
   const pdf=folder+'\\'+((lr&&lr.export_file)||'<print PDF>.pdf');
@@ -600,15 +800,15 @@ async function pckXlsx(tid){
   const t=getTitle(tid); if(!t) return;
   try{ await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'); }catch(err){ ctToast('xlsx library did not load'); return; }
   const cols=['status','page','pdf_page','category','problem','detail','by_eye','source','first_seen','last_seen','export_file','david_note','note_date','auto_note','findingId'];
-  const rows=rowsFor(t).map(r=>cols.map(k=>r[k]||''));
+  const rows=pqItems(t,'other').map(i=>cols.map(k=>i.o[k]||''));
   const runCols=['run_at','export_file','export_date','source','verdict','fail_count','warn_count','page_count','trim_mm','interior_mode','colour_pages','colour_page_list','illos_pdf','summary'];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([cols].concat(rows)), 'Print Checks');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([runCols].concat(runsFor(t).map(r=>runCols.map(k=>r[k]||'')))), 'Runs');
+  const prc=['item_no','proof_page','pdf_page','category','tag','quote','check_result','result_date','david_status','david_note','david_note_date','reopened','source_file','key'], pr=pqItems(t,'proof').map(i=>prc.map(k=>i.o[k]||''));
+  if(pr.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([prc].concat(pr)), 'Proof corrections');
   const pgc=['group_id','check','kind','page','message','status','david_note','note_date','auto_note'], gp=[]; rowsFor(t).forEach(r=>grpPages(r).forEach(p=>gp.push(pgc.map(k=>p[k]||''))));
-  if(gp.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([pgc].concat(gp)), 'Pages');
   const lgc=['source_file','item_no','proof_page','pdf_page','entry','quote','result','detail','david_addition'], lg=pck.log.filter(l=>(l.title_id===t.id||l.isbn===isbnKey(t))&&latestRun(t)&&l.run_id===latestRun(t).run_id).map(l=>lgc.map(k=>l[k]||''));
-  if(lg.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([lgc].concat(lg)), 'Proof queries');
   const lr=latestRun(t); let passes=[]; try{ passes=JSON.parse((lr&&lr.passes_json)||'[]'); }catch(_){}
   if(passes.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['category','passing in the latest run']].concat(passes.map(p=>[p.category,p.text]))), 'Passing');
   const safe=String(t.title||'Book').replace(/[\\/:*?"<>|]+/g,'-');
@@ -655,8 +855,9 @@ async function pckBrowserCheck(tid,input){
   }catch(err){ say('<div class="po-empty">Browser check failed: '+e(err.message||err)+'</div>'); if(isAuthFailure(err)) showReconnect('Browser check not saved: signed out.',true); }
 }
 
-function pckSectionStatus(t){ if(!pck.loaded) return 'partial'; const lr=latestRun(t); if(!lr) return 'partial'; if(lr.verdict!=='OK') return 'overdue'; if(rowsFor(t).some(r=>r.status==='Open')) return 'partial'; return 'complete'; }
+function pckSectionStatus(t){ if(!pck.loaded) return 'partial'; const lr=latestRun(t); if(!lr) return 'partial'; if(lr.verdict!=='OK') return 'overdue'; if(pqItems(t,'other').some(i=>!pqClosed(i))||pqItems(t,'proof').some(i=>!pqClosed(i))) return 'partial'; return 'complete'; }
 
 Object.assign(window,{pckSectionHtml,pckOpen,pckRender,pckMark,pckFilter,pckShowMerged,pckCopyPath,pckShowAll,pckSelRun,pckReload,pckCopyColour,pckCopyCmd,pckXlsx,pckBrowserCheck,
-  pckScanQueue,pckImportQueue,pckImportFile,pckSetField,pckCommercialHtml,pckCat,pckTick,pckBulkAsk,pckRowsWriteData,pckPageMark,pckTogglePages,pckHideHandled,pckVpToggle,pckGroupSetAll,pckProofPanel,pckProofLine,pckSectionStatus,pckLoad,pckMergeRun,_pck:pck});
+  pckScanQueue,pckImportQueue,pckImportFile,pckSetField,pckCommercialHtml,pckCat,pckTick,pckBulkAsk,pckRowsWriteData,pckPageMark,pckTogglePages,pckHideHandled,pckVpToggle,pckGroupSetAll,pckProofPanel,pckProofLine,pckSectionStatus,pckLoad,pckMergeRun,_pck:pck,
+  pqSetClosed,pqNote,pqSelOne,pqSelAll,pqClear,pqBulk,pqTab,pqFilt,pqCat,pqSearch,pckToggleColourUi,pckColourUi,pqFlush,pckRenderLegacy,pqItems,pqClosed});
 })();
