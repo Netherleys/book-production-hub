@@ -305,6 +305,25 @@ function syncDateDisplay(inputEl){
   overlay.textContent = val ? formatDateLong(val) : '';
   overlay.classList.toggle('is-empty', !val);
 }
+// 2026-11-05 (David YES): To the Printer is the single source for the print
+// date. Auto print date = the earliest order-by (PO by) date across the UK / US
+// print lines that are not skipped; falls back to street minus 60 only when no
+// street date or both lines are skipped. A manually typed Print Date (auto
+// off) is still honoured as typed. Feeds Progress Report's Print Deadline, the
+// title-page Print line, the Print Status pill, sort, calendar and attention.
+function effPrintDate(t){
+  const d=t.dates||{};
+  if(!d.autoPrintDate) return d.printDate;
+  let best='';
+  try{
+    ['uk','us'].forEach(k=>{
+      const j=pjOf(t)[k]; if(j.skip) return;
+      const pl=pjPlanFor(t,k); if(!pl||!pl.poBy) return;
+      const iso=pjIso(pl.poBy); if(!best||iso<best) best=iso;
+    });
+  }catch(e){ best=''; }
+  return best||calcAutoPrint(d.streetDate);
+}
 function calcAutoPrint(sd){ if(!sd) return ''; const d=new Date(sd); if(isNaN(d)) return ''; d.setDate(d.getDate()-60); return d.toISOString().slice(0,10); }
 // Round 37 (2026-08-28) — numeric sort key for the new Street/Print/Soft
 // date sort options (renderTitles()). Missing/unparseable dates return
@@ -2132,7 +2151,7 @@ function computeDayInfo(t){
   // sage colour 'published' was) rather than keeping a second colour key
   // that would otherwise now mean exactly the same thing.
   if(isPublished(t)) return {kind:'published', label:'In Print', colorClass:'ok'};
-  const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
+  const pd=effPrintDate(t);
   if(pd){
     const d=daysUntil(pd);
     if(d===null){
@@ -2196,7 +2215,7 @@ function getSectionStatus(t,key){
       }
       if(isPublished(t))return 'complete';
       if(!t.dates.streetDate)return 'partial';
-      const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
+      const pd=effPrintDate(t);
       if(pd&&!isNaN(new Date(pd))&&new Date(pd)<new Date())return 'overdue';
       return 'complete';
     }
@@ -2529,8 +2548,8 @@ function renderTitles(){
     if(filters.sort==='recent') return (b._row||0)-(a._row||0);
     if(filters.sort==='street') return dateSortKey(a.dates.streetDate)-dateSortKey(b.dates.streetDate)||tiebreak();
     if(filters.sort==='print'){
-      const pa=a.dates.autoPrintDate?calcAutoPrint(a.dates.streetDate):a.dates.printDate;
-      const pb=b.dates.autoPrintDate?calcAutoPrint(b.dates.streetDate):b.dates.printDate;
+      const pa=effPrintDate(a);
+      const pb=effPrintDate(b);
       return dateSortKey(pa)-dateSortKey(pb)||tiebreak();
     }
     if(filters.sort==='soft') return dateSortKey(a.dates.softDate)-dateSortKey(b.dates.softDate)||tiebreak();
@@ -2861,7 +2880,7 @@ function renderDetail(){
   // position immediately afterward for the one case that needs it.
   recordRecentlyViewed(t);
   const main=document.getElementById('main');
-  const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
+  const pd=effPrintDate(t);
   const info=computeDayInfo(t);
   // Round 10, item 4 — computeDayInfo()'s generic no-date fallback (kind
   // 'nodate' with no hasStreet flag, literal label 'Not scheduled') is
@@ -5490,7 +5509,7 @@ function renderPipeline(t){const id=t.id;
 // shows "In Print" here too (Round 45 relabel — was "Published" before the
 // In Print/Published merge) rather than attempting a day count at all.
 function renderDates(t){const id=t.id;const d=t.dates;
-  const compPrint=calcAutoPrint(d.streetDate);
+  const compPrint=effPrintDate({dates:Object.assign({},d,{autoPrintDate:true}),printJobs:t.printJobs});
   const pdVal=d.autoPrintDate?compPrint:d.printDate;
   const info=computeDayInfo(t);
   const colorVar={ok:'var(--sage)',notice:'var(--amber-border)','due-soon':'#B8722E',overdue:'var(--terra)',neutral:'var(--text3)'}[info.colorClass]||'var(--text3)';
@@ -7749,7 +7768,7 @@ function onStreetDateChange(titleId,value){
   if(t.dates.autoPrintDate){
     t.dates.printDate='';
     const pdInput=document.getElementById(`f-${titleId}-printDate`);
-    if(pdInput){pdInput.value=calcAutoPrint(value);syncDateDisplay(pdInput);}
+    if(pdInput){pdInput.value=effPrintDate(t);syncDateDisplay(pdInput);}
     updateDaysDisplay(titleId);
   }
   debouncedSave(titleId);updateSectionHeaders(titleId);
@@ -7758,7 +7777,7 @@ function onAutoPrint(titleId,checked){
   const t=getTitle(titleId);if(!t)return;
   t.dates.autoPrintDate=checked;
   const pdInput=document.getElementById(`f-${titleId}-printDate`);
-  if(pdInput){pdInput.readOnly=checked;if(checked){pdInput.value=calcAutoPrint(t.dates.streetDate);syncDateDisplay(pdInput);}}
+  if(pdInput){pdInput.readOnly=checked;if(checked){pdInput.value=effPrintDate(t);syncDateDisplay(pdInput);}}
   updateDaysDisplay(titleId);debouncedSave(titleId);
 }
 // 2026-08-11 (item 3 fix) — this used to carry its OWN separate, simpler
@@ -8354,13 +8373,13 @@ function restoreQuickNote(titleId,noteId){
 function getSectionExportFields(t,key,blockNameById){
   switch(key){
     case 'dates':{
-      const pd=t.dates.autoPrintDate?calcAutoPrint(t.dates.streetDate):t.dates.printDate;
+      const pd=effPrintDate(t);
       const info=computeDayInfo(t);
       return [
         ['Release Block','text', blockNameById[t.blockId]||t.blockId||''],
         ['Soft Date','text', formatDate(t.dates.softDate)],
         ['Street Date','text', formatDate(t.dates.streetDate)],
-        ['Print Date','text', formatDate(pd)+(t.dates.autoPrintDate&&pd?' (auto-calculated: street date minus 60 days)':'')],
+        ['Print Date','text', formatDate(pd)+(t.dates.autoPrintDate&&pd?' (auto: To the Printer order-by date)':'')],
         ['Release Note','text', t.dates.releaseNote||''],
         // Round 44 — label renamed from 'Print Status' to match the merged
         // field's new name in renderDates() (this already read
@@ -8758,7 +8777,7 @@ function reportRows(){
   return data.titles
     .filter(t => !isPublished(t))
     .map(t => {
-      const effPrint = t.dates.autoPrintDate ? calcAutoPrint(t.dates.streetDate) : t.dates.printDate;
+      const effPrint = effPrintDate(t);
       const pipelineDated = (t.pipeline.stages||[])
         .filter(s => s.status!=='Complete' && s.status!=='Not Required' && s.expectedDate)
         .slice()
@@ -9408,7 +9427,7 @@ function calGridDays(year, month){
 // same as everywhere else this app reads it — see renderDates()/reportRows()).
 function calTitleDateEntries(t){
   const d=t.dates;
-  const pd = d.autoPrintDate ? calcAutoPrint(d.streetDate) : d.printDate;
+  const pd = effPrintDate(t);
   return [['soft',d.softDate],['street',d.streetDate],['print',pd]]
     .filter(([,ds])=>ds)
     .map(([type,ds])=>({type, dt:new Date(ds)}))
