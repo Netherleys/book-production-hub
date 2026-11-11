@@ -466,7 +466,7 @@ function pqItems(t,tab){
   return pqOther(t).sort((a,b)=>{ const x=pqNum(a.page), y=pqNum(b.page); return x-y||String(a.category).localeCompare(String(b.category)); }).map(o=>({t:'o',id:o.findingId,o,cat:o.category||'Other'}));
 }
 const pqReopened=it=>it.t==='p'?(it.o.reopened==='TRUE'&&!it.o._ack&&it.o.david_status==='Closed'):(it.o.reopened==='TRUE'&&(it.o.status||'Open')==='Open');
-// "closed" as David sees it: his tick, unless the checker has reopened it (proof tab: not found while ticked)
+// "closed" as David sees it: his tick, unless the checker has reopened it (proof tab: Not made while ticked)
 const pqClosed=it=>it.t==='p'?(it.o.david_status==='Closed'&&!pqReopened(it)):PQ_DONE.includes(it.o.status);
 // Other tab: a Closed tick with a note is written as "Deliberate" (the checker never reopens Deliberate / Won't fix); with no note, "Resolved".
 function pqOtherStatus(on,note,prev){ if(!on) return 'Open'; if(prev==="Won't fix") return prev; if(String(note||'').trim()) return 'Deliberate'; return PQ_DONE.includes(prev)&&prev!=='Resolved'?prev:'Resolved'; }
@@ -515,10 +515,10 @@ function pqText(i){ const o=i.o; return i.t==='p'?[o.quote,o.proof_page,o.pdf_pa
 function pqClip(s,n){ s=String(s||''); if(s.length<=n) return e(s); return `<details class="pck-pgl"><summary>${e(s.slice(0,n))} … more</summary><span>${e(s)}</span></details>`; }
 function pqResult(o){
   const v=o.check_result, d=o.result_date?' · checked '+e(dm(o.result_date)):'';
-  if(v==='found') return `<span class="pq-res found">✓ Found in PDF</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
-  if(v==='not found') return `<span class="pq-res nf">✗ Not found</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
-  if(v==='cannot tell') return `<span class="pq-res eye">? Can’t tell, check by eye</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
-  if(v==='no action') return `<span class="pq-rolab">no action</span>`;
+  if(v==='found') return `<span class="pq-res found">✓ Correction made</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
+  if(v==='not found') return `<span class="pq-res nf">✗ Not made</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
+  if(v==='cannot tell') return `<span class="pq-res eye">? Can’t tell</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
+  if(v==='no action') return `<span class="pq-rolab">No action</span>`;
   return `<span class="pq-rolab">not checked yet</span>`;
 }
 function pqRowHtml(tid,it,z,selected){
@@ -527,7 +527,7 @@ function pqRowHtml(tid,it,z,selected){
   const pg=it.t==='p'?`<b>${o.proof_page?'p'+e(o.proof_page):(o.pdf_page?'PDF p'+e(o.pdf_page):'–')}</b><span class="pq-src">#${e(o.item_no)}${o.proof_page&&o.pdf_page?' · PDF p'+e(o.pdf_page):''}</span>`
     :`<b>${/^\d+$/.test(o.page)?'p'+e(o.page):(o.page==='all'?'whole book':e(o.page))}</b><span class="pq-src">${e(o.category)}</span>`;
   const body=it.t==='p'
-    ?`<div class="pq-ent">${rop?'<span class="pq-reop">REOPENED</span>':''}${tg}${o.entry?'<b>'+e(o.entry)+':</b> ':''}${e(o.quote||'(no quote)')}</div>${o.check_result==='not found'&&o.detail?`<div class="pq-muted">${e(o.detail)}</div>`:''}`
+    ?`<div class="pq-ent">${rop?'<span class="pq-reop" title="You ticked this Closed, but the checker says the correction was not made in the latest export">REOPENED</span>':''}${tg}${o.entry?'<b>'+e(o.entry)+':</b> ':''}${e(o.quote||'(no quote)')}</div>${o.check_result==='not found'&&o.detail?`<div class="pq-muted">${e(o.detail)}</div>`:''}`
     :`<div class="pq-ent">${rop?'<span class="pq-reop">REOPENED</span>':''}${e(o.problem)}</div>${o.detail?`<div class="pq-muted">${pqClip(o.detail,160)}</div>`:''}${o.auto_note?`<div class="pq-muted"><b>${e(o.auto_note)}</b></div>`:''}`;
   const lab=cl?(it.t==='o'&&o.status!=='Resolved'?'CLOSED · '+e(String(o.status).toLowerCase()):'CLOSED'):'OPEN';
   const nd=it.t==='p'?o.david_note_date:o.note_date;
@@ -585,8 +585,8 @@ function pckRenderV2(tid,keep){
   // proof-queries box, from the Proof Query Log
   let pq='';
   if(proofAll.length){ const pdf=lr&&lr.export_file?`<b>${e(lr.export_file)}</b> (${e(dm(lr.export_date))})`:'';
-    pq=`<div class="pck-pq ${checked&&!nf?'ok':'f'}" role="status"><span class="big">${!checked?'PROOF CORRECTIONS: NOT CHECKED YET':nf?'✖ PROOF CORRECTIONS: '+nf+' NOT FOUND':'✔ PROOF CORRECTIONS: NONE MISSING'}</span>
-      <span class="txt">${!checked?'No final export checked yet. Tick each correction as you make it. Result labels appear after the final export is checked.':(nf?`<b>${nf} not found in the PDF.</b> Fix in the file, re-export, re-run. `:'')+pdf}<small>${proofAll.length} correction requests${checked?`: <b>${fd} found in PDF</b> / <b>${nf} not found</b> / <b>${ey} can’t tell, check by eye</b>`:''} · <b>${proofAll.filter(i=>!pqClosed(i)).length} open</b> / ${proofAll.filter(pqClosed).length} closed</small></span></div>`; }
+    pq=`<div class="pck-pq ${checked&&!nf?'ok':'f'}" role="status"><span class="big">${!checked?'PROOF CORRECTIONS: NOT CHECKED YET':nf?'✖ PROOF CORRECTIONS: '+nf+' NOT MADE':'✔ PROOF CORRECTIONS: NONE MISSING'}</span>
+      <span class="txt">${!checked?'No final export checked yet. Tick each correction as you make it. Result labels appear after the final export is checked.':(nf?`<b>${nf} correction${nf>1?'s':''} not made in the PDF.</b> Fix in the file, re-export, re-run. `:'')+pdf}<small>${proofAll.length} correction requests${checked?`: <b>${fd} made</b> / <b>${nf} not made</b> / <b>${ey} can’t tell</b>`:''} · <b>${proofAll.filter(i=>!pqClosed(i)).length} open</b> / ${proofAll.filter(pqClosed).length} closed</small></span></div>`; }
   // queue banner + history
   let qb='';
   if(u.queue.length){ const f=u.queue[0].json.run; qb=`<div class="pck-queued"><span class="big">⏳ PC check waiting to sync</span><span class="txt">${u.queue.length} run${u.queue.length>1?'s':''} from <b>${e(dm(f.run_at))}</b> (${e(f.export_file)}) saved on this PC. The PC's Google sign-in had expired, so it couldn't write here.</span><button type="button" class="btn btn-primary" onclick="pckImportQueue('${tid}')">Import now</button></div>`; }
