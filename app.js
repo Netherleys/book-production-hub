@@ -4478,12 +4478,14 @@ function kitDeviceSet(on){ try{ if(on) localStorage.setItem(KIT_DEVICE_KEY,'1');
   if(view==='dist') distRender(); else if(view==='detail') render(); }
 function kitUrl(id){ return 'pka-run://turnaround-kit/'+String(id||''); }
 const KIT_LABEL='Build Sales Kit';
+// Round 100 (2026-11-11, David): hover text on all three Build Sales Kit buttons (text only; same button, same pka-run link).
+const KIT_TIP='Builds a fresh sales kit for this title, with a QR code to its product page if that page is live. Then tick “Show sales kit” on the product page in WordPress to make it downloadable. Saves your edits first.';
 // Round 84 (16-10, David): mode false = Turnaround head, true = K2 link, 'title' = title page.
 // All three say "Build Sales Kit" and run kitBuild(). No "asked for" text or hover.
 function kitBtnHtml(t,small){ if(!kitDeviceOn()) return '';
   const onTitle=small==='title', link=small===true;
   const cls=link?'dp-go kit-link':(onTitle?'btn btn-export kit-btn kit-btn-title':'btn btn-sm kit-btn');
-  return `<button type="button" class="${cls}"${onTitle?` id="kit-title-btn-${t.id}"`:''} onclick="kitBuild('${t.id}')" title="Runs Dean’s kit builder on this PC. Saves your edits first.">${KIT_LABEL}</button>`; }
+  return `<button type="button" class="${cls}"${onTitle?` id="kit-title-btn-${t.id}"`:''} onclick="kitBuild('${t.id}')" title="${KIT_TIP}">${KIT_LABEL}</button>`; }
 function kitK2Html(t){ const b=kitBtnHtml(t,true); return b?`<div class="dp-sub kit-k2">${b}</div>`:''; }
 function kitLaunch(url){ window.location.href=url; } // opens the pka-run handler (Chrome asks once: tick "Always allow")
 async function kitSaveNow(id){
