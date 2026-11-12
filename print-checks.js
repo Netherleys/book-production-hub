@@ -1,3 +1,4 @@
+/* r104 12-11 (Mia Chen): Option A panel redesign (David YES 12-11): big SHOW blocks, small open/total type chips, badged tabs + cue + legend, calm/strong not-made banner with Show-the-N. Display only, no data/Sheet changes. Backup: print-checks.js.bak-2026-11-12-pre-optionA. */
 /* r102 11-11 (Mia Chen): simplified Proof Checker screen (two flat lists, Closed tick + Note, result labels, colour/ink UI hidden behind pckColourUi()). Old render kept as pckRenderLegacy (localStorage bph-pck-legacy=1).
  * r98 09-11 (Mia Chen): proof-query panel (Proof Query Log) + per-page checklist in grouped findings (Group Pages, group status derived).
  * print-checks.js — Book Production Hub, Round 93 (+ r95 04-11: schema v2 grouped rows, merge rule, run_id seconds; + r96 04-11: clearer button row with descriptions) (Mia Chen, 04-11-2026, David GO:
@@ -452,7 +453,7 @@ const COLOUR_CHECKS=new Set(['ink','colour']);
 function pckColourUi(){ try{ return !!(window.BOOK_HUB_CONFIG&&window.BOOK_HUB_CONFIG.PCK_COLOUR_UI===true) || localStorage.getItem('bph-pck-colour-ui')==='1'; }catch(_){ return false; } }
 function pckToggleColourUi(tid){ try{ if(localStorage.getItem('bph-pck-colour-ui')==='1') localStorage.removeItem('bph-pck-colour-ui'); else localStorage.setItem('bph-pck-colour-ui','1'); }catch(_){} pckRender(tid,true); if(typeof pckCommRefresh==='function') pckCommRefresh(tid); }
 const PQ_DONE=['Resolved','Deliberate',"Won't fix"];
-const pqU=id=>{ const u=U(id); if(!u.pq) u.pq={tab:'proof',f:'all',cat:'all',term:'',sel:new Set()}; return u.pq; };
+const pqU=id=>{ const u=U(id); if(!u.pq) u.pq={tab:'proof',f:'all',cat:'all',term:'',sel:new Set(),nm:false}; return u.pq; };
 function pqRows(t){ const k=isbnKey(t); return pck.log.filter(l=>(l.title_id===t.id||(!l.title_id&&k&&l.isbn===k)) && l.kind==='correction'); }
 function pqOther(t){ const cu=pckColourUi();
   return rowsFor(t).filter(r=>{ if(isMerged(r)) return false; const L=r.list||'';
@@ -505,18 +506,21 @@ function pqBulk(tid,on){
   const snaps=its.map(pqSnap); its.forEach(i=>{ pqApply(i,on); q.sel.delete(i.id); pqQueue(tid,i,150); }); pckRender(tid,true);
   pckToast(its.length+(on?' ticked Closed':' reopened')+(devMode?' (preview, not written)':'')+'.',()=>{ snaps.forEach(s=>{ Object.assign(s.it.o,{david_status:s.david_status,david_note:s.david_note,david_note_date:s.david_note_date,status:s.status,note_date:s.note_date,_ack:s._ack}); pqQueue(tid,s.it,150); }); pckRender(tid,true); });
 }
-function pqTab(tid,k){ const q=pqU(tid); q.tab=k; q.cat='all'; q.sel.clear(); pckRender(tid,true); }
-function pqFilt(tid,k){ pqU(tid).f=k; pckRender(tid,true); }
-function pqCat(tid,k){ pqU(tid).cat=k; pckRender(tid,true); }
+function pqTab(tid,k){ const q=pqU(tid); q.tab=k; q.cat='all'; q.nm=false; q.sel.clear(); pckRender(tid,true); }
+function pqFilt(tid,k){ const q=pqU(tid); q.f=k; q.nm=false; pckRender(tid,true); }
+// r104: "Show the N" = the checker's not-made lines, whether or not David has closed them
+function pqNM(tid,on){ const q=pqU(tid); q.nm=!!on; if(on){ q.tab='proof'; q.cat='all'; q.sel.clear(); } pckRender(tid,true); }
+function pqCat(tid,k){ const q=pqU(tid); q.cat=k; q.nm=false; pckRender(tid,true); }
 function pqSearch(tid,v){ pqU(tid).term=v; pckRender(tid,true); }
 function pqVisible(t,q){ const term=q.term.trim().toLowerCase();
+  if(q.nm&&q.tab==='proof') return pqItems(t,'proof').filter(i=>i.o.check_result==='not found'&&(!term||pqText(i).toLowerCase().includes(term)));
   return pqItems(t,q.tab).filter(i=>(q.f==='all'||(q.f==='open')===!pqClosed(i))&&(q.cat==='all'||i.cat===q.cat)&&(!term||pqText(i).toLowerCase().includes(term))); }
 function pqText(i){ const o=i.o; return i.t==='p'?[o.quote,o.proof_page,o.pdf_page,o.item_no,o.david_note,o.category,o.tag,o.entry].join(' '):[o.problem,o.detail,o.page,o.category,o.david_note].join(' '); }
 function pqClip(s,n){ s=String(s||''); if(s.length<=n) return e(s); return `<details class="pck-pgl"><summary>${e(s.slice(0,n))} … more</summary><span>${e(s)}</span></details>`; }
-function pqResult(o){
+function pqResult(o,closed){
   const v=o.check_result, d=o.result_date?' · checked '+e(dm(o.result_date)):'';
   if(v==='found') return `<span class="pq-res found">✓ Correction made</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
-  if(v==='not found') return `<span class="pq-res nf">✗ Not made</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
+  if(v==='not found') return `<span class="pq-res nf">✗ NOT MADE in PDF</span><span class="pq-rolab">${closed?'closed by you (accepted) · ':'still open · '}set by the checker${d}</span>`;
   if(v==='cannot tell') return `<span class="pq-res eye">? Can’t tell</span><span class="pq-rolab">read-only, set by the checker${d}</span>`;
   if(v==='no action') return `<span class="pq-rolab">No action</span>`;
   return `<span class="pq-rolab">not checked yet</span>`;
@@ -531,9 +535,9 @@ function pqRowHtml(tid,it,z,selected){
     :`<div class="pq-ent">${rop?'<span class="pq-reop">REOPENED</span>':''}${e(o.problem)}</div>${o.detail?`<div class="pq-muted">${pqClip(o.detail,160)}</div>`:''}${o.auto_note?`<div class="pq-muted"><b>${e(o.auto_note)}</b></div>`:''}`;
   const lab=cl?(it.t==='o'&&o.status!=='Resolved'?'CLOSED · '+e(String(o.status).toLowerCase()):'CLOSED'):'OPEN';
   const nd=it.t==='p'?o.david_note_date:o.note_date;
-  return `<tr class="${cl?'s-closed':'s-open'} z${z}${selected?' sel':''}${rop?' reop':''}"><td><input type="checkbox" class="pq-selcb" aria-label="Select this line" data-k="${id}" data-f="sel" ${selected?'checked':''} onchange="pqSelOne('${tid}',this.dataset.k,this.checked)"></td>
+  return `<tr class="${cl?'s-closed':'s-open'} z${z}${selected?' sel':''}${rop?' reop':''}${it.t==='p'&&o.check_result==='not found'?' nmrow':''}"><td><input type="checkbox" class="pq-selcb" aria-label="Select this line" data-k="${id}" data-f="sel" ${selected?'checked':''} onchange="pqSelOne('${tid}',this.dataset.k,this.checked)"></td>
     <td><label class="pq-cl"><input type="checkbox" aria-label="Closed" data-k="${id}" data-f="cl" ${cl?'checked':''} onchange="pqSetClosed('${tid}',this.dataset.k,this.checked)"><span>${lab}</span></label></td>
-    <td class="pq-pg">${pg}</td><td>${body}</td>${it.t==='p'?`<td>${pqResult(o)}</td>`:''}
+    <td class="pq-pg">${pg}</td><td>${body}</td>${it.t==='p'?`<td>${pqResult(o,cl)}</td>`:''}
     <td><textarea class="pq-note" rows="1" data-k="${id}" data-f="note" placeholder="${o.category==='Queries'?'Your answer or query…':'Type a note… saves by itself'}" aria-label="Your note" oninput="pqNote('${tid}',this.dataset.k,this.value)">${e(o.david_note||'')}</textarea><div class="pck-saved" id="pq-sv-${cssId(it.id)}">${nd?'saved '+e(dm(nd)):''}</div></td></tr>`;
 }
 // COPY PC CHECK: no --ink / --mono / --colour by default (the checker reads Interior from BPH); --mixed only when Interior = Mixed.
@@ -585,8 +589,11 @@ function pckRenderV2(tid,keep){
   // proof-queries box, from the Proof Query Log
   let pq='';
   if(proofAll.length){ const pdf=lr&&lr.export_file?`<b>${e(lr.export_file)}</b> (${e(dm(lr.export_date))})`:'';
-    pq=`<div class="pck-pq ${checked&&!nf?'ok':'f'}" role="status"><span class="big">${!checked?'PROOF CORRECTIONS: NOT CHECKED YET':nf?'✖ PROOF CORRECTIONS: '+nf+' NOT MADE':'✔ PROOF CORRECTIONS: NONE MISSING'}</span>
-      <span class="txt">${!checked?'No final export checked yet. Tick each correction as you make it. Result labels appear after the final export is checked.':(nf?`<b>${nf} correction${nf>1?'s':''} not made in the PDF.</b> Fix in the file, re-export, re-run. `:'')+pdf}<small>${proofAll.length} correction requests${checked?`: <b>${fd} made</b> / <b>${nf} not made</b> / <b>${ey} can’t tell</b>`:''} · <b>${proofAll.filter(i=>!pqClosed(i)).length} open</b> / ${proofAll.filter(pqClosed).length} closed</small></span></div>`; }
+    const nmItems=proofAll.filter(i=>i.o.check_result==='not found'), nmOpen=nmItems.filter(i=>!pqClosed(i)).length, nmShown=q.nm&&pre;
+    const nmBtn=nf?`<button type="button" class="pck-nmbtn${nmShown?' on':''}" onclick="pqNM('${tid}',${!nmShown})">${nmShown?'✓ Showing the '+nf+' (click to reset)':'Show the '+nf}</button>`:'';
+    const calm=nf&&!nmOpen;
+    pq=`<div class="pck-pq ${checked&&!nf?'ok':calm?'acc':'f'}" role="status"><span class="big">${!checked?'PROOF CORRECTIONS: NOT CHECKED YET':nf?(calm?'Checker: '+nf+' not made in the PDF · all '+nf+' closed by you (accepted)':'✖ '+nf+' NOT MADE · '+nmOpen+' still open, not yet reviewed by you'):'✔ PROOF CORRECTIONS: NONE MISSING'}</span>
+      <span class="txt">${!checked?'No final export checked yet. Tick each correction as you make it. Result labels appear after the final export is checked.':(nf?(calm?`These are the checker’s findings against the PDF. You have already closed them, so nothing is waiting on you. Re-export and re-run if you want them to clear. `:`<b>${nmOpen} of the ${nf} not made are still open.</b> Fix in the file, re-export, re-run, or close them if you accept them. `):'')+pdf}<small>${proofAll.length} correction requests${checked?` · the checker says <b>${fd} made</b> / <b>${nf} not made</b> / <b>${ey} can’t tell</b>`:''} · your ticks: <b>${proofAll.filter(i=>!pqClosed(i)).length} open</b> / ${proofAll.filter(pqClosed).length} closed</small></span>${nmBtn}</div>`; }
   // queue banner + history
   let qb='';
   if(u.queue.length){ const f=u.queue[0].json.run; qb=`<div class="pck-queued"><span class="big">⏳ PC check waiting to sync</span><span class="txt">${u.queue.length} run${u.queue.length>1?'s':''} from <b>${e(dm(f.run_at))}</b> (${e(f.export_file)}) saved on this PC. The PC's Google sign-in had expired, so it couldn't write here.</span><button type="button" class="btn btn-primary" onclick="pckImportQueue('${tid}')">Import now</button></div>`; }
@@ -600,17 +607,24 @@ function pckRenderV2(tid,keep){
   // lists
   const catN={}; all.forEach(i=>{ catN[i.cat]=(catN[i.cat]||0)+1; });
   const order=pre?['Captions','Text/style','By eye','Queries']:[]; const cats=Object.keys(catN).sort((a,b)=>{ const x=order.indexOf(a), y=order.indexOf(b); return (x<0?99:x)-(y<0?99:y)||catN[b]-catN[a]||a.localeCompare(b); });
-  const fb=(k,l,n)=>`<button type="button" class="pck-fbtn${q.f===k?' on':''}" onclick="pqFilt('${tid}','${k}')">${l} <b>${n}</b></button>`;
-  const cb=(k,l,n)=>`<button type="button" class="pck-fbtn${q.cat===k?' on':''}" data-cat="${e(k)}" onclick="pqCat('${tid}',this.dataset.cat)">${e(l)} <b>${n}</b></button>`;
+  const nmAct=q.nm&&pre, sb=(k,l,n,cls)=>`<button type="button" class="pck-sblk ${cls}${q.f===k&&!nmAct?' on':''}" onclick="pqFilt('${tid}','${k}')"><span class="n">${n}</span><span class="w">${l}</span></button>`;
+  const catOpen={}; all.forEach(i=>{ if(!pqClosed(i)) catOpen[i.cat]=(catOpen[i.cat]||0)+1; });
+  const cb=(k,l,n,o)=>`<button type="button" class="pck-cbtn${q.cat===k&&!nmAct?' on':''}" data-cat="${e(k)}" onclick="pqCat('${tid}',this.dataset.cat)">${e(l)} <i>${o} open / ${n} total</i></button>`;
+  const oOpen=otherAll.filter(i=>!pqClosed(i)).length, pOpen=proofAll.filter(i=>!pqClosed(i)).length;
+  const tb=(on,n,label,fn)=>`<button type="button" role="tab" aria-selected="${on}" class="pq-tab${on?' on':''}" onclick="${fn}">${label} <b class="${n?'bad':'zero'}">${n?n+' left for you':'✓ 0 left for you'}</b></button>`;
+  const cue=pre?(oOpen?`<button type="button" class="pck-cue" onclick="pqTab('${tid}','other')">⚠ Other things to check: ${oOpen} open. Click to see them →</button>`:`<div class="pck-cue clear">✓ Other things to check: all clear</div>`)
+    :(pOpen?`<button type="button" class="pck-cue" onclick="pqTab('${tid}','proof')">⚠ Proof corrections: ${pOpen} open. Click to see them →</button>`:`<div class="pck-cue clear">✓ Proof corrections: all closed${nf?` (the checker still lists ${nf} as not made, see the Proof tab)`:''}</div>`);
+  const legend=`<div class="pck-legend"><b>How to read the numbers.</b> <span class="k1">YOUR TICKS</span> = items you have not closed yet (tab badges, Open / Closed / All). <span class="k2">CHECKER</span> = what the PC check found in the PDF. <span class="k3">TYPE TOTALS</span> = open + closed together.<div class="rec">${pre?`${pOpen?pOpen+' proof corrections still open.':'✓ You have closed all '+proofAll.length+' proof corrections.'}${nf?` The checker still finds ${nf} of them different in the PDF${pOpen?'':', so “0 left for you” and “'+nf+' not made” are both true'}.`:''}${oOpen?` <b>Separately, ${oOpen} item${oOpen>1?'s':''} on the other tab ${oOpen>1?'are':'is'} open.</b>`:''}`:`${oOpen?oOpen+' open here, separate from the proof corrections.':'Nothing open here.'}`}</div></div>`;
   const selItems=all.filter(i=>q.sel.has(i.id)), n=selItems.length;
   const bulk=`<div class="pq-bulk ${n?'':'idle'}">${n?`<b>${n} selected</b> <button type="button" class="btn btn-primary" onclick="pqBulk('${tid}',true)">✓ Tick Closed (${selItems.filter(i=>!pqClosed(i)).length})</button><button type="button" class="btn" onclick="pqBulk('${tid}',false)">Reopen (${selItems.filter(pqClosed).length})</button><button type="button" class="btn" onclick="pqClear('${tid}')">Clear selection</button>`:`<span class="pck-sub">Tick the small boxes on the left to select several lines (header box = all shown), then close or reopen them in one click. Every line stays one line.</span>`}</div>`;
   const allSel=vis.length&&vis.every(i=>q.sel.has(i.id));
-  const rowsHtml=vis.map((i,k)=>pqRowHtml(tid,i,k%2,q.sel.has(i.id))).join('')||`<tr><td colspan="${pre?6:5}" class="pck-na" style="padding:14px">${all.length?'Nothing in this filter.':(pre?'No proof corrections logged for this title.':'Nothing else to check.')}</td></tr>`;
+  const rowsHtml=vis.map((i,k)=>pqRowHtml(tid,i,k%2,q.sel.has(i.id))).join('')||`<tr><td colspan="${pre?6:5}" class="pck-na" style="padding:14px">${all.length?(pre&&q.f==='open'&&!nOpen&&nf?`Nothing open. The checker still lists ${nf} as not made (all closed by you). <button type="button" class="pck-link" onclick="pqNM('${tid}',true)">Show the ${nf}</button>`:'Nothing in this filter.'):(pre?'No proof corrections logged for this title.':'Nothing else to check.')}</td></tr>`;
   const noteN=pre?pqRows(t).length:0; const skipped=pre?(pck.log.filter(l=>(l.title_id===t.id)&&l.kind==='note').length):0;
-  const lists=`<div class="pq-tabs" role="tablist"><button type="button" role="tab" aria-selected="${pre}" class="pq-tab${pre?' on':''}" onclick="pqTab('${tid}','proof')">Proof corrections <b>${proofAll.filter(i=>!pqClosed(i)).length} open</b></button><button type="button" role="tab" aria-selected="${!pre}" class="pq-tab${pre?'':' on'}" onclick="pqTab('${tid}','other')">Other things to check <b>${otherAll.filter(i=>!pqClosed(i)).length} open</b></button></div>
+  const lists=`<div class="pq-tabs" role="tablist">${tb(pre,pOpen,'Proof corrections',`pqTab('${tid}','proof')`)}${tb(!pre,oOpen,'Other things to check',`pqTab('${tid}','other')`)}</div>${legend}${cue}
     <p class="pq-tabdesc">${pre?'Your correction requests, one line each, in your own words. Make the change in the file, tick <b>Closed</b>, and add a Note for any query. After a final export is checked, each line gets a result label. Tick the Closed box again to reopen.':'Things the checker found that are not in your proofing queries. Closed = dealt with or accepted. A Note makes a close “deliberate”, so the checker leaves it closed. A close with no note reopens if a later export is still wrong.'}</p>
-    <div class="pck-filters"><span class="pck-flab">Show</span>${fb('all','All',all.length)}${fb('open','Open',nOpen)}${fb('closed','Closed',nClosed)}<input class="pq-search" type="search" data-k="" data-f="search" placeholder="Search text, page or note…" aria-label="Search" value="${e(q.term)}" oninput="pqSearch('${tid}',this.value)"></div>
-    ${cats.length>1?`<div class="pck-filters" role="group" aria-label="Category"><span class="pck-flab">Category</span>${cb('all','All',all.length)}${cats.map(k=>cb(k,k,catN[k])).join('')}</div>`:''}
+    <div class="pck-flab">Show <span>(your ticks)</span></div><div class="pck-show">${sb('open',nOpen?'Open':'✓ Open',nOpen,nOpen?'hot':'zero')}${sb('closed','Closed',nClosed,'closed')}${sb('all','All',all.length,'all')}</div>${nmAct?`<div class="pck-sub" style="margin:6px 0">Showing the ${vis.length} the checker found not made, including closed ones.</div>`:''}
+    <div class="pck-filters"><input class="pq-search" type="search" data-k="" data-f="search" placeholder="Search text, page or note…" aria-label="Search" value="${e(q.term)}" oninput="pqSearch('${tid}',this.value)"></div>
+    ${cats.length>1?`<div class="pck-filters pck-cats" role="group" aria-label="Type"><span class="pck-flab">Type <span>(open / total)</span></span>${cb('all','All types',all.length,nOpen)}${cats.map(k=>cb(k,k,catN[k],catOpen[k]||0)).join('')}</div>`:''}
     ${bulk}
     <div class="pck-tbl"><table class="pq-tbl"><colgroup><col class="c-sel"><col class="c-cl"><col class="c-pg"><col>${pre?'<col class="c-res">':''}<col class="c-note"></colgroup>
       <thead><tr><th><input type="checkbox" class="pq-selcb" title="Select all shown" aria-label="Select all shown" data-k="" data-f="selall" ${allSel?'checked':''} onchange="pqSelAll('${tid}',this.checked)"></th><th>Closed</th><th>${pre?'Page':'Where'}</th><th>${pre?'Correction request':'Finding'}</th>${pre?'<th>Result in the PDF</th>':''}<th>Your note</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>
@@ -859,5 +873,5 @@ function pckSectionStatus(t){ if(!pck.loaded) return 'partial'; const lr=latestR
 
 Object.assign(window,{pckSectionHtml,pckOpen,pckRender,pckMark,pckFilter,pckShowMerged,pckCopyPath,pckShowAll,pckSelRun,pckReload,pckCopyColour,pckCopyCmd,pckXlsx,pckBrowserCheck,
   pckScanQueue,pckImportQueue,pckImportFile,pckSetField,pckCommercialHtml,pckCat,pckTick,pckBulkAsk,pckRowsWriteData,pckPageMark,pckTogglePages,pckHideHandled,pckVpToggle,pckGroupSetAll,pckProofPanel,pckProofLine,pckSectionStatus,pckLoad,pckMergeRun,_pck:pck,
-  pqSetClosed,pqNote,pqSelOne,pqSelAll,pqClear,pqBulk,pqTab,pqFilt,pqCat,pqSearch,pckToggleColourUi,pckColourUi,pqFlush,pckRenderLegacy,pqItems,pqClosed});
+  pqSetClosed,pqNote,pqSelOne,pqSelAll,pqClear,pqBulk,pqTab,pqFilt,pqNM,pqCat,pqSearch,pckToggleColourUi,pckColourUi,pqFlush,pckRenderLegacy,pqItems,pqClosed});
 })();
