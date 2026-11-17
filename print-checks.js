@@ -654,8 +654,8 @@ function pckRenderV2(tid,keep){
 }
 
 // ── render (legacy, kept) ──
-function pckSectionHtml(t){ return `<div class="pck" id="pck-${t.id}"><div class="po-empty">Loading print checks…</div></div>`; }
-async function pckOpen(tid){ await pckLoad(); pckRender(tid); }
+function pckSectionHtml(t){ return `${typeof ffSectionHtml==='function'?ffSectionHtml(t):''}<div class="pck" id="pck-${t.id}"><div class="po-empty">Loading print checks…</div></div>`; }
+async function pckOpen(tid){ if(typeof ffOpen==='function') ffOpen(tid); await pckLoad(); pckRender(tid); }
 function pckRenderLegacy(tid,keep){
   const box=document.getElementById('pck-'+tid), t=getTitle(tid); if(!box||!t) return;
   if(pck.err){ box.innerHTML=`<div class="po-empty">Print checks could not be read: ${e(pck.err)}</div><button class="btn btn-sm" onclick="pckReload('${tid}')">Try again</button>`; return; }

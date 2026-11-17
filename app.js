@@ -1499,7 +1499,12 @@ function loadDevSampleData(){
     defTitle({id:'sample-8', title:'Sample Out of Print Title', authors:'Casey Writer', imprint:'Headpress',
       status:'Complete', statusAuto:false,
       dates:{releaseBlock:'',softDate:'',streetDate:new Date(Date.now()-400*86400000).toISOString().slice(0,10),printDate:'',autoPrintDate:false,printStatusOverride:'Out of Print'}
-    })
+    }),
+    // 2026-11-17 (Marcus Webb): real-library dev titles so the Final Files + Checks panel previews against the scanner's staging data. Dev preview only, nothing saved.
+    defTitle({id:'trashfilm-roadshows', title:'Trashfilm Roadshows', authors:'Johannes Schönherr', status:'In Progress', imprint:'Headpress',
+      commercial:Object.assign({},defTitle().commercial,{interior:'Mixed', pages:'268'}), dates:{releaseBlock:'2026-h2',softDate:'',streetDate:'',printDate:'',autoPrintDate:true}}),
+    defTitle({id:'sex-murder-art', title:'Sex Murder Art', authors:'Various', status:'In Progress', imprint:'Headpress',
+      commercial:Object.assign({},defTitle().commercial,{interior:'Mono', pages:'294'}), dates:{releaseBlock:'2026-h2',softDate:'',streetDate:'',printDate:'',autoPrintDate:true}})
   ], isbns:[
     {isbn:'978-1-909394-11-7', format:'', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null},
     {isbn:'978-1-909394-12-4', format:'PBK', assignedToTitleId:'', assignedToTitleName:'', nielsenNotified:false, legacyArchived:false, _row:null}
