@@ -1023,5 +1023,5 @@ function pckSectionStatus(t){ if(!pck.loaded) return 'partial'; const lr=latestR
 
 Object.assign(window,{pckSectionHtml,pckOpen,pckRender,pckMark,pckFilter,pckShowMerged,pckCopyPath,pckShowAll,pckSelRun,pckReload,pckCopyColour,pckCopyCmd,pckXlsx,pckBrowserCheck,
   pckScanQueue,pckImportQueue,pckImportFile,pckSetField,pckCommercialHtml,pckCat,pckTick,pckBulkAsk,pckRowsWriteData,pckPageMark,pckTogglePages,pckHideHandled,pckVpToggle,pckGroupSetAll,pckProofPanel,pckProofLine,pckSectionStatus,pckLoad,pckMergeRun,_pck:pck,
-  pqSetClosed,pqNote,pqSelOne,pqSelAll,pqClear,pqBulk,pqTab,pqFilt,pqNM,pqCat,pqSearch,pckToggleColourUi,pckColourUi,pqFlush,pckRenderLegacy,pqItems,pqClosed,pdU,pdTick,pdSetMark,pdNote,pdFilt,pdHide,pdFind2,pdBulkAsk,pdBulkNo,pdBulkYes,pdFlush,pdRows,pdGate});
+  pqSetClosed,pqNote,pqSelOne,pqSelAll,pqClear,pqBulk,pqTab,pqFilt,pqNM,pqCat,pqSearch,pckToggleColourUi,pckColourUi,pqFlush,pckRenderLegacy,pqItems,pqClosed,pdU,pdTick,pdSetMark,pdNote,pdFilt,pdHide,pdFind2,pdBulkAsk,pdBulkNo,pdBulkYes,pdFlush,pdRows,pdGate,pdRefreshList});
 })();
