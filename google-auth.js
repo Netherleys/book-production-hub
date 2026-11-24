@@ -268,17 +268,16 @@
   // just-in-time backstop that makes correctness not depend on this timer
   // actually firing on schedule.
   function scheduleKeepAlive() {
-    if (keepAliveTimer) clearTimeout(keepAliveTimer);
-    if (!tokenExpiresAt) return;
-    const fireIn = Math.max(30 * 1000, tokenExpiresAt - Date.now() - SAFE_MARGIN_MS - 3 * 60 * 1000);
-    keepAliveTimer = setTimeout(() => {
-      if (!accessToken) return; // signed out since scheduling
-      silentRefresh(
-        () => {}, // success already updates state + reschedules via onTokenResponse
-        () => { /* silent refresh failed in the background — leave state as-is; ensureFreshToken()/reconnect() will surface it when something actually needs the token */ }
-      );
-    }, fireIn);
+    // r111 24-11 (Mia): NO background timer. A timer-driven silent refresh is not a user gesture, so Chrome can leave
+    // an empty sign-in window behind and steal focus. Refresh now happens on David's own next click (a real gesture)
+    // once the token is within 10 minutes of expiry; ensureFreshToken() stays as the backstop before any save.
+    if (keepAliveTimer) { clearTimeout(keepAliveTimer); keepAliveTimer = null; }
   }
+  document.addEventListener("pointerdown", function () {
+    if (!accessToken || !tokenExpiresAt || silentInFlight) return;
+    if (Date.now() < tokenExpiresAt - 10 * 60 * 1000) return;
+    silentRefresh(() => {}, () => {});
+  }, true);
 
   function isSignedIn() {
     return !!accessToken && Date.now() < tokenExpiresAt;

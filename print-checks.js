@@ -962,7 +962,7 @@ function pdRender(t,tid){
       <div class="fg"><span class="flab">Route</span><select class="sortsel" ${pd.q?'disabled':''} onchange="pdFilt('${tid}','rt',this.value)">${opt('ALL',pd.rt,'All routes',inSt.length)}${['FIX','QUERY','AUTHOR'].map(k=>opt(k,pd.rt,k,rtN(k))).join('')}</select></div>
       <div class="fg"><span class="flab">Severity</span><select class="sortsel" ${pd.q?'disabled':''} onchange="pdFilt('${tid}','sv',this.value)">${opt('any',pd.sv,'Any',svN('any'))}${['A','B','C'].map(k=>opt(k,pd.sv,k+' '+({A:'must fix',B:'should fix',C:'cosmetic'})[k],svN(k))).join('')}</select></div>
       <label class="fg hd" title="Hides rows you marked Done and rows already Applied or Verified. Not saved: it resets when you reload."><input type="checkbox" ${pd.hd?'checked':''} ${pd.q?'disabled':''} onchange="pdHide('${tid}',this.checked)"> Hide done rows${pd.hd?' ('+all.filter(pdDoneRow).length+' hidden)':''}</label>
-      <div class="count">${pd.q?(rows.length?rows.length+' found by ID, filters ignored':'No row with that ID in this title'):rows.length+' of '+all.length+' shown'}</div></div>`;
+      <span id="pd-stale" class="meta" hidden>List not re-sorted yet: <button type="button" class="fb" onclick="pdRefreshList('${tid}')">Refresh list</button></span><div class="count">${pd.q?(rows.length?rows.length+' found by ID, filters ignored':'No row with that ID in this title'):rows.length+' of '+all.length+' shown'}</div></div>`;
     let lastBand=null, trs='';
     rows.forEach(o=>{ if(pd.sort==='page'){ const b=Math.floor((pdPg(o)-1)/100); if(b!==lastBand){ trs+=`<tr class="grp"><td colspan="6">PDF pp ${b*100+1}-${b*100+100}</td></tr>`; lastBand=b; } } trs+=pdRowHtml(tid,o,g); });
     body+=(team&&!g.ok?`<div class="teamnote">Team view (this browser has bph-pd-team=1). David does not see this list while the title is PARTIAL. Ticks are off.</div>`:'')+bulk+fl+
@@ -974,10 +974,10 @@ function pdRender(t,tid){
 // ── Proofread: actions ──
 function pdFind(tid,key){ const t=getTitle(tid); return t?pdRows(t).find(o=>o.key===key):null; }
 const pdPend=new Map(); let pdTimer=null;
-function pdQueue(tid,o,fix,delay,mark){ const p=pdPend.get(o.key)||{o,fix:false,mark:false}; p.fix=p.fix||fix; p.mark=p.mark||!!mark; pdPend.set(o.key,p); const s=document.getElementById('pd-sv-'+cssId(o.key)); if(s) s.textContent='saving…'; clearTimeout(pdTimer); pdTimer=setTimeout(()=>pdFlush(tid),delay); }
+function pdQueue(tid,o,fix,delay,mark){ const p=pdPend.get(o.key)||{o,fix:false,mark:false}; p.fix=p.fix||fix; p.mark=p.mark||!!mark; pdPend.set(o.key,p); pdSvMsg.set(o.key,'saving…'); const s=document.getElementById('pd-sv-'+cssId(o.key)); if(s) s.textContent='saving…'; clearTimeout(pdTimer); pdTimer=setTimeout(()=>pdFlush(tid),delay); }
 async function pdFlush(tid){
   const batch=[...pdPend.values()]; pdPend.clear(); if(!batch.length) return;
-  const sv=(o,txt)=>{ const s=document.getElementById('pd-sv-'+cssId(o.key)); if(s) s.textContent=txt; };
+  const sv=(o,txt)=>{ pdSvMsg.set(o.key,txt); const s=document.getElementById('pd-sv-'+cssId(o.key)); if(s) s.textContent=txt; };
   try{
     if(!devMode){
       const col=await sheetsGet(CFG.TITLES_SHEET_ID,"'"+PCK_LOG+"'!A1:A5000");
@@ -988,16 +988,28 @@ async function pdFlush(tid){
       for(let k=0;k<data.length;k+=500) await valuesBatch(data.slice(k,k+500));
     }
     batch.forEach(p=>sv(p.o,'✓ saved '+dm(nowStamp())+(devMode?' (preview, not written)':'')));
-  }catch(err){ batch.forEach(p=>sv(p.o,'not saved')); showReconnect('Proofread mark not saved: '+(err.message||err), isAuthFailure(err)); if(err.stale) pckReload(tid); }
+  }catch(err){ batch.forEach(p=>sv(p.o,'NOT SAVED: '+(err.stale?'the Sheet changed, refresh the page':isAuthFailure(err)?'signed out, use the Reconnect bar':'Google busy, try again'))); showReconnect('Proofread mark not saved: '+(err.message||err), isAuthFailure(err)); if(err.stale) pckReload(tid); }
 }
 function pdApprove(o,on){ o.ok_to_fix=on?'TRUE':''; o.ok_to_fix_at=on?pdIsoNow():''; o.fix_state=on?'Approved':'Open'; }
 function pdTick(tid,key,on){ const t=getTitle(tid), o=pdFind(tid,key); if(!o||!t) return; const g=pdGate(t);
   if(!g.ok||!pdColsReady()||pdMark(o)==='Leave'||o.route==='AUTHOR'||pdSt(o)>=2){ pckRender(tid,true); return; }
-  pdApprove(o,on); pdQueue(tid,o,true,150,false); pckRender(tid,true); }
+  pdApprove(o,on); pdQueue(tid,o,true,150,false); pdRowUpdate(tid,o,t); }
 function pdSetMark(tid,key,v){ const o=pdFind(tid,key); if(!o) return; o.david_status=v; o.david_note_date=nowStamp().slice(0,10); let fix=false;
   if(v==='Leave'&&pdSt(o)===1){ pdApprove(o,false); fix=true; }   // Leave withdraws an Approved-but-not-Applied row
-  pdQueue(tid,o,fix,150,true); pckRender(tid,true); }
+  pdQueue(tid,o,fix,150,true); pdRowUpdate(tid,o,getTitle(tid)); }
 function pdNote(tid,key,val){ const o=pdFind(tid,key); if(!o) return; o.david_note=val; o.david_note_date=nowStamp().slice(0,10); pdQueue(tid,o,false,800,true); }
+// 24-11 r111 (Mia): update ONE row in place. No list rebuild, so no freeze, no jump, no lost click. The list refreshes only on his own action (filter, Find, Fix these, Refresh list, page reload).
+const pdSvMsg=new Map();
+function pdRowUpdate(tid,o,t){
+  const tr=document.getElementById('pd-'+cssId(o.key)); if(!tr||!t){ return; }
+  const ae=document.activeElement, fk=ae&&tr.contains(ae)&&ae.dataset?[ae.dataset.f,ae.selectionStart,ae.selectionEnd]:null;
+  const tmp=document.createElement('tbody'); tmp.innerHTML=pdRowHtml(tid,o,pdGate(t)); const nr=tmp.firstElementChild; if(!nr) return;
+  tr.replaceWith(nr);
+  const sv=document.getElementById('pd-sv-'+cssId(o.key)); if(sv&&pdSvMsg.get(o.key)) sv.textContent=pdSvMsg.get(o.key);
+  if(fk){ const el=nr.querySelector('[data-f="'+fk[0]+'"]'); if(el&&!el.disabled){ try{ el.focus({preventScroll:true}); if(fk[1]!=null&&el.setSelectionRange) el.setSelectionRange(fk[1],fk[2]); }catch(_){} } }
+  const hint=document.getElementById('pd-stale'); if(hint) hint.hidden=false;
+}
+function pdRefreshList(tid){ const pd=pdU(tid); pd.ask=null; const y=window.scrollY; pckRender(tid,true); window.scrollTo(0,y); }
 function pdFilt(tid,k,v){ const pd=pdU(tid); pd[k]=v; pd.ask=null; pckRender(tid,true); }
 function pdHide(tid,on){ const pd=pdU(tid); pd.hd=!!on; pd.ask=null; pckRender(tid,true); }
 function pdFind2(tid,v){ const pd=pdU(tid); pd.q=String(v||'').trim(); pd.ask=null; pckRender(tid,true); const x=document.getElementById('pd-find'); if(x&&pd.q) x.focus(); }
