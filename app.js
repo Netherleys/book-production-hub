@@ -2307,6 +2307,7 @@ function render(){
   const rptTab=document.getElementById('tab-report'); if(rptTab) rptTab.classList.toggle('active',view==='report');
   const pcTab=document.getElementById('tab-promocal'); if(pcTab) pcTab.classList.toggle('active',view==='promocal');
   const otTab=document.getElementById('tab-ordertracker'); if(otTab) otTab.classList.toggle('active',view==='ordertracker');
+  const ppTab=document.getElementById('tab-prodpages'); if(ppTab) ppTab.classList.toggle('active',view==='prodpages'); // 2026-11-24 Product Pages
   const pjTab=document.getElementById('tab-printer'); if(pjTab) pjTab.classList.toggle('active',view==='printer'); // Round 91
   // Round 92 — one "Tracker" tab for the three print pages, with its own side menu.
   const isTrk = TRK_VIEWS.includes(view);
@@ -2343,6 +2344,7 @@ function render(){
   else if(view==='promocal')renderPromoCalendar();
   else if(view==='ordertracker')renderOrderTracker();
   else if(view==='printer')renderPrinterBoard(); // Round 91
+  else if(view==='prodpages'&&typeof renderProductPages==='function')renderProductPages(); // 2026-11-24
   else if(view==='dist')distRender(); // Round 69
   if(typeof distReturnChipSync==='function') distReturnChipSync(); // Round 71
   populateQuickNoteTitles();

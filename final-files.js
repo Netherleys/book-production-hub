@@ -142,7 +142,7 @@ function ffRender(tid){
   h+='<div class="ff-sec">Print final</div>';
   const fileSub=[c.pages?c.pages+' pp':'',c.size?Number(c.size).toLocaleString('en-GB')+' bytes':'','modified '+fdt(c.mtime)].filter(Boolean).join(' · ');
   const apBtn=(!appr&&c.sha256)?'<button class="ff-btn '+(newerPdf?'warn':'go')+'" onclick="ffApprove(\''+tid+'\')">Approve as final</button>':'';
-  h+='<div class="ff-row"><span class="k">File</span><span class="m"><b>'+E(c.name)+'</b><br>'+E(fileSub)+'<br><code>'+(c.sha256?'sha256 '+E(c.sha256.slice(0,8))+'…'+E(c.sha256.slice(-7)):'fingerprint pending ('+E(c.hash_status)+')')+'</code> · folder <code>'+E(f.folder.split('\\').slice(-2).join('\\'))+'</code>'+(c.revision_code?' · Revision code on the title page: '+E(c.revision_code):'')+'</span>'+(appr?'<span class="ff-pill ff-ok">APPROVED '+E(fd(appr.saved_at)).toUpperCase()+'</span>':apBtn||'<span class="ff-pill ff-none">NOT APPROVED</span>')+'</div>';
+  h+='<div class="ff-row"><span class="k">File</span><span class="m"><b>'+E(c.name)+'</b><br>'+E(fileSub)+'<br><code>'+(c.sha256?'sha256 '+E(c.sha256.slice(0,8))+'…'+E(c.sha256.slice(-7)):'fingerprint pending ('+E(c.hash_status)+')')+'</code> · folder <code>'+E(f.folder.split('\\').slice(-2).join('\\'))+'</code>'+(c.revision_code?' · Revision code on the title page: '+E(c.revision_code):'')+'<br><button type="button" class="ff-btn" onclick="ffReveal(\''+tid+'\')">Open folder</button> <button type="button" class="ff-btn" onclick="ffCopyPath(\''+tid+'\')">Copy path</button></span>'+(appr?'<span class="ff-pill ff-ok">APPROVED '+E(fd(appr.saved_at)).toUpperCase()+'</span>':apBtn||'<span class="ff-pill ff-none">NOT APPROVED</span>')+'</div>';
   h+='<div class="ff-row"><span class="k">Newer file?</span><span class="m">'+(newerPdf?'A newer PDF was saved in the same folder: <span class="ff-hl">'+E(newerPdf.name)+', '+E(fdt(newerPdf.mtime_iso))+'</span>.':'This is the newest PDF in the print folder. '+((f.superseded||[]).length?(f.superseded.length+' older export'+(f.superseded.length>1?'s':'')+' sit in OLD.'):''))+'</span><span class="ff-pill '+(newerPdf?'ff-warn':'ff-ok')+'">'+(newerPdf?'NEWER EXISTS':'NEWEST')+'</span></div>';
   if(src){
     const b=src.built_from, newerS=(src.newer_than_pdf||[])[0];
@@ -196,6 +196,11 @@ async function save(tid,rows,msg){
   ffRender(tid); setTimeout(()=>{ if(u.msg===msg+(devMode?' (preview, not written)':'')){ u.msg=''; ffRender(tid); } },4000);
 }
 window.ffRefresh=async tid=>{ ff.data=null; ff.log=null; ff.mem=devMode?ff.mem:[]; ffRender(tid); await Promise.all([ffFetch(true),ffLoadLog(true)]); ffRender(tid); };
+window.ffCopyPath=async tid=>{ const f=folderFor(tid); if(!f) return; const p=f.candidate.path||f.folder, u=U(tid); try{ await navigator.clipboard.writeText(p); u.msg='Path copied: '+p; }catch(e){ u.msg='Could not copy; path is '+p; } ffRender(tid); };
+window.ffReveal=async tid=>{ const f=folderFor(tid); if(!f) return; const p=f.candidate.path||f.folder, u=U(tid), CF=window.BOOK_HUB_CONFIG||{};
+  try{ const ctl=new AbortController(), tm=setTimeout(()=>ctl.abort(),1500); const r=await fetch((CF.BOOK_REVEAL_HELPER_URL||'http://127.0.0.1:8744')+'/reveal?path='+encodeURIComponent(p),{signal:ctl.signal}); clearTimeout(tm); if(r.ok){ u.msg='Opened in Explorer.'; ffRender(tid); return; } u.msg='Helper refused ('+r.status+'). Path: '+p; }
+  catch(e){ try{ await navigator.clipboard.writeText(p); }catch(_){} u.msg='Reveal helper not reachable; path copied: '+p; }
+  ffRender(tid); };
 window.ffToggleList=tid=>{ const u=U(tid); u.showList=!u.showList; ffRender(tid); };
 window.ffToggleMatched=tid=>{ const u=U(tid); u.showMatched=true; ffRender(tid); };
 window.ffSendOpen=(tid,n)=>{ U(tid).sendOpen=n; ffRender(tid); };

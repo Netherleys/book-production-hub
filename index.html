@@ -180,6 +180,13 @@ a{color:var(--sage);text-decoration:none}a:hover{text-decoration:underline}
 /* Round 20 (2026-08-19) — "Recently Viewed" header dropdown. Styling/tokens
    carried over verbatim from the David-approved mockup (_mockups/
    recently_viewed_nav_mockup_2026-08-19.html) — not re-derived. */
+.gs-wrap{position:relative;margin-left:4px}
+.gs-input{width:210px;padding:6px 10px;border-radius:var(--r4);border:1px solid rgba(241,234,217,.3);background:rgba(241,234,217,.1);color:var(--text-oncream);font:inherit;font-size:.85rem}
+.gs-input::placeholder{color:var(--text-oncream-dim)}.gs-input:focus{outline:none;border-color:var(--sage);background:#fff;color:#14130F}
+.gs-list{position:absolute;top:100%;left:0;margin-top:4px;min-width:340px;max-height:60vh;overflow:auto;background:#fff;color:#14130F;border:1px solid #111;border-radius:6px;box-shadow:0 6px 18px rgba(0,0,0,.35);z-index:300}
+.gs-list[hidden]{display:none}
+.gs-item{padding:7px 12px;font-size:.88rem;cursor:pointer;border-bottom:1px solid #E4DFD1;display:flex;justify-content:space-between;gap:12px}
+.gs-item small{color:#6B6459;white-space:nowrap}.gs-item.on,.gs-item:hover{background:#E9EEE4}
 .rv-wrap{position:relative;margin-left:4px}
 .rv-trigger{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:var(--r4);border:1px solid rgba(241,234,217,.2);background:rgba(241,234,217,.06);color:var(--text-oncream-dim);font-size:.82rem;cursor:pointer;font-family:var(--sans);transition:background .15s,color .15s}
 .rv-trigger:hover,.rv-trigger.open{background:rgba(241,234,217,.14);color:var(--text-oncream)}
@@ -2480,7 +2487,7 @@ tr.pck-pgrow td{padding:0!important;background:var(--surface)!important}
 .pck-pgln:last-child{border-bottom:0}
 .pck-pgln.o{background:#fff8c9}.pck-pgln.r{background:#f1f7ee}.pck-pgln.d{background:#e7f3e4}.pck-pgln.w{background:#eeeeec;color:var(--text2)}
 .pck-pgln .pp{font-weight:700}.pck-pgln .msg{overflow-wrap:anywhere;color:var(--text2)}
-.pck-pgln .pck-sel,.pck-pnote{font:inherit;font-size:.78rem;width:100%;box-sizing:border-box;padding:2px 4px}
+.pck-pgln .pck-sel,.pck-pnote{font:inherit;font-size:.92rem;width:100%;box-sizing:border-box;padding:3px 5px}
 .pck-pgtog{border:1px solid #2f5d8a;background:#fff;color:#2f5d8a;border-radius:6px;font:inherit;font-weight:700;font-size:.78rem;padding:2px 9px;cursor:pointer;margin-top:4px}
 .pck-pgtog:hover{background:#eaf1f8}
 .pck-setall{margin-top:4px;font-size:.74rem}
@@ -2515,7 +2522,7 @@ tr.pck-pgrow td{padding:0!important;background:var(--surface)!important}
 .pck-toast.show{display:flex}
 .pck-toast button{border:0;background:none;color:#ffe08a;font:inherit;font-weight:700;text-decoration:underline;cursor:pointer}
 select.pck-sel{width:100%;font:inherit;font-size:.82rem;padding:3px 4px;border:1px solid var(--border2);border-radius:6px;background:var(--surface)}
-textarea.pck-note{width:100%;min-height:30px;font:inherit;font-size:.82rem;padding:4px 6px;border:1px solid var(--border2);border-radius:6px;resize:vertical;background:var(--surface)}
+textarea.pck-note{width:100%;min-height:34px;font:inherit;font-size:.95rem;padding:4px 6px;border:1px solid var(--border2);border-radius:6px;resize:vertical;background:var(--surface)}
 .pck-saved{font-size:.7rem;color:var(--sage-border);margin-top:2px}
 .pck-collapsed{font-size:.84rem;padding:8px 10px;background:var(--sage-bg);border-radius:8px}
 .pck-passes ul{margin:6px 0 0 18px;font-size:.82rem;columns:2;column-gap:24px}
@@ -2633,7 +2640,7 @@ textarea.pck-note{width:100%;min-height:30px;font:inherit;font-size:.82rem;paddi
 .pdw .cl{display:flex;flex-direction:column;gap:3px}
 .pdw .cl select{font:inherit;font-size:.82rem;font-weight:700;border:1px solid var(--border2);border-radius:6px;padding:3px 4px;background:#fff}
 .pdw .cl .dt{font-size:.68rem;color:var(--text3)}
-.pdw .note{width:100%;border:1px solid var(--border2);border-radius:6px;padding:4px 7px;font:inherit;font-size:.82rem;resize:none;background:#fff;min-height:30px}
+.pdw .note{width:100%;border:1px solid var(--border2);border-radius:6px;padding:4px 7px;font:inherit;font-size:.95rem;resize:none;background:#fff;min-height:30px}
 .pdw .foot{display:flex;gap:10px;flex-wrap:wrap;font-size:.8rem;color:var(--text3);align-items:center}
 .pdw{display:flex;flex-direction:column;gap:12px;margin-top:10px;--red:#B3261E}
 .pdw .sc{display:inline-block;font-size:.68rem;font-weight:800;border-radius:8px;padding:1px 8px;margin-left:6px;color:#fff}
@@ -2700,7 +2707,7 @@ tr.s-closed .pq-cl span{color:var(--sage-border)}
 .pq-res.nf{background:#fdecea;color:#b3261e;border:1px solid #b3261e}
 .pq-res.eye{background:#fff3a3;color:#6d5600;border:1px solid #d6b400}
 .pq-rolab{display:block;font-size:.7rem;color:var(--text3);margin-top:2px}
-.pq-note{width:100%;border:1px solid var(--border2);border-radius:6px;padding:5px 8px;font:inherit;font-size:1rem;resize:vertical;background:#fff;min-height:46px;color:var(--text)}
+.pq-note{width:100%;border:1px solid var(--border2);border-radius:6px;padding:5px 8px;font:inherit;font-size:1.12rem;resize:vertical;background:#fff;min-height:50px;color:var(--text)}
 .pq-hiddenline{font-size:.8rem;color:var(--text3)}
 .pq-acts{grid-template-columns:repeat(3,minmax(0,1fr))}
 .pq-waiting{grid-column:1/-1;font-size:.8rem;color:var(--text2)}
@@ -2778,6 +2785,8 @@ tr.s-closed .pq-cl span{color:var(--sage-border)}
          per-printer lead times. Between Promo Calendar and Order Tracker, as
          mocked. -->
     <button class="h-tab" id="tab-tracker" onclick="gotoTracker()">Tracker</button>
+    <!-- 2026-11-24 (Mia Chen, David GO on the Product Pages Audit mockup) - read-only audit of the live product pages, data via the PC helper (never in this repo). -->
+    <button class="h-tab" id="tab-prodpages" onclick="gotoProductPages()">Product Pages</button>
   </nav>
   <!-- Round 20 (2026-08-19, David-approved mockup: _mockups/
        recently_viewed_nav_mockup_2026-08-19.html) — "Recently Viewed" nav
@@ -2821,6 +2830,8 @@ tr.s-closed .pq-cl span{color:var(--sage-border)}
        filled pill (see .who-pill/.who-signed/.who-notsigned below) —
        setWhoami() in app.js toggles the class alongside the text so the two
        states are colour-distinct, not just textually different. -->
+  <!-- 2026-11-24 (David) - global title search, reachable from every view. title-search.js fills the dropdown from data.titles. -->
+  <div class="gs-wrap" id="gs-wrap"><input type="search" id="gs-input" class="gs-input" placeholder="Jump to a title…" autocomplete="off" aria-label="Jump to a title"><div class="gs-list" id="gs-list" role="listbox" hidden></div></div>
   <div class="h-actions">
     <button class="btn btn-primary btn-sm" id="btn-add-title" onclick="openAddTitle()">+ Add Title</button>
     <span id="whoami" class="who-pill"></span>
@@ -3122,9 +3133,11 @@ tr.s-closed .pq-cl span{color:var(--sage-border)}
 <script src="config.js?v=r96"></script>
 <script src="https://accounts.google.com/gsi/client" async defer></script>
 <script src="google-auth.js?v=r96"></script>
-<script src="app.js?v=r101"></script>
+<script src="app.js?v=r102"></script>
 <script src="print-checks.js?v=r108"></script>
-<script src="final-files.js?v=r105"></script>
+<script src="final-files.js?v=r106"></script>
+<script src="product-pages.js?v=r2"></script>
+<script src="title-search.js?v=r1"></script>
 <script src="gcal-sync.js"></script>
 <script src="author-link-row.js?v=1"></script>
 </body>
