@@ -874,7 +874,7 @@ async function pckBrowserCheck(tid,input){
 // ── r106 23-11 (Mia Chen): Proofread section (STAGING). David YES on the mockup 23-11 incl. "OK for team to fix" tick. ──
 // Data: Proof Query Log rows with source='proofread' (cols AE..AW per Marcus Webb's build spec) + tab "Proof Coverage".
 // David writes only: david_status/david_note/david_note_date (AA:AC) and ok_to_fix/ok_to_fix_at/fix_state (AP:AR). Everything else is read-only here.
-const pdU=id=>{ const u=U(id); if(!u.pd) u.pd={f:'all',sev:new Set(),route:new Set(),sort:'page',hit:null,ask:null,jump:'',sc:'all'}; return u.pd; };
+const pdU=id=>{ const u=U(id); if(!u.pd) u.pd={st:'open',rt:'FIX',sv:'any',sort:'page',hit:null,ask:null}; return u.pd; };
 const PD_FIX_COLS=['ok_to_fix','ok_to_fix_at','fix_state'], PD_MARK_COLS=['david_status','david_note','david_note_date'];
 const PD_STAGES=['Open','Approved','Applied','Verified'];
 const PD_WHO=['Waiting for your tick','Approved by David','Applied by Dean Thorn in the INDD','Verified by Rosalind (diff on the next PDF)'];
@@ -891,9 +891,10 @@ function pdChips(o){ const a=pdSt(o); return '<div class="chips">'+PD_STAGES.map
 // r108 23-11: safe_class (col AX, read tolerantly: an older Sheet copy without it gives no chip, no filter, no SAFE button)
 const PD_SC=['SAFE','CHECK','RISKY'], PD_SC_TIP='SAFE = same length or shorter, no line or page will move; CHECK = Dean looks at reflow; RISKY = likely reflow';
 const pdSafe=o=>{ const v=String(o.safe_class||'').trim().toUpperCase(); return PD_SC.includes(v)?v:''; };
-function pdBulkRows(t,k){ if(k==='SAFE:') return pdRows(t).filter(o=>o.route==='FIX'&&pdSafe(o)==='SAFE'&&pdMark(o)!=='Leave'&&pdSt(o)===0&&!pdHold(o)); const sv=k.split(':')[1]; return pdRows(t).filter(o=>o.route==='FIX'&&pdMark(o)!=='Leave'&&pdSt(o)===0&&!pdHold(o)&&(!sv||o.severity===sv)); }
+function pdView(t,pd,stOv){ const st=stOv||pd.st; return pdRows(t).filter(o=>(st==='all'||(st==='open'?pdSt(o)<=1:st==='applied'?pdSt(o)===2:pdSt(o)===3))&&o.route===pd.rt&&(pd.sv==='any'||o.severity===pd.sv)); }
+function pdBulkRows(t,k){ return pdView(t,pdU(t.id)).filter(o=>o.route==='FIX'&&pdMark(o)!=='Leave'&&pdSt(o)===0&&!pdHold(o)); }
 function pdHold(o){ return /^HOLD-BACK/.test(o.suggestion||''); }
-function pdBulkHeld(t,k){ const sv=k.split(':')[1], sf=k==='SAFE:'; return pdRows(t).filter(o=>o.route==='FIX'&&pdMark(o)!=='Leave'&&pdSt(o)===0&&pdHold(o)&&(!sf||pdSafe(o)==='SAFE')&&(!sv||o.severity===sv)); }
+function pdBulkHeld(t,k){ return pdView(t,pdU(t.id)).filter(o=>o.route==='FIX'&&pdMark(o)!=='Leave'&&pdSt(o)===0&&pdHold(o)); }
 function pdOkBox(tid,o,g){ const m=pdMark(o), a=pdSt(o);
   if(o.route==='AUTHOR') return '<div class="okn">Author query: your answer goes in the note box on the right</div>';
   if(m==='Leave') return '<div class="okn">Left: never actioned</div>';
@@ -905,7 +906,7 @@ function pdRowHtml(tid,o,g){ const m=pdMark(o), cls=m==='Open'?'s-open':m==='Don
   return `<tr class="${cls}${pdU(tid).hit===o.key?' hit':''}" id="pd-${cssId(o.key)}"><td class="id">${e(o.reg_id)}<small>${earlier}</small></td>
   <td class="pg"><b>p.${e(pdf)}</b><span>folio ${e(folio)}</span></td>
   <td><span class="sev ${e(o.severity)}">${e(o.severity)}</span></td><td><span class="route ${e(o.route)}">${e(o.route)}</span></td>
-  <td><span class="type">${e(o.type)}</span>${o.route==='FIX'&&pdSafe(o)?`<span class="sc sc-${pdSafe(o)}" title="${e(PD_SC_TIP)}">${pdSafe(o)}</span>`:''}${pdHold(o)?'<span class="hold" title="Touches a fact, David decides. Left out of bulk approve; tick individually.">HOLD-BACK</span>':''}${reop?'<span class="reop" title="Rosalind’s check says this was not fixed on the latest PDF">NOT FIXED, back with the team</span>':''}<div class="quote">${e(o.quote)}</div><div class="sug"><b>Issue</b> ${e(o.detail||o.entry)}<br><b>Suggestion</b> ${e(o.suggestion)}</div><div class="st">Status: ${e(o.reg_status)} · confidence ${e(o.confidence)}</div></td>
+  <td><span class="type">${e(o.type)}</span>${o.route==='FIX'&&pdSafe(o)?(pdSt(o)>=2?`<span class="sc sc-done" title="${e(PD_SC_TIP)} Already applied by Dean.">${pdSafe(o)} · applied</span>`:`<span class="sc sc-${pdSafe(o)}" title="${e(PD_SC_TIP)} Team view: shows Dean how much a fix might move the layout.">${pdSafe(o)}</span>`):''}${pdHold(o)?'<span class="hold" title="Touches a fact, David decides. Left out of bulk approve; tick individually.">HOLD-BACK</span>':''}${reop?'<span class="reop" title="Rosalind’s check says this was not fixed on the latest PDF">NOT FIXED, back with the team</span>':''}<div class="quote">${e(o.quote)}</div><div class="sug"><b>Issue</b> ${e(o.detail||o.entry)}<br><b>Suggestion</b> ${e(o.suggestion)}</div><div class="st">Status: ${e(o.reg_status)} · confidence ${e(o.confidence)}</div></td>
   <td><div class="cl">${pdChips(o)}<select data-k="${k}" data-f="pdmark" aria-label="Your mark" onchange="pdSetMark('${tid}',this.dataset.k,this.value)">${['Open','Done','Leave'].map(x=>`<option ${m===x?'selected':''}>${x}</option>`).join('')}</select><span class="dt">${o.david_note_date?e(dm(o.david_note_date)):''}</span>${pdOkBox(tid,o,g)}<textarea class="note" rows="2" data-k="${k}" data-f="pdnote" placeholder="${o.route==='AUTHOR'?'My answer for the author':'Your note'}" aria-label="Your note" oninput="pdNote('${tid}',this.dataset.k,this.value)">${e(o.david_note||'')}</textarea>${m==='Leave'&&!String(o.david_note||'').trim()?'<div class="okn">Please add a note on why you are leaving this.</div>':''}<div class="pck-saved" id="pd-sv-${cssId(o.key)}"></div></div></td></tr>`; }
 function pdCoverHtml(t,g,rows){ const cv=g.cv;
   if(!cv) return `<div class="cov"><div class="banner"><div class="big">NOT READY</div><div class="txt">No coverage data for this title yet.</div></div></div><div class="notready">Not ready: nothing for you to do.</div>`;
@@ -931,23 +932,22 @@ function pdRender(t,tid){
   let body=`<div class="pdw">${pdCoverHtml(t,g,all)}`;
   if(!pdColsReady()) body+=`<div class="teamnote">The Sheet does not have the Proofread columns yet (ok_to_fix, fix_state ...). The team is adding them; ticks stay off until then.</div>`;
   if(g.ok||team){
-    const rows=all.filter(o=>(!pd.sev.size||pd.sev.has(o.severity))&&(!pd.route.size||pd.route.has(o.route))&&(pd.sc==='all'||pdSafe(o)===pd.sc)&&(pd.f==='all'||(pd.f==='open')===(pdMark(o)==='Open')))
-      .sort((a,b)=>pd.sort==='sev'?(String(a.severity).localeCompare(b.severity)||pdPg(a)-pdPg(b)):(pdPg(a)-pdPg(b)||String(a.reg_id).localeCompare(b.reg_id)));
-    const cnt=n=>all.filter(o=>pdSt(o)===n).length;
+    const rows=pdView(t,pd).sort((a,b)=>pdPg(a)-pdPg(b)||String(a.reg_id).localeCompare(b.reg_id));
     const ask=pd.ask?pdBulkRows(t,pd.ask):[];
     const held=pd.ask?pdBulkHeld(t,pd.ask):[];
     const bdis=g.ok&&pdColsReady()?'':'disabled';
-    const scFix=all.filter(o=>o.route==='FIX'&&pdSafe(o)==='SAFE'), hasSc=all.some(o=>o.route==='FIX'&&pdSafe(o)), scTot=scFix.length, scDone=scFix.filter(o=>pdSt(o)>=1).length;
-    const bulk=`<div class="appr"><div class="cnts"><div class="cn"><b>${cnt(1)}</b> Approved, waiting for Dean</div><div class="cn"><b>${cnt(2)}</b> Applied, awaiting check</div><div class="cn"><b>${cnt(3)}</b> Verified</div></div>
-      <div class="bulk"><span class="flab">Bulk approve</span><button type="button" class="fb" ${bdis} onclick="pdBulkAsk('${tid}','FIX:')">Approve all FIX rows</button>${hasSc?`<button type="button" class="fb sc-btn" ${bdis} title="${e(PD_SC_TIP)}" onclick="pdBulkAsk('${tid}','SAFE:')">Approve all SAFE</button><span class="sc-cnt">SAFE approved ${scDone} of ${scTot}</span>`:''}${['A','B','C'].map(k=>`<button type="button" class="fb" ${bdis} onclick="pdBulkAsk('${tid}','FIX:${k}')">FIX rows, severity ${k}</button>`).join('')}</div>
-      ${pd.ask?`<div class="confirm"><b>${ask.length?(pd.ask==='SAFE:'?ask.length+' SAFE row'+(ask.length>1?'s':'')+' will be approved for Dean Thorn; '+held.length+' excluded'+(held.length?' (HOLD-BACK, touch a fact, tick individually)':'')+'.':'Approve '+ask.length+' '+(pd.ask.split(':')[1]?'severity '+pd.ask.split(':')[1]+' ':'')+'FIX row'+(ask.length>1?'s':'')+' for the team to apply?'):'Nothing to approve here: every matching FIX row is already approved, left'+(held.length?' or HOLD-BACK ('+held.length+' excluded, tick individually).':'.')}</b>${ask.length?' Rows you have set to Leave are skipped.'+(held.length&&pd.ask!=='SAFE:'?' <b>'+held.length+' row'+(held.length>1?'s':'')+' excluded: HOLD-BACK (touch a fact, tick individually).</b>':'')+' <button type="button" class="fb on" data-f="pdbulkyes" onclick="pdBulkYes(\''+tid+'\')">Yes, approve</button>':''}<button type="button" class="fb" data-f="pdbulkno" onclick="pdBulkNo('${tid}')">Cancel</button></div>`:''}
-      <div class="meta">Only you set Approved (a tick). The team sets Applied and Verified. "Leave" means never actioned.</div></div>`;
-    const fl=`<div class="filters"><div class="fg"><span class="flab">Severity</span>${['A','B','C'].map(k=>`<button type="button" class="fb s${k} ${pd.sev.has(k)?'on':''}" onclick="pdFilt('${tid}','sev','${k}')">${k} ${({A:'must',B:'should',C:'cosmetic'})[k]}</button>`).join('')}</div>
-      <div class="fg"><span class="flab">Route</span>${['FIX','QUERY','AUTHOR'].map(k=>`<button type="button" class="fb ${pd.route.has(k)?'on':''}" onclick="pdFilt('${tid}','route','${k}')">${k}</button>`).join('')}</div>
-      ${hasSc?`<div class="fg"><span class="flab">Safe class</span>${['all'].concat(PD_SC).map(k=>`<button type="button" class="fb ${pd.sc===k?'on':''}" title="${e(PD_SC_TIP)}" onclick="pdFilt('${tid}','sc','${k}')">${k==='all'?'All':k}</button>`).join('')}</div>`:''}
-      <div class="fg"><span class="flab">Show</span>${[['all','All'],['open','Open'],['closed','Closed']].map(([k,l])=>`<button type="button" class="fb ${pd.f===k?'on':''}" onclick="pdFilt('${tid}','f','${k}')">${l}</button>`).join('')}</div>
-      <div class="fg"><span class="flab">Go to PDF page</span><input class="jump" data-k="" data-f="pdjump" placeholder="e.g. 222" inputmode="numeric" value="${e(pd.jump)}" oninput="pdU('${tid}').jump=this.value" onkeydown="if(event.key==='Enter')pdGo('${tid}')"><button type="button" class="fb" onclick="pdGo('${tid}')">Go</button></div>
-      <div class="fg"><span class="flab">Order</span><select class="sortsel" onchange="pdFilt('${tid}','sort',this.value)"><option value="page" ${pd.sort==='page'?'selected':''}>By page (grouped)</option><option value="sev" ${pd.sort==='sev'?'selected':''}>By severity</option></select></div>
+    const view=pdView(t,pd), canA=view.filter(o=>o.route==='FIX'&&pdMark(o)!=='Leave'&&pdSt(o)===0&&!pdHold(o)), nHold=view.filter(o=>o.route==='FIX'&&pdMark(o)!=='Leave'&&pdSt(o)===0&&pdHold(o)).length, nLeave=view.filter(o=>o.route==='FIX'&&pdMark(o)==='Leave'&&pdSt(o)===0).length, nWait=view.filter(o=>o.route==='FIX'&&pdSt(o)===1).length, nApp=view.filter(o=>o.route==='FIX'&&pdSt(o)>=2).length;
+    const stN={open:all.filter(o=>pdSt(o)<=1).length,applied:all.filter(o=>pdSt(o)===2).length,verified:all.filter(o=>pdSt(o)===3).length,all:all.length};
+    const inSt=all.filter(o=>pd.st==='all'||(pd.st==='open'?pdSt(o)<=1:pd.st==='applied'?pdSt(o)===2:pdSt(o)===3));
+    const rtN=k=>inSt.filter(o=>o.route===k).length, svN=k=>inSt.filter(o=>o.route===pd.rt&&(k==='any'||o.severity===k)).length;
+    const opt=(v,cur,l,n)=>`<option value="${v}" ${cur===v?'selected':''}>${l} (${n})</option>`;
+    const why=pd.rt!=='FIX'?'Fixes only apply to the FIX route: set Route to FIX.':(canA.length?'':'Nothing here is waiting for your approval.');
+    const bulk=`<div class="appr"><div class="bulk"><button type="button" class="fb ${canA.length&&!bdis?'on':''}" ${bdis||!canA.length?'disabled':''} onclick="pdBulkAsk('${tid}','VIEW')">${canA.length?'Fix these '+canA.length:'Nothing to fix here'}</button>${why?`<span class="meta">${why}</span>`:''}</div>
+      ${pd.ask?`<div class="confirm"><b>${ask.length?'You approve these '+ask.length+' fixes. Dean Thorn will apply them. Skipped: '+held.length+' HOLD-BACK (tick individually), '+nLeave+' Leave.':'Nothing to approve in this view: '+nApp+' already applied by Dean, '+nWait+' approved and waiting for Dean, '+held.length+' HOLD-BACK (tick individually), '+nLeave+' set to Leave.'}</b>${ask.length?' <button type="button" class="fb on" data-f="pdbulkyes" onclick="pdBulkYes(\''+tid+'\')">Yes, fix these '+ask.length+'</button>':''}<button type="button" class="fb" data-f="pdbulkno" onclick="pdBulkNo('${tid}')">Cancel</button></div>`:''}
+      <div class="meta">Only you approve a fix. Dean Thorn applies it and Rosalind checks it. "Leave" means never actioned. SAFE / CHECK / RISKY on a row is Dean's note on layout risk.</div></div>`;
+    const fl=`<div class="filters"><div class="fg"><span class="flab">Status</span><select class="sortsel" onchange="pdFilt('${tid}','st',this.value)">${opt('open',pd.st,'Open',stN.open)}${opt('applied',pd.st,'Applied',stN.applied)}${opt('verified',pd.st,'Verified',stN.verified)}${opt('all',pd.st,'All',stN.all)}</select></div>
+      <div class="fg"><span class="flab">Route</span><select class="sortsel" onchange="pdFilt('${tid}','rt',this.value)">${['FIX','QUERY','AUTHOR'].map(k=>opt(k,pd.rt,k,rtN(k))).join('')}</select></div>
+      <div class="fg"><span class="flab">Severity</span><select class="sortsel" onchange="pdFilt('${tid}','sv',this.value)">${opt('any',pd.sv,'Any',svN('any'))}${['A','B','C'].map(k=>opt(k,pd.sv,k+' '+({A:'must fix',B:'should fix',C:'cosmetic'})[k],svN(k))).join('')}</select></div>
       <div class="count">${rows.length} of ${all.length} shown</div></div>`;
     let lastBand=null, trs='';
     rows.forEach(o=>{ if(pd.sort==='page'){ const b=Math.floor((pdPg(o)-1)/100); if(b!==lastBand){ trs+=`<tr class="grp"><td colspan="6">PDF pp ${b*100+1}-${b*100+100}</td></tr>`; lastBand=b; } } trs+=pdRowHtml(tid,o,g); });
@@ -984,17 +984,16 @@ function pdSetMark(tid,key,v){ const o=pdFind(tid,key); if(!o) return; o.david_s
   if(v==='Leave'&&pdSt(o)===1){ pdApprove(o,false); fix=true; }   // Leave withdraws an Approved-but-not-Applied row
   pdQueue(tid,o,fix,150,true); pckRender(tid,true); }
 function pdNote(tid,key,val){ const o=pdFind(tid,key); if(!o) return; o.david_note=val; o.david_note_date=nowStamp().slice(0,10); pdQueue(tid,o,false,800,true); }
-function pdFilt(tid,k,v){ const pd=pdU(tid); if(k==='sev'||k==='route'){ const s=pd[k]; s.has(v)?s.delete(v):s.add(v); } else pd[k]=v; pckRender(tid,true); }
-function pdGo(tid){ const t=getTitle(tid), pd=pdU(tid), n=parseInt(pd.jump,10); if(!n||!t) return; const r=pdRows(t).filter(o=>pdPg(o)>=n).sort((a,b)=>pdPg(a)-pdPg(b))[0]; if(!r) return; pd.hit=r.key; pd.f='all'; pd.sev.clear(); pd.route.clear(); pckRender(tid,true); const el=document.getElementById('pd-'+cssId(r.key)); if(el) el.scrollIntoView({block:'center'}); }
+function pdFilt(tid,k,v){ const pd=pdU(tid); pd[k]=v; pd.ask=null; pckRender(tid,true); }
 function pdBulkAsk(tid,k){ pdU(tid).ask=k; pckRender(tid,true); }
 function pdBulkNo(tid){ pdU(tid).ask=null; pckRender(tid,true); }
 function pdBulkYes(tid){ const t=getTitle(tid), pd=pdU(tid); if(!t||!pd.ask||!pdGate(t).ok||!pdColsReady()) return; const rs=pdBulkRows(t,pd.ask); pd.ask=null;
   rs.forEach(o=>{ pdApprove(o,true); pdQueue(tid,o,true,150,false); }); pckRender(tid,true);
-  pckToast(rs.length+' FIX row'+(rs.length>1?'s':'')+' approved for the team'+(devMode?' (preview, not written)':'')+'.',()=>{ rs.forEach(o=>{ pdApprove(o,false); pdQueue(tid,o,true,150,false); }); pckRender(tid,true); }); }
+  pckToast(rs.length+' fix'+(rs.length>1?'es':'')+' approved for Dean Thorn'+(devMode?' (preview, not written)':'')+'.',()=>{ rs.forEach(o=>{ pdApprove(o,false); pdQueue(tid,o,true,150,false); }); pckRender(tid,true); }); }
 
 function pckSectionStatus(t){ if(!pck.loaded) return 'partial'; const lr=latestRun(t); if(!lr) return 'partial'; if(lr.verdict!=='OK') return 'overdue'; if(pqItems(t,'other').some(i=>!pqClosed(i))||pqItems(t,'proof').some(i=>!pqClosed(i))) return 'partial'; return 'complete'; }
 
 Object.assign(window,{pckSectionHtml,pckOpen,pckRender,pckMark,pckFilter,pckShowMerged,pckCopyPath,pckShowAll,pckSelRun,pckReload,pckCopyColour,pckCopyCmd,pckXlsx,pckBrowserCheck,
   pckScanQueue,pckImportQueue,pckImportFile,pckSetField,pckCommercialHtml,pckCat,pckTick,pckBulkAsk,pckRowsWriteData,pckPageMark,pckTogglePages,pckHideHandled,pckVpToggle,pckGroupSetAll,pckProofPanel,pckProofLine,pckSectionStatus,pckLoad,pckMergeRun,_pck:pck,
-  pqSetClosed,pqNote,pqSelOne,pqSelAll,pqClear,pqBulk,pqTab,pqFilt,pqNM,pqCat,pqSearch,pckToggleColourUi,pckColourUi,pqFlush,pckRenderLegacy,pqItems,pqClosed,pdU,pdTick,pdSetMark,pdNote,pdFilt,pdGo,pdBulkAsk,pdBulkNo,pdBulkYes,pdFlush,pdRows,pdGate});
+  pqSetClosed,pqNote,pqSelOne,pqSelAll,pqClear,pqBulk,pqTab,pqFilt,pqNM,pqCat,pqSearch,pckToggleColourUi,pckColourUi,pqFlush,pckRenderLegacy,pqItems,pqClosed,pdU,pdTick,pdSetMark,pdNote,pdFilt,pdBulkAsk,pdBulkNo,pdBulkYes,pdFlush,pdRows,pdGate});
 })();
