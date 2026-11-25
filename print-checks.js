@@ -896,7 +896,7 @@ function pdIds(q){ return String(q||'').toUpperCase().split(/[\s,;]+/).map(x=>x.
 function pdNum(o){ return String(o.reg_id||'').replace(/^.*?-0*(?=\d)/,''); }
 function pdFindHit(o,ids){ const n=pdNum(o); return ids.some(i=>n===i||(/[^0-9]/.test(i)&&String(o.reg_id||'').toUpperCase().includes(i))); }
 // 24-11 David: ONE progress number. Every row is in exactly one of three buckets (fin + you + team = all rows).
-const pdBucket=o=>{ const m=pdMark(o); if(m==='Leave') return 'fin'; if(o.reopened==='TRUE') return 'team'; if(m==='Done'||pdSt(o)>=2) return 'fin'; return pdSt(o)===1?'team':'you'; };
+const pdBucket=o=>{ const m=pdMark(o); if(m==='Leave'||o.fix_state==='Closed') return 'fin'; if(o.reopened==='TRUE') return 'team'; if(m==='Done'||pdSt(o)>=2) return 'fin'; return pdSt(o)===1?'team':'you'; };
 const PD_BK={fin:['✓','Finished','bk-fin'],you:['●','Left for you','bk-you'],team:['◷','With the team','bk-team']};
 function pdProgHtml(all){ const n=all.length, f=all.filter(o=>pdBucket(o)==='fin').length, tm=all.filter(o=>pdBucket(o)==='team').length, y=n-f-tm, pc=n?Math.round(f/n*100):0;
   return `<div class="big3"><span class="p-fin">Finished ${f} <small>of ${n}</small></span><span class="p-you">Left for you ${y}</span><span class="p-team">With the team ${tm}</span></div><div class="pbar" role="img" aria-label="${f} of ${n} finished"><i class="f" style="width:${n?f/n*100:0}%"></i><i class="t" style="width:${n?tm/n*100:0}%"></i></div><div class="pnote">${pc}% finished. Mark a row Done or Leave and these numbers change straight away.</div>`; }
